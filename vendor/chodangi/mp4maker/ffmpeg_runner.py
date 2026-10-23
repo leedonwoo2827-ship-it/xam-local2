@@ -9,10 +9,23 @@ from typing import Optional
 
 
 class FFmpegError(RuntimeError):
-    def __init__(self, message: str, cmd: list[str], stderr: str = ""):
+    """ffmpeg 실패. **프로세스 풀을 건너올 수 있어야 한다.**
+
+    ★ xam-local 이 고친 곳(2026-08-24). `cmd` 가 필수 인자라서, 워커 프로세스에서
+      난 이 예외를 부모가 언피클할 때 `FFmpegError.__init__() missing 1 required
+      positional argument: 'cmd'` 로 터졌다. 그러면 **진짜 실패 이유가 사라지고**
+      `BrokenProcessPool` 만 남는다 — 실측으로 그 자리에서 원인을 못 찾았다.
+      `cmd` 를 선택으로 두고 `__reduce__` 를 붙여 왕복이 되게 한다.
+    """
+
+    def __init__(self, message: str, cmd: Optional[list] = None, stderr: str = ""):
         super().__init__(message)
-        self.cmd = cmd
+        self.cmd = list(cmd or [])
         self.stderr = stderr
+
+    def __reduce__(self):
+        return (self.__class__, (self.args[0] if self.args else "", self.cmd,
+                                self.stderr))
 
 
 def probe_binary(name: str) -> Optional[str]:

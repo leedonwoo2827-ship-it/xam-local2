@@ -54,6 +54,22 @@ def asset_names(question: dict) -> list[str]:
     return out
 
 
+def asset_filenames_in(text: str) -> list:
+    """이 **문자열 안**의 그림 참조 → 파일명 목록. 순서를 지킨다.
+
+    ★ `asset_filenames(question)` 는 문항 전체를 본다. 지문에 있던 것만
+      알아야 하는 자리가 있어(슬라이드의 문제 면) 따로 둔다.
+    """
+    import re
+
+    out = []
+    for m in re.finditer(r"!\[[^\]]*\]\(([^)]+)\)", str(text or "")):
+        n = m.group(1).strip().split("/")[-1]
+        if n and n not in out:
+            out.append(n)
+    return out
+
+
 def asset_filenames(question: dict) -> list[str]:
     """05/lesson 의 assets 형식 — 파일명 배열이다(인라인 SVG 가 아니다)."""
     return [f"{n}.svg" for n in asset_names(question)]

@@ -31,6 +31,10 @@ export const meta = {
     "슬라이드·음성·자막을 확인하고 고칩니다. 렌더는 동시에 하나만."),
   actions: (ctx) => {
     if (ctx.panel && ctx.path === "/video") return [
+      // ★ 굽기가 **렌더보다 앞**이다. 05/ 가 없으면 렌더할 것이 아예 없다 —
+      //   전에는 입구가 CLI(`tools/bake_all.py`) 뿐이라 100번들이 `broken` 으로
+      //   뜨고 [미완성만 렌더] 는 「렌더할 번들이 없습니다」 로 끝났다(2026-08-20).
+      actionBtn("슬라이드 굽기", () => startBake("unbaked"), { iconName: "grid" }),
       actionBtn("미완성만 렌더", () => startRender("missing"), { iconName: "play" }),
       actionBtn("전체 렌더", () => startRender("all"), { iconName: "film" }),
     ];
@@ -186,6 +190,25 @@ function renderEnvLine() {
   box.appendChild(el("span", null,
     ` 완료 ${c.done || 0} · 재렌더 ${c.stale || 0} · 미생성 ${c.missing || 0}`
     + (c.broken ? ` · 1:1 깨짐 ${c.broken}` : "")));
+  // ★ 그림파일이 모자란 번들은 렌더가 돌긴 돌지만 **다른 화면**이 나간다.
+  //   개수를 여기서 미리 말해 둔다 — 표를 끝까지 내려보지 않아도 보이게.
+  // ★ 고쳐 놓고 아직 안 돌린 번들 — 표를 안 훑어도 보이게 맨 위에서 말한다.
+  const todo = (V.list.items || [])
+    .filter((b) => b.speech_edited && b.status === "stale");
+  if (todo.length) {
+    const w = el("span", "badge warn",
+      `고쳤는데 안 돌린 번들 ${todo.length}개 — 다시 렌더하세요`);
+    w.title = todo.map((b) => b.code).join(" · ")
+      + " — 체크해서 [선택 N개 렌더] 로 돌리면 됩니다.";
+    box.appendChild(w);
+  }
+  const noImg = (V.list.items || []).filter((b) => !b.images_ready).length;
+  if (noImg) {
+    const w = el("span", "badge warn", `그림파일 불가 ${noImg}`);
+    w.title = "이 번들은 deck.html 캡처로 폴백합니다 — "
+      + "「슬라이드 제작 → ④ 그림파일 뽑기」를 먼저 돌리세요.";
+    box.appendChild(w);
+  }
   // 렌더가 돌고 있으면 어디서든 그 터미널로 갈 수 있어야 한다.
   if (e.busy) {
     const go = el("button", "badge brand", "렌더 진행 중 — 터미널 보기");
@@ -211,7 +234,7 @@ function renderTable(ctx) {
   const t = $("#vd-table");
   t.innerHTML = `<thead><tr>
     <th style="width:28px"></th><th>번들</th><th>문항</th>
-    <th>슬라이드/씬</th><th>길이</th><th>MP4</th><th>자막</th><th>상태</th><th></th>
+    <th>슬라이드/씬</th><th>이미지</th><th>길이</th><th>MP4</th><th>자막</th><th>상태</th><th></th>
   </tr></thead>`;
   const tb = el("tbody");
   V.list.items.forEach((b) => {
@@ -241,6 +264,7 @@ function renderTable(ctx) {
     ratio.appendChild(el("div", "muted", `전체 씬 ${b.scenes}`));
     tr.appendChild(ratio);
 
+    tr.appendChild(imgCell(b));
     tr.appendChild(td(b.review.total_seconds ? fmtSec(b.review.total_seconds) : "—"));
     tr.appendChild(td(b.mp4.exists ? fmtBytes(b.mp4.bytes) : "—"));
     tr.appendChild(td(b.vtt.exists ? "있음" : "—"));
@@ -249,6 +273,13 @@ function renderTable(ctx) {
     const badge = el("span", "badge " + STATUS_TONE[b.status], STATUS_KO[b.status]);
     if (b.reason) badge.title = b.reason;
     st.appendChild(badge);
+    // ★ 사람이 고친 번들은 그 사실이 목록에서 보여야 한다. 고쳐도 mp4 는 그대로라
+    //   「완료」 로 보이면 낡은 영상이 그대로 나간다.
+    if (b.speech_edited) {
+      const e = el("div", "muted", `손수정 ${b.speech_edited}씬`);
+      e.title = "자막·발음을 고친 씬 수입니다. 「재렌더 필요」 면 다시 돌려야 반영됩니다.";
+      st.appendChild(e);
+    }
     tr.appendChild(st);
 
     const act = el("td", "vd-acts");
@@ -269,6 +300,27 @@ function renderTable(ctx) {
   });
   t.appendChild(tb);
   updateSelAction();
+}
+
+/* ★ 그림파일 칸 — 「지금 렌더하면 무엇이 영상이 되는가」.
+ *   슬라이드 화면에서 뽑은 PNG 가 지금 pptx · 씬과 맞을 때만 그대로 쓴다
+ *   (`--reuse-images`). 어긋나면 deck.html 캡처로 폴백해 **확정한 화면과 다른**
+ *   영상이 나간다 — 그 사실이 이 표 어디에도 안 보였다(2026-08-25).
+ */
+function imgCell(b) {
+  const c = el("td");
+  const ok = !!b.images_ready;
+  const s = el("span", "badge " + (ok ? "ok" : "warn"), ok ? "가능" : "불가");
+  s.title = ok
+    ? `PowerPoint 로 뽑은 PNG ${b.images}장을 그대로 씁니다 (--reuse-images).`
+    : (b.images
+        ? `그림파일 ${b.images}장이 지금 pptx · 씨와 어긋납니다.`
+        : "그림파일을 아직 안 뽑았습니다.")
+      + " — 「슬라이드 제작 → ④ 그림파일 뽑기」를 먼저 돌리세요. "
+      + "이대로 렌더하면 deck.html 캡처로 폴백합니다"
+      + "(확정하신 화면과 다를 수 있습니다).";
+  c.appendChild(s);
+  return c;
 }
 
 const td = (v) => {
@@ -427,7 +479,7 @@ function renderStage() {
 
   const subCol = el("div");
   subCol.appendChild(el("label", "qz-label",
-    "자막 — 화면에 뜨는 글자 (고쳐도 mp4 재렌더는 불필요합니다)"));
+    "자막 — 화면에 뜨는 글자. 고치면 발음도 이 글에서 다시 만듭니다"));
   const subTa = el("textarea");
   subTa.id = "vd-subtitle";
   subTa.rows = 5;
@@ -506,12 +558,12 @@ function renderStage() {
 
   // ── 2) 버튼들
   const foot = el("div", "qz-foot");
-  const save = el("button", "btn primary", "발음 저장");
+  const save = el("button", "btn primary", "자막+발음 저장");
   save.type = "button";
   save.id = "vd-save";
   save.disabled = true;
-  save.title = "05/" + V.bundle + "/script/" + V.bundle + "_speech.json 에 남습니다 — "
-    + "다시 구워도 지워지지 않습니다";
+  save.title = "두 칸을 한꺼번에 05/" + V.bundle + "/script/" + V.bundle
+    + "_speech.json 에 남깁니다 — 다시 구워도 지워지지 않습니다";
   save.addEventListener("click", () => saveSpeech());
   foot.appendChild(save);
 
@@ -523,12 +575,6 @@ function renderStage() {
   resynth.addEventListener("click", () => resynthScene(resynth));
   foot.appendChild(resynth);
 
-  foot.appendChild(miniBtn("이 번들 재렌더", () => startRender([V.bundle]),
-    { disabled: !V.env || !V.env.python_ok }));
-  foot.appendChild(miniBtn("▶ 이 씬 듣기", () => {
-    if (V.audio) { V.audio.currentTime = 0; V.audio.play(); }
-  }, { disabled: !s.audio.exists }));
-  foot.appendChild(miniBtn("영상에서 이 지점", () => seekVideo(s)));
 
   const hint = el("span", "field-hint qz-foot-hint");
   hint.id = "vd-stage-hint";
@@ -729,15 +775,6 @@ function fmtClock(sec) {
   return `${m}:${s}`;
 }
 
-function seekVideo(s) {
-  const v = $("#vd-video");
-  if (!v) { toast("이 번들은 아직 mp4 가 없습니다."); return; }
-  const at = s.mp4_start_sec != null ? s.mp4_start_sec : (s.start_sec || 0);
-  v.currentTime = at;
-  v.scrollIntoView({ behavior: "smooth", block: "center" });
-  v.play();
-}
-
 function markStageDirty() {
   const save = $("#vd-save"), re = $("#vd-resynth");
   if (save) save.disabled = false;
@@ -748,15 +785,21 @@ function markStageDirty() {
 
 /* ── 발음 저장 · 씬 재합성 ────────────────────────────────────────────
  *
- * 자막은 건드리지 않는다. 발음(`narration_text`)만 `<번들>_speech.json` 에 남고,
- * bake 가 다시 구울 때 병합한다 — 그래서 재베이크·재렌더에 지워지지 않는다.
+ * 자막(`narration`)과 발음(`narration_text`)을 **한 단추로** 같이 남긴다. 둘 다
+ * `<번들>_speech.json` 으로 가고 bake 가 다시 구울 때 병합한다 — 재베이크·재렌더에
+ * 지워지지 않는다.
  *
- * ★ 자막 칸은 아직 저장 통로가 없다. review.json 의 `slides` 가 모든 번들에서
- *   비어 있어서 큐를 저장할 대상이 없다 — 지금 할 일은 발음이라 그쪽만 살렸다.
+ * ★ 자막을 고치면 발음은 **고친 자막에서** 다시 만들어진다. 「다섯 행」 을 「5행」 으로
+ *   고치면 소리도 그 글에서 나온다 — 발음 칸까지 손댔으면 그쪽이 이긴다.
+ * ★ 자막을 원문 그대로 두면 자막 덮어쓰기는 남기지 않는다. 안 그러면 손대지 않은
+ *   씬까지 「고침」 으로 표시되고, 원문이 바뀌어도 옛 자막에 묶인다.
+ * ★ 렌더 단추는 여기 없다 — 목록에서 체크해 [선택 N개 렌더] 로 돈다. 고친 번들은
+ *   목록이 「재렌더 필요」 로 집어 준다.
  */
 async function saveSpeech() {
   const s = V.scene;
   const ta = $("#vd-narration");
+  const subTa = $("#vd-subtitle");
   if (!s || !ta) return;
   const btn = $("#vd-save");
   if (btn) btn.disabled = true;
@@ -764,15 +807,20 @@ async function saveSpeech() {
     const r = await api(
       `/api/render/bundles/${encodeURIComponent(V.bundle)}/speech`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        // 자막 원문을 함께 보낸다 — 나중에 "무엇을 고쳤나" 를 읽어내는 근거다
+        // ★ `from` 은 고칠 때의 자막 **원문**(대조용), `subtitle` 은 고친 자막이다.
+        //   원문을 함께 보내야 나중에 "무엇을 왜 고쳤나" 를 읽어낼 수 있고,
+        //   발문이 그 뒤에 바뀌면 bake 가 낡은 손수정을 안 쓰고 집어 준다.
         body: JSON.stringify({ scene: s.scene, text: ta.value,
-                               subtitle: s.narration || "" }),
+                               subtitle: (subTa && !subTa.disabled ? subTa.value : ""),
+                               from: s.narration_src || s.narration || "" }),
       });
     s.speech = ta.value;
+    if (subTa && !subTa.disabled) s.narration = subTa.value;
     s.speech_edited = !r.removed;
     toast(r.removed
-      ? "덮어쓰기를 지웠습니다 — 원문을 그대로 읽습니다."
-      : `발음을 저장했습니다 (이 번들 ${r.count}개) — [이 씬 재합성] 으로 들어 보세요.`);
+      ? "덮어쓰기를 지웠습니다 — 원문을 그대로 씁니다."
+      : `자막·발음을 저장했습니다 (이 번들 ${r.count}개) — `
+        + "[이 씬 재합성] 으로 들어 보세요.");
     const h = $("#vd-stage-hint");
     if (h) h.textContent = `05/${V.bundle}/ · 씬 ${s.scene}`;
     renderStage();
@@ -837,6 +885,81 @@ async function resynthScene(btn) {
  *   (2026-08-18 지시: "제가 수정하면서 규칙을 정해야 해요"). 화면은 지금 어떻게
  *   읽히는지만 보여 주고 빈칸을 둔다.
  */
+/* 두 사전을 한 표로 — 어느 쪽 것인지 배지로 갈라 놓는다.
+ * ★ 검색칸이 요점이다. 품목 사전만 210개라 눈으로 훑어서는 못 찾는다 —
+ *   `DENSE_RANK` 를 찾다가 못 찾은 것이 이 표를 만든 이유다(2026-08-26).
+ */
+function lexTable(prod, common) {
+  const wrap = el("div", "qz-field");
+  const q = el("input");
+  q.placeholder = "용어나 소리로 찾기 — 예: DENSE, 랭크";
+  q.style.width = "100%";
+  wrap.appendChild(q);
+
+  const rows = [];
+  Object.keys(prod.rules || {}).forEach((k) =>
+    rows.push({ term: k, say: prod.rules[k], scope: "product" }));
+  Object.keys(common.rules || {}).forEach((k) =>
+    rows.push({ term: k, say: common.rules[k], scope: "common" }));
+
+  const holder = el("div", "tbl-wrap");
+  holder.style.cssText = "max-height:34vh;overflow:auto";
+  wrap.appendChild(holder);
+  const foot = el("div", "field-hint");
+  wrap.appendChild(foot);
+
+  const draw = () => {
+    const needle = q.value.trim().toLowerCase();
+    const hit = needle
+      ? rows.filter((r) => r.term.toLowerCase().includes(needle)
+                        || r.say.toLowerCase().includes(needle))
+      : rows;
+    holder.innerHTML = "";
+    foot.textContent = needle
+      ? `${hit.length}개 찾았습니다 (전체 ${rows.length}개)`
+      : `전체 ${rows.length}개 — 품목 ${prod.count} · 공용 ${common.count}`;
+    const tb = el("table", "tbl");
+    tb.innerHTML = "<thead><tr><th>어디</th><th>용어</th><th>읽는 소리</th><th></th></tr></thead>";
+    const body = el("tbody");
+    hit.slice(0, 300).forEach((r) => {
+      const tr = el("tr");
+      tr.appendChild(el("td", null,
+        el("span", "badge " + (r.scope === "product" ? "ok" : "idle"),
+           r.scope === "product" ? "품목" : "공용")));
+      tr.appendChild(el("td", null, r.term));
+      const sayTd = el("td");
+      const inp = el("input");
+      inp.value = r.say;
+      inp.style.width = "100%";
+      sayTd.appendChild(inp);
+      tr.appendChild(sayTd);
+      const act = el("td");
+      act.appendChild(miniBtn("고치기", async () => {
+        if (!inp.value.trim()) { toast("읽는 소리를 비울 수 없습니다."); return; }
+        try {
+          await api("/api/render/lexicon", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ term: r.term, say: inp.value, scope: r.scope }),
+          });
+          toast(`«${r.term}» → «${inp.value.trim()}» 로 고쳤습니다.`);
+          loadLexicon();
+        } catch (e) { toast("고치지 못했습니다: " + e.message, "err"); }
+      }));
+      tr.appendChild(act);
+      body.appendChild(tr);
+    });
+    tb.appendChild(body);
+    holder.appendChild(tb);
+    if (hit.length > 300) {
+      // ★ 자른 것을 말한다. 조용히 300개만 보여 주면 "없다" 로 읽힌다.
+      foot.textContent += " · 300개까지만 그렸습니다 — 검색칸으로 좁히세요";
+    }
+  };
+  q.addEventListener("input", draw);
+  draw();
+  return wrap;
+}
+
 function lexiconBox() {
   const box = el("details", "pb-paste");
   box.appendChild(el("summary", null, "용어 사전 — 되풀이되는 용어는 여기 한 줄로"));
@@ -867,27 +990,37 @@ async function loadLexicon() {
     w.appendChild(el("span", null, d.error));
     box.appendChild(w);
   }
-  box.appendChild(el("div", "field-hint",
-    `${d.count}개 항목 · 저장하면 다음 합성부터 바로 걸립니다(서버 재시작 불필요). `
-    + "자막은 원문을 그대로 지킵니다 — 소리만 바뀝니다."));
-  box.appendChild(el("pre", "pb-cmd", d.path));
+  const prod = d.product || { rules: {}, count: 0, path: "", label: "" };
 
-  // 새 항목
+  /* ★ 사전이 둘이고 **거는 때가 다르다.** 어디에 넣을지가 결과를 가른다.
+   *     품목 사전 : bake 가 대본을 쓸 때 — 대본에 한글로 박히고 화면에도 보인다.
+   *     공용 사전 : 엔진이 합성 직전에 — 대본은 로마자 그대로, 소리만 바뀐다.
+   *   품목 사전이 먼저 바꾼 낱말은 대본에 로마자가 안 남아 공용 사전에 안 걸린다. */
+  box.appendChild(el("div", "field-hint",
+    `품목 «${prod.label || "?"}» ${prod.count}개 · 공용 ${d.count}개. `
+    + "품목 사전은 대본을 쓸 때, 공용 사전은 소리를 낼 때 걸립니다 — "
+    + "둘 다 자막은 원문 그대로 두고 소리만 바꿉니다."));
+
+  // 새 항목 — 어느 사전에 넣을지 고른다
   const add = el("div", "qz-foot");
+  const scope = el("select", "box");
+  scope.innerHTML = `<option value="product">품목 (${escapeHtml(prod.label || "")})</option>`
+    + `<option value="common">공용 (모든 품목)</option>`;
+  scope.style.width = "13rem";
   const term = el("input");
-  term.placeholder = "용어 (예: CRISP)";
-  term.style.width = "10rem";
+  term.placeholder = "용어 (예: DENSE_RANK)";
+  term.style.width = "11rem";
   const say = el("input");
   say.placeholder = "읽는 소리";
   say.style.width = "12rem";
-  add.append(term, say, miniBtn("사전에 넣기", async () => {
+  add.append(scope, term, say, miniBtn("사전에 넣기", async () => {
     if (!term.value.trim() || !say.value.trim()) {
       toast("용어와 읽는 소리를 둘 다 넣으세요."); return;
     }
     try {
       const r = await api("/api/render/lexicon", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ term: term.value, say: say.value }),
+        body: JSON.stringify({ term: term.value, say: say.value, scope: scope.value }),
       });
       toast(r.was ? `«${r.key}» 를 «${r.was}» → «${r.value}» 로 바꿨습니다.`
                   : `«${r.key}» → «${r.value}» 넣었습니다 (${r.count}개).`);
@@ -895,6 +1028,9 @@ async function loadLexicon() {
     } catch (e) { toast("넣지 못했습니다: " + e.message, "err"); }
   }));
   box.appendChild(add);
+
+  // ── 지금 들어 있는 것 — 찾을 수 있어야 고친다
+  box.appendChild(lexTable(prod, d));
 
   // 후보 — 이 회차 낭독문에 있는데 사전에 없는 약어
   const c = d.candidates || [];
@@ -922,17 +1058,23 @@ async function loadLexicon() {
     const cell = el("td");
     cell.appendChild(inp);
     tr.appendChild(cell);
-    tr.appendChild(el("td", null, miniBtn("넣기", async () => {
+    // ★ `el(tag, cls, txt)` 의 3번째는 **글자**다 — 요소를 주면 textContent 로
+    //   들어가 「[object HTMLButtonElement]」 가 찍힌다(실측 2026-08-26).
+    const actTd = el("td");
+    actTd.appendChild(miniBtn("넣기", async () => {
       if (!inp.value.trim()) { toast("읽는 소리를 넣으세요."); return; }
       try {
         await api("/api/render/lexicon", {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ term: x.term, say: inp.value }),
+          // ★ 후보는 **품목 사전**으로 간다 — 대본에 박혀야 화면에도 보이고,
+          //   공용에 넣으면 대본은 로마자 그대로라 무엇이 바뀌는지 안 보인다.
+          body: JSON.stringify({ term: x.term, say: inp.value, scope: "product" }),
         });
         toast(`«${x.term}» → «${inp.value.trim()}» 넣었습니다.`);
         loadLexicon();
       } catch (e) { toast("넣지 못했습니다: " + e.message, "err"); }
-    })));
+    }));
+    tr.appendChild(actTd);
     tb.appendChild(tr);
   });
   tbl.appendChild(tb);
@@ -955,6 +1097,42 @@ function renderStaleNote(r) {
 }
 
 /* ══════════ 렌더 실행 ══════════ */
+/* ★ 05/ 굽기 — deck.html · script · lesson 을 만든다. mp4 는 안 만든다.
+   모델을 안 부르고 룰베이스 조립이라 100번들이 몇 분이다(돈이 안 든다). */
+async function startBake(codes) {
+  const rows = (V.list && V.list.items) || [];
+  const nAll = rows.length;
+  const nTodo = rows.filter((b) => b.status === "broken").length;
+  const n = codes === "all" ? nAll : codes === "unbaked" ? nTodo : codes.length;
+  const label = codes === "all" ? `전체 ${nAll}개 번들`
+    : codes === "unbaked" ? `아직 안 구운 ${nTodo}개 번들` : `${codes.length}개 번들`;
+  if (!n) { toast("구울 번들이 없습니다 — 이미 다 구웠습니다.", "err"); return; }
+
+  const ok = await confirmModal({
+    title: "슬라이드를 구울까요?",
+    body: `<b>${escapeHtml(label)}</b><br><br>`
+      + "<code>05/</code> 에 슬라이드(deck.html) · 대본 · lesson 을 만듭니다. "
+      + "<b>영상(mp4)은 만들지 않습니다</b> — 그건 [미완성만 렌더] 입니다.<br>"
+      + "모델을 부르지 않아 <b>돈이 들지 않고</b>, 번들당 몇 초라 몇 분이면 끝납니다.<br>"
+      + "1:1(슬라이드↔씬)이 깨진 번들은 그것만 건너뛰고 이유를 로그에 남깁니다.",
+    ok: "굽기 시작", cancel: "취소",
+  });
+  if (!ok) return;
+
+  let r;
+  try {
+    r = await api("/api/render/bake", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ codes }),
+    });
+  } catch (e) {
+    toast("시작하지 못했습니다: " + e.message, "err");
+    return;
+  }
+  toast(`슬라이드 굽기 시작 — ${n}번들`);
+  location.hash = "#/job/" + r.id;
+}
+
 async function startRender(codes) {
   // ★ 개수를 상수로 쓰지 않는다. 회차 수는 폴더마다 다르다(3회차 24개 / 21회차 168개).
   const rows = (V.list && V.list.items) || [];

@@ -18,6 +18,7 @@ const B = { data: null, busy: false };
  * #1 로 01/ 만 만들고 #2 를 돌리기 직전인 폴더가 정상적인 작업 상태다. */
 const STAGE = {
   empty: { label: "빈 폴더", tone: "idle" },
+  raw:   { label: "00/ 원본 PDF", tone: "info" },
   scan:  { label: "01/ 기출까지", tone: "info" },
   edit:  { label: "02/ 문항까지", tone: "" },
   video: { label: "05/ 영상까지", tone: "ok" },
@@ -107,7 +108,12 @@ function render() {
   if (!box) return;
   box.innerHTML = "";
 
-  B.data.items.forEach((it) => {
+  // ★ 최근에 등록한 폴더가 위로 온다. `data/books.json` 은 **추가한 순서**라
+  //   그대로 그리면 방금 넣은 폴더가 맨 아래 — 목록이 스크롤 상자라 화면 밖에
+  //   앉는다(실측 2026-09-07: ADSP 를 등록했는데 위의 죽은 폴더 둘에 가렸다).
+  // ★ 뒤집는 것은 **여기 화면뿐**이다. 서버 순서는 그대로 둔다 — 첫 실행 화면이
+  //   `items[0]` 을 '.env 의 기본값' 으로 쓰기 때문이다(static/js/home.js).
+  B.data.items.slice().reverse().forEach((it) => {
     const card = el("div", "bk" + (it.active ? " on" : "") + (it.usable ? "" : " bad"));
 
     const ico = el("span", "icon-box" + (it.active ? "" : it.usable ? "" : " err"));
@@ -180,7 +186,7 @@ function render() {
       const use = el("button", "btn sm primary", "이 폴더 쓰기");
       use.type = "button";
       use.disabled = !it.usable;
-      use.title = it.usable ? "" : "01/ 에 문항 md 가 있거나 _rounds/ 가 있는 폴더만 쓸 수 있습니다.";
+      use.title = it.usable ? "" : "빈 폴더입니다. 00/ 에 원본 PDF 를 넣거나, 01/ · _rounds/ 가 있는 폴더를 고르세요.";
       use.addEventListener("click", (e) => { e.stopPropagation(); select(it); });
       acts.appendChild(use);
     }
@@ -236,7 +242,10 @@ function render() {
   const note = $("#bk-note");
   if (note) {
     note.innerHTML =
-      "· 폴더를 지정하면 <code>_rounds/*.json</code> 을 스캔해 <b>회차 수를 자동으로 인식</b>합니다. "
+      "· <b>새 문제집을 시작하려면</b> 빈 폴더를 하나 만들고 그 안에 <code>00</code> 폴더를 "
+      + "만들어 원본 PDF 를 넣으세요. 그 <b>바깥 폴더</b>를 고르면 됩니다 — "
+      + "<code>00</code> 폴더 자체를 고르는 게 아닙니다.<br>"
+      + "· 폴더를 지정하면 <code>_rounds/*.json</code> 을 스캔해 <b>회차 수를 자동으로 인식</b>합니다. "
       + "3회차든 9회차든 21회차든, 초기에 1~2회차만 있어도 그대로 뜹니다.<br>"
       + "· <b>완성된 책만 쓸 수 있는 게 아닙니다.</b> <code>01/</code> 만 있는 폴더 — #1 을 돌리고 "
       + "#2 를 돌리기 직전 — 도 정상적인 작업 상태이고, '구조화 MD로 정리' 화면이 됩니다.<br>"
@@ -269,8 +278,12 @@ async function pickAndAdd() {
       await confirmModal({
         title: "이 폴더에는 작업할 것이 없습니다",
         body: `<pre class="pb-cmd">${escapeHtml(r.picked)}</pre><br>`
-          + "<code>01/</code> 에 문항 md 가 있거나 <code>_rounds/</code> 가 있는 폴더를 "
-          + "골라 주세요. 00/ 에 PDF 만 있는 폴더는 아직 #1 을 돌리기 전입니다.",
+          + "이 폴더 안이 비어 있습니다. <b>새 문제집이면</b> 여기에 <code>00</code> 폴더를 "
+          + "만들어 원본 PDF 를 넣고 다시 고르세요 — 그게 시작 상태입니다.<br>"
+          + "<b>이미 진행 중이면</b> <code>01/</code> 에 문항 md 가 있거나 "
+          + "<code>_rounds/</code> 가 있는 폴더입니다.<br>"
+          + "<span class='muted'>고를 것은 <code>00</code> 폴더가 아니라 그것을 "
+          + "<b>담고 있는 바깥 폴더</b>입니다.</span>",
         ok: "닫기", cancel: "",
       });
       return;
@@ -278,7 +291,7 @@ async function pickAndAdd() {
 
     // ★ pd 를 폴더 이름으로 추측하지 않는다. 모르면 사람에게 묻는다.
     const st = sc.stages || {};
-    const where = { empty: "빈 폴더", scan: "01/ 기출까지",
+    const where = { empty: "빈 폴더", raw: "00/ 원본 PDF", scan: "01/ 기출까지",
                     edit: "02/ 문항까지", video: "05/ 영상까지" }[sc.stage] || sc.stage;
     const subj = (sc.subjects || []).length
       ? `과목 <b>${escapeHtml(sc.subjects.join(" · "))}</b><br>` : "";
@@ -287,6 +300,7 @@ async function pickAndAdd() {
       body: `<pre class="pb-cmd">${escapeHtml(r.picked)}</pre><br>`
         + `단계 <b>${escapeHtml(where)}</b> · 회차 <b>${(sc.rounds || []).length}</b> · `
         + `문항 <b>${sc.questions || 0}</b>`
+        + (st["00"] && st["00"].pdf ? ` · 원본 PDF <b>${st["00"].pdf}</b>` : "")
         + (st["01"] ? ` · 기출 md <b>${st["01"].md || 0}</b>` : "")
         + (st["05"] && st["05"].bundles ? ` · 영상 번들 <b>${st["05"].bundles}</b>` : "")
         + `<br>${subj}<br>이 앱은 지정한 폴더만 읽고 씁니다.`,

@@ -22,9 +22,16 @@
       answer     capture ✓   ← 분할되면 장마다 하나
       gap        capture ✗   1.5초
 
-★ 낭독은 **첫 장에만** 싣는다. 이어지는 장은 고정 시간을 준다 — 사용자가 그렇게
-  정했다(2026-08-12: "문제+해설이 2장이냐 3장이냐는 … 이미지가 보이는 시간을 정할
-  수도 있어요"). 낭독을 장 수로 억지로 나누면 문장이 중간에서 끊긴다.
+★ 낭독은 **장 수만큼 n등분해서 장마다 싣는다** (2026-08-24 지시로 바뀌었다).
+  전에는 첫 장만 읽고 이어지는 장은 조용한 4초였다(2026-08-12). 강의덱으로 갈아타며
+  한 문항이 2~3장이 되는 일이 흔해지자 그 조용한 시간이 눈에 띄었다.
+
+  자르는 자리는 **쉬는 자리**에서 고른다 — 문장 끝 > 쉼표·중점 > 공백 순으로 보고
+  목표 길이에 가장 가까운 후보를 쓴다(`split_narration`). 그래서 "문장이 중간에서
+  끊긴다" 는 옛 걱정이 실제로는 일어나지 않는다. 조각이 비면 그 장만 옛 방식
+  (조용한 고정 시간)으로 떨어진다 — 안전판이다.
+
+  덤으로 **자막이 화면과 맞는다.** 전에는 2장짜리 문항의 발문 자막이 첫 장에 몰렸다.
 """
 from __future__ import annotations
 
@@ -46,7 +53,7 @@ from services.deck import render, theme
 from services.render import speech
 
 # 이어지는 장이 화면에 남는 시간(초). 낭독이 없는 장이므로 시간을 직접 준다.
-CONT_SECONDS = 4
+CONT_SECONDS = 3        # 낭독 없는 장이 화면에 남는 시간(초)
 COUNTDOWN_SECONDS = 5
 GAP_SECONDS = 1.5
 
@@ -160,11 +167,100 @@ def _speech_terms() -> Dict[str, str]:
         return {}
 
 
+# 조각 하나가 이보다 짧으면 앞 조각에 붙인다 — 「…입니다」 한 마디만 남는 장을 막는다.
+MIN_PIECE = 12
+# 자르는 자리 후보. 앞엣것을 먼저 본다 — 문장 끝이 가장 자연스러운 숨자리다.
+_BREAKS = (
+    re.compile(r"[.!?](?:\s|$)"),        # 문장 끝
+    re.compile(r"[,;:·]\s"),             # 쉼표·중점
+    re.compile(r"\s"),                   # 공백
+)
+
+
+def split_narration(text: str, n: int) -> List[str]:
+    """낭독문 하나 → 장 수만큼의 조각. **쉬는 자리에서** 자른다.
+
+    ★ 글자 수로 n등분한 지점을 목표로 두고, 그 근처의 숨자리 중 가장 가까운 곳을
+      고른다. 후보가 없으면 목표 자리에서 그냥 자른다 — 그래도 소리는 이어진다
+      (조각마다 따로 합성해 이어 붙이므로 사이에 아주 짧은 틈만 생긴다).
+    """
+    text = (text or "").strip()
+    if n <= 1 or not text:
+        return [text] + [""] * max(0, n - 1)
+    out: List[str] = []
+    rest = text
+    for k in range(n - 1):
+        want = len(rest) / float(n - k)          # 남은 것을 남은 장 수로 다시 나눈다
+        cut = _cut_at(rest, want)
+        out.append(rest[:cut].strip())
+        rest = rest[cut:].strip()
+    out.append(rest)
+    # 너무 짧은 조각은 앞에 붙인다. 개수는 유지한다(장마다 하나씩이어야 한다).
+    # ★ 붙이는 곳은 **비어 있지 않은 마지막 조각**이다. 바로 앞칸에 붙이면, 그 칸이
+    #   방금 비워진 자리일 때 글이 되살아나 한 장 밀린다(실측: 3장짜리 짧은 발문이
+    #   1장 대신 2장에서 들렸다).
+    last = 0
+    for i in range(1, len(out)):
+        if not out[i]:
+            continue
+        if len(out[i]) < MIN_PIECE:
+            out[last] = (out[last] + " " + out[i]).strip()
+            out[i] = ""
+        else:
+            last = i
+    return out
+
+
+def _cut_at(text: str, want: float) -> int:
+    """`want` 에 가장 가까운 숨자리. 없으면 `want` 그 자리."""
+    target = max(1, min(len(text) - 1, int(round(want))))
+    for rx in _BREAKS:
+        best = -1
+        for m in rx.finditer(text):
+            pos = m.end()
+            if pos <= 0 or pos >= len(text):
+                continue
+            if best < 0 or abs(pos - target) < abs(best - target):
+                best = pos
+        # 목표에서 너무 먼 자리는 쓰지 않는다 — 한쪽 장만 길어진다.
+        if best > 0 and abs(best - target) <= max(20, target * 0.5):
+            return best
+    return target
+
+
 def _narration(meta: Dict[str, Any], block: Optional[Dict[str, Any]],
                lesson: Dict[str, Any]) -> str:
-    """이 장의 낭독. 이어지는 장은 빈 문자열(고정 시간으로 넘긴다)."""
-    if meta["page"] > 1:
-        return ""
+    """이 장의 낭독. 여러 장이면 전문을 n등분해 이 장 몫만 돌려준다."""
+    full = _narration_full(meta, block, lesson)
+    n = int(meta.get("pages") or 1)
+    if n <= 1:
+        return full
+    return full if int(meta["page"]) == voiced_page(meta["kind"], n) else ""
+
+
+def voiced_page(kind: str, pages: int) -> int:
+    """여러 장인 문항에서 **낭독을 실을 장**. 나머지 장은 묵음으로 3초 머문다.
+
+    ★ 왜 n등분을 그만두었나(2026-08-25 지시). 조각마다 따로 합성해 이어 붙이는데,
+      `mp4maker/concat.py` 가 씬 경계마다 오디오를 0.6초 **겹쳐 섞는다**
+      (`acrossfade=d=0.6`). 문장 중간에서 자른 자리에서 그 겹침이 음절을 먹어
+      소리가 튀었다 — 자른 자리가 어디냐에 따라 달라져서 「랜덤으로 튄다」로 보였다.
+      한 장에 모으면 문장 중간 경계가 아예 없어진다.
+
+    ★ 어느 장인가는 **종류마다 다르다.**
+        발문 : **첫 장.** 발문이 1장에 있고, 이어지는 장(보기·자료)은 눈으로 읽는
+               시간이 필요하다 — 뒤에 「생각할 시간」 5초가 더 붙는다.
+        해설 : **마지막 장.** 결론이 그 장에 있다. 앞선 장들은 묵음으로 넘긴다.
+
+    ★ `split_narration()` 은 남겨 둔다 — 되돌릴 때 쓸 수 있고, 그 규칙이 무엇이었는지
+      코드로 남아 있어야 한다.
+    """
+    return 1 if kind == "problem" else pages
+
+
+def _narration_full(meta: Dict[str, Any], block: Optional[Dict[str, Any]],
+                    lesson: Dict[str, Any]) -> str:
+    """그 **문항 전체**의 낭독문. 장으로 나누기 전의 원문이다."""
     if meta["kind"] == "cover":
         # ★ 회차를 **읽지 않는다**(2026-08-12 지시). `round` 는 "모의고사 01회" 라서
         #   TTS 가 "공일회" 로 읽었다. 회차는 화면(표지 제목)에 이미 있다.
@@ -212,21 +308,35 @@ def build_script(bundle: str, lesson: Dict[str, Any],
         nonlocal si
         # ★ 품목별 약어 사전을 함께 넘긴다 — 공용 규칙(된소리·소숫점·연도) 위에
         #   덧붙는 층이다. `SQL`→에스큐엘 은 SQLD 의 것이고 빅분기 것과 다르다.
-        say = to_speech(narration, _speech_terms())
         e = hand.get(si) or {}
+        narration_src = None
         hand_text = (e.get("text") or "").strip()
-        if hand_text:
-            # ★ 고친 뒤에 발문이 바뀌었으면 **쓰지 않는다.** 낡은 발음을 조용히 읽는
-            #   것이 가장 나쁘다 — 화면·리포트가 그 씬을 집어 준다.
-            if (e.get("from") or "").strip() != narration.strip():
-                drift.append(si)
-            else:
-                say = hand_text
-                used.append(si)
+        hand_sub = (e.get("subtitle") or "").strip()
+        # ★ 고친 뒤에 발문이 바뀌었으면 **쓰지 않는다.** 낡은 자막·발음을 조용히
+        #   내보내는 것이 가장 나쁘다 — 화면·리포트가 그 씬을 집어 준다.
+        stale = (hand_text or hand_sub) and (e.get("from") or "").strip() != narration.strip()
+        if stale:
+            drift.append(si)
+        elif hand_sub:
+            # ★ 자막을 먼저 갈아 끼운다. 발음은 **고친 자막에서** 만든다 —
+            #   자막을 「5행」 으로 고쳤으면 소리도 그 글에서 나와야 한다.
+            narration_src = narration
+            narration = hand_sub
+        say = to_speech(narration, _speech_terms())
+        if hand_text and not stale:
+            say = hand_text
+        if (hand_text or hand_sub) and not stale:
+            used.append(si)
         sc: Dict[str, Any] = {
             "scene": si, "kind": kind, "capture": capture, "heading": heading,
             "narration": narration, "narration_text": say,
         }
+        # ★ **자막 원문을 같이 남긴다.** 화면이 다시 저장할 때 `from` 에 이 값을
+        #   보내야 한다 — 전에는 화면이 `narration`(이미 고쳐진 자막)을 보내서,
+        #   두 번째 저장부터 `from` 이 자기 자신이 되어 원문과 어긋났다. 그러면
+        #   다음 굽기가 손수정을 통째로 버린다(실측 2026-08-26, m01-2 씬 22).
+        if narration_src is not None and narration_src != narration:
+            sc["narration_src"] = narration_src
         if number is not None:
             sc["number"] = number
         if kind == "countdown":
@@ -255,8 +365,17 @@ def build_script(bundle: str, lesson: Dict[str, Any],
         elif meta["kind"] == "problem":
             head = f"{no}번 문제" + (f" ({meta['page']}/{meta['pages']})"
                                    if meta["pages"] > 1 else "")
-            add("problem", capture=True, heading=head, narration=nar,
-                seconds=(None if meta["page"] == 1 else CONT_SECONDS), number=no)
+            # ★ 낭독이 있으면 그 길이가 곧 이 장이 화면에 남는 시간이다. 조각이
+            #   비었을 때만 고정 시간(CONT_SECONDS)을 준다 — `split_narration` 이
+            #   빈 조각을 낼 수 있고(원문이 아주 짧은데 장이 여럿), 그때는 옛 방식이 맞다.
+            # ★★ 이어지는 장은 **heading 도 비운다.** 낭독만 비우면 조용해지지 않는다 —
+            #   `make_bundle_video.py:99` 가 `narration or heading or "…"` 로 폴백해서
+            #   heading 을 읽는다. 그 heading 이 「10번 문제 (2/3)」 라서 이어지는 장마다
+            #   「이 슬래시 삼」 같은 소리가 들어갔다(2026-08-20 사용자 지적).
+            #   비우면 `"…"` 가 남고, 그건 소리가 나지 않는다.
+            add("problem", capture=True,
+                heading=(head if nar else ""), narration=nar,
+                seconds=(None if nar else CONT_SECONDS), number=no)
             if meta["page"] == meta["pages"]:
                 # ★ `number` 를 반드시 같이 넘긴다. chodangi 의 make_bundle_video 는
                 #   `last_problem_img.get(r["number"])` 로 **그 문항의 마지막 문제 장**을
@@ -270,8 +389,13 @@ def build_script(bundle: str, lesson: Dict[str, Any],
             head = (f"{no}번 · 정답 {mark}"
                     + (f" ({meta['page']}/{meta['pages']})"
                        if meta["pages"] > 1 else ""))
-            add("answer", capture=True, heading=head, narration=nar,
-                seconds=(None if meta["page"] == 1 else CONT_SECONDS), number=no)
+            # ★ 해설 이어지는 장도 같다 — heading(「10번 · 정답 ③ (2/4)」)이 읽힌다.
+            # ★ 제목은 **낭독을 실은 장**에 붙인다. 묵음 장에 제목이 남으면
+            #   `make_bundle_video.py` 의 `narration or heading or "…"` 폴백이
+            #   그 제목(「10번 · 정답 ③ (1/3)」)을 읽는다.
+            add("answer", capture=True,
+                heading=(head if nar else ""), narration=nar,
+                seconds=(None if nar else CONT_SECONDS), number=no)
 
     if drift:
         print(f"[warn] {bundle}: 씬 {drift} 의 발음 덮어쓰기를 쓰지 않았습니다 — "
@@ -287,6 +411,44 @@ def build_script(bundle: str, lesson: Dict[str, Any],
         "scenes": scenes,
         # 리포트용 — 이 번들에서 사람 손이 실제로 쓰인 씬과, 어긋나 버려진 씬
         "_speech_used": used, "_speech_drifted": drift,
+    }
+
+
+def read_lesson(bundle: str) -> Optional[Dict[str, Any]]:
+    """이미 구워 둔 부분 lesson. **deck 을 만든 그 값**이라 다시 조립하지 않는다."""
+    p = paths.bundle_lesson(bundle)
+    if not os.path.isfile(p):
+        return None
+    try:
+        with open(p, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def write_script(bundle: str, metas: List[Dict[str, Any]],
+                 lesson: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """`metas` 하나로 **script 만** 다시 쓴다. lesson·deck.html 은 손대지 않는다.
+
+    ★ 왜 따로 있나. `bake_one()` 은 deck.html 의 분할로 씬을 만든다. 강의덱을
+      쓰기 시작하면 **장 나눔의 진실이 pptx** 로 옮겨 가므로, 그 목록으로 씬을
+      다시 매겨야 한다(`services/deck/pptxdeck.py`). 두 경로가 같은
+      `build_script()` 를 쓰는 것이 요점이다 — 낭독·countdown·gap·발음 덮어쓰기가
+      한 군데에만 있어야 한다.
+    """
+    lesson = lesson or read_lesson(bundle) or build_lesson(bundle)
+    script = build_script(bundle, lesson, metas)
+    sp = paths.bundle_script(bundle)
+    atomic_write_json(sp, script, indent=2, trailing_newline=True)
+    from collections import Counter
+    kinds = Counter(s["kind"] for s in script["scenes"])
+    return {
+        "bundle": bundle, "ok": True,
+        "scenes": len(script["scenes"]),
+        "capture": sum(1 for s in script["scenes"] if s["capture"]),
+        "kinds": dict(kinds),
+        "speech_drifted": script.get("_speech_drifted") or [],
+        "written": [paths.rel(sp)],
     }
 
 

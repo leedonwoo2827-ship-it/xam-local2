@@ -144,9 +144,18 @@ def item(job: dict[str, Any], key: str, **fields) -> None:
     with _LOCK:
         it = job["items"].setdefault(key, {"status": "queued"})
         it.update(fields)
+        # ★ 「끝난 것」만 센다 (2026-09-08).
+        #
+        #   전에는 `skipped` 도 셌다. 그런데 이 상태를 찍는 자리가 둘 다 **안 한**
+        #   경우다 — 취소로 남은 파트, 앞선 파트가 연속 실패해 포기한 파트.
+        #   그래서 일시정지하면 남은 55파트가 전부 done_count 에 들어가
+        #   화면이 **「60/60 (100%)」**을 그렸다. 실제로 만들어진 것은 5파트였고,
+        #   사람은 그것을 보고 7시간짜리 집필이 41분에 끝난 줄 알았다(실측).
+        #
+        #   `error` 는 센다 — 돈이 나갔고 더 기다릴 것이 없다. 그것은 «끝난» 것이다.
         job["done_count"] = sum(
             1 for v in job["items"].values()
-            if v.get("status") in ("done", "error", "skipped"))
+            if v.get("status") in ("done", "error"))
     jobstore.save(job, force=True)
 
 

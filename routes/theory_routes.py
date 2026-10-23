@@ -73,8 +73,15 @@ def setup_theory_routes() -> APIRouter:
             #   화면이 그 경로를 보여 주고, 사람이 그 파일을 찾으러 간다
             #   (theory.py 의 `.md` 머리말 참조).
             hp = paths.summary_html(key)
+            # ★ 편 정보를 함께 준다 — 화면이 「2과목 (2/3) · 25~37번」 으로 적는다.
+            _u = theory.unit_of(key)
+            _pt, _rng = (_u[1], _u[2]) if _u else ((1, 1), None)
             items.append({
                 "key": key, "subject_no": no, "subject": theory.subjects().get(no, ''),
+                "part": _pt[0], "part_total": _pt[1],
+                "q_from": (_rng or [None, None])[0], "q_to": (_rng or [None, None])[1],
+                "label": theory.unit_label(key),
+                "range_label": theory.unit_range_label(key),
                 "html_path": paths.rel(hp), "html_bytes": paths.size(hp),
                 "exists": os.path.isfile(hp),
             })

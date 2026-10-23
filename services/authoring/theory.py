@@ -58,13 +58,55 @@ from .schema import subjects
 #   빅분기 것이 된다(2026-08-19).
 #   함수다 — 작업 폴더를 바꾸면 즉시 따라야 한다.
 def keys() -> Tuple[Tuple[str, int], ...]:
+    """(편 키, 과목번호) — **편 단위**다. 과목 하나가 여러 편일 수 있다.
+
+    ★ SQLD 2과목은 3편(`sql-1`·`sql-2`·`sql-3`)이다. 한 편 = 한 호출 = 한 영상.
+      1편뿐인 과목은 편 번호를 붙이지 않는다(`datamodel`·`planning`).
+    """
     from services.authoring import parts
 
-    return parts.subject_keys()
+    return tuple((k, no) for k, no, _pt, _rng in parts.theory_units())
+
+
+def unit_label(key: str) -> str:
+    """편 이름 — 「1과목」 · 「2과목 1편」. **짧게** 쓴다(2026-08-20 지시).
+
+    ★ 과목 이름과 문항 범위를 붙이지 않는다. 탭·체크박스·문서에 같은 말이
+      길게 반복되면 읽히지 않는다. 1편뿐인 과목은 「편」 을 아예 안 붙인다.
+      범위는 필요한 자리에서만 따로 보여 준다(`unit_range_label`).
+    """
+    u = unit_of(key)
+    if not u:
+        return str(key)
+    no, (i, n), _rng = u
+    return f"{no}과목" if n <= 1 else f"{no}과목 {i}편"
+
+
+def unit_range_label(key: str) -> str:
+    """「문항 25~37번」 — 확인창처럼 범위를 알려야 하는 자리에서만 쓴다."""
+    u = unit_of(key)
+    if not u:
+        return ""
+    _no, _pt, (lo, hi) = u
+    return f"문항 {lo}~{hi}번"
+
+
+def unit_of(key: str):
+    """편 키 → `(과목번호, (편, 전체), (문항 lo, hi))`. 없으면 None."""
+    from services.authoring import parts
+
+    for k, no, pt, rng in parts.theory_units():
+        if k == str(key):
+            return no, pt, rng
+    return None
 
 
 def key_of(no: int) -> str:
-    return dict((n, k) for k, n in keys()).get(int(no), "")
+    """과목번호 → 그 과목의 **첫 편** 키. 과목이 여러 편이면 첫 편이 대표다."""
+    for k, n in keys():
+        if int(n) == int(no):
+            return k
+    return ""
 
 
 def no_of(key: str) -> int:
@@ -163,10 +205,29 @@ SYSTEM_TEMPLATE = """{머리}
 망설여질 때는 이 하나만 물으면 된다 — **"이걸 슬라이드에 띄우고 말로 설명할 수
 있는가?"** 아니면 넣지 않는다.
 
-  · 한 소주제는 **3~6줄**이다. 슬라이드 한 장에 들어가야 한다.
+{판수}
+
+  · 한 소주제는 **3~6줄**이다. 소주제 하나가 슬라이드 한 장이 된다.
   · 제목만 봐도 그 장에서 무엇을 말할지 알아야 한다.
   · 계산값을 늘어놓은 목록은 슬라이드가 되지 않는다 — 강의에서 읽을 말이 없다.
   · "함정 ①②③" 같은 딱지도 슬라이드에 띄울 것이 아니다. 말로 설명할 내용을 쓴다.
+
+■ ★★ 시각물 — **필수가 아니다.** 있는 것을 살리고, 없는 것을 지어내지 않는다
+
+이 문서를 슬라이드로 만드는 일은 **다음 앱**이 한다. 그 앱은 장마다 시각물을
+스스로 채우고(원문에 표·그림이 있으면 그것을 쓰고, 없으면 만든다), 목차도 이
+문서의 `h2`/`h3` 를 그대로 쓴다. 그래서 **모든 장에 그림을 붙일 필요가 없다.**
+
+  · ★ **해설에 이미 있는 그림은 살린다.** 문항 해설의 `assets` SVG 는 그 개념을
+    설명하려고 만든 것이다 — 그 개념을 다루는 장에 인라인 `<svg>` 로 그대로 넣는다.
+    버리면 이미 만든 것을 다시 만들게 되고, 다시 만든 것은 원본과 어긋난다.
+  · ★ **표는 표로 쓴다.** 비교·분류·장단점·구문 대응은 `<table>` 이 가장 읽힌다.
+    다음 앱이 그 표를 그 장의 시각물로 쓴다 — 표를 잘 쓰면 그림 만들 일이 줄고
+    내용도 정확해진다.
+  · **없는 그림을 지어내지 않는다.** 장을 채우려고 상자 하나에 낱말 하나 넣은
+    도식을 그리지 마라 — 그런 장은 다음 앱이 판단해 채운다.
+  · SVG 를 넣을 때만: `viewBox` 를 넣고 `width`/`height` 는 넣지 않는다.
+    외부 폰트·이미지·스크립트를 참조하지 않는다(문서는 자체완결이어야 한다).
 
 ■ 누가 언제 읽는가 — 이것이 문체를 정한다
 읽는 시점이 **두 번**이다.
@@ -192,6 +253,9 @@ SYSTEM_TEMPLATE = """{머리}
   · 그림이 필요하면 **인라인 `<svg>`** 로 직접 그릴 것. 파일 참조는 없다.
   · 제목 계층은 `<h2>`(대주제) → `<h3>`(소주제) 로만 간다. `<h2>` 는 "1. 데이터 정제"
     처럼 번호를 붙인다.
+  · ★ **과목 이름·편 번호를 본문에 쓰지 말 것.** 「2과목」 「2편」 「SQL 기본 및 활용」
+    같은 제목을 만들지 않는다 — 앱이 문서 위에 붙인다. 본문은 **바로 `1. …` 부터**
+    시작한다(2026-08-20 지시).
   · **출처 줄을 쓰지 말 것.** 문서 맨 아래 "출처: …" 한 줄은 앱이 붙인다.
   · ★ **"기출" 이라는 말을 쓰지 말 것.** 독자가 확인할 수 없는 시험을 가리키면 안 된다.
   · ★ 근거 문번은 **개념 하나마다** `<span class="q">모의 N회 M번</span>` 으로 붙인다.
@@ -307,7 +371,7 @@ def system() -> str:
             .replace("{지선다}", str(n)))
 
 
-def theory_prompt(*, subject_no: int, rounds: List[str]) -> str:
+def theory_prompt(*, subject_no: int, rounds: List[str], key: str = "") -> str:
     """이 과목 하나를 쓰라는 지시. 읽을 파일을 **경로로** 준다.
 
     ★ 문항을 프롬프트에 통째로 넣지 않는다. 한 과목이 회차당 20문항이고 9회차면
@@ -333,15 +397,35 @@ def theory_prompt(*, subject_no: int, rounds: List[str]) -> str:
                 lo, hi = _acc + 1, _acc + _c
                 break
             _acc += _c
-    src = "\n".join(f"  · _rounds/{rc}.json" for rc in rounds) or "  · (없음)"
+    # ★ 읽을 파일이 **하나**다. 편마다 그 편의 문항만 모아 둔 파일을
+    #   `source_view()` 가 만든다 — 회차 파일 20개를 훑던 것이 이 한 줄로 줄었다.
+    src = (f"  · _rounds/{key}.json   ← 이 편의 문항만 모아 둔 파일 (여기만 읽는다)"
+           if key else "  · (없음)")
+
+    # ★★ **분량 목표를 걸지 않는다**(2026-08-20). 어제 넣었던 「목표 판 수」·「편 범위」·
+    #   「판마다 그림」 을 다 걷어냈다.
+    #
+    #   슬라이드 원고를 만드는 일은 `summaryhtml2videoscripthtml` 이 맡는다. 그 앱의
+    #   규약이 이렇다 — 목차는 **우리가 낸 `h2`/`h3` 가 이미 목차**이고, 시각물은
+    #   **그 앱이 장마다 채운다**(원문에 표가 있으면 그것을 쓰고, 없으면 만든다).
+    #   그리고 **분량 목표를 안 건다**: 「목표가 짧으면 개념을 버리고, 길면 물을 붓는다.」
+    #   시험 범위가 분량이다.
+    #
+    #   그러니 우리가 할 일은 하나로 돌아간다 — **해설에서 개념을 뽑아 중복 없이,
+    #   정의부터, 빠짐없이.** 판을 세거나 그림을 그릴 이유가 없다.
+    goal = ""
     return f"""■ 이번에 쓸 것: **{subject_no}과목 · {name}**
+{goal}
 
 ■ 읽을 파일 — **cwd 에 이것뿐이다.** 다른 자료는 없다
 {src}
-  각 파일의 `questions` 중 `subject_no == {subject_no}` 인 것 20개씩이다
-  (문항번호 {lo}~{hi}번). 회차 전부를 합치면 이 과목 문항이 다 모인다.
-  볼 필드: `explanation`(화면 해설) · `explanation_speech`(낭독) · `tags` · `question`.
+  이 과목 문항(번호 {lo}~{hi}번)의 해설만 회차 전부에서 모아 둔 파일이다.
+  `items` 배열의 필드: `round` · `question_no` · `difficulty` · `tags`
+  · `explanation`(해설 본문) · `assets`.
   ★ 해설을 **하나도 빠뜨리지 말 것.** Grep 으로 훑고 Read 로 확인한다.
+  ★★ `assets` 는 `[{{"name": …, "svg": "<svg …>"}}]` 다 — **집필이 이미 만든 그림**이다.
+    그 개념을 다루는 장에 `svg` 문자열을 **그대로 붙여** 넣는다(고쳐 그리지 말 것).
+    그림이 있는 문항은 소수다(실측 50문항 중 7개) — 있는 것만 쓰면 된다.
 
 ■ ★ 근거 문번은 **제목 옆에** 단다 — 두 층 모두. 이것이 이 문서의 핵심이다
   · 붙는 자리는 **제목 글자 뒤, 제목 태그 안**이다. 본문 문장에는 붙이지 않는다.
@@ -685,6 +769,7 @@ def validate(got: Dict[str, Any], subject_no: int) -> Tuple[List[str], List[str]
 _BASE_CSS = """
 body { font-family: "Malgun Gothic", "맑은 고딕", sans-serif;
        line-height: 1.7; color: #1c2530; padding: 8px 4px 40px; }
+p.part { margin: -10px 0 18px; color: #46605c; font-size: .95rem; }
 h1 { font-size: 1.6rem; margin: 0 0 18px; padding-bottom: 10px;
      border-bottom: 3px solid #0f766e; color: #0f3f3a; }
 h2 { font-size: 1.22rem; margin: 30px 0 10px; padding-left: 10px;
@@ -727,10 +812,15 @@ _FOLD_CSS = """
 .q > input:checked ~ .qn { display: inline; margin-left: 6px; font-weight: 400;
                            color: #46605c; white-space: normal; }
 /* ★ 그림 높이 상한. **폭만 막으면 안 된다** — 인라인 SVG 는 viewBox 비율대로 폭에
-   맞춰 늘어나므로, 가로로 넓은 도식이 화면 절반을 먹는다(2026-08-12 실측: 편향-분산
+   맞춰 늘어나므로, 가로로 넓은 도식이 화면을 통째로 먹는다(2026-08-12 실측: 편향-분산
    그래프 하나가 세로 550px 을 차지했다). `width:auto` + `max-height` 로 비율을
-   지키면서 높이로 자른다. 이 문서는 개념을 훑는 노트이고, 도식은 거들 뿐이다. */
-svg, img { max-height: 240px; width: auto; max-width: 100%; height: auto;
+   지키면서 높이로 자른다.
+
+   ★ 240 → 300 으로 올렸다(2026-08-20). 「도식은 거들 뿐」 이라는 판단이 바뀌었다 —
+     판 하나가 슬라이드 한 장(944×507)인데 불릿 다섯 줄만 있으면 아래 3분의 2가 빈다.
+     제목 30 + 불릿 120 + 여백 40 ≈ 190 을 쓰고 남는 것이 약 310 이라 300 이 상한이다.
+     그림이 화면의 절반을 채우는 것이 이제 **목표**다. */
+svg, img { max-height: 300px; width: auto; max-width: 100%; height: auto;
            display: block; margin: 10px auto; }
 figure { margin: 10px 0; text-align: center; }
 
@@ -807,7 +897,8 @@ def fold_refs(body_html: str) -> str:
     return _Q_SPAN_FULL.sub(one, body_html)
 
 
-def render_html(subject_no: int, body_html: str, css: str = "") -> str:
+def render_html(subject_no: int, body_html: str, css: str = "",
+                key: str = "") -> str:
     """발행되는 `.html` 을 조립한다. **LF 로만 만든다** — 개행 변환은 `to_disk()`.
 
     ★ `<h1>{N}과목 · {이름}</h1>` 이 계약이다. 빌더의 `subject_of()` 가 이 한 줄로
@@ -816,14 +907,22 @@ def render_html(subject_no: int, body_html: str, css: str = "") -> str:
       (draft.py `_validate` 가 문항 쪽에서 같은 것을 본다).
 
     ★ 문서 끝 "출처:" 줄은 **붙이지 않는다** — 위 머리말 참조.
+
+    ★ 편(篇)을 `<h1>` 에 넣지 않는다. 빌더가 「N과목 · 」 **뒤를 탭 이름으로 그대로**
+      쓰는데(`subject_of` 의 group 2), 「SQL 기본 및 활용 (2편)」 이 되면 문항의
+      `subject` 문자열과 어긋나 성적표 링크가 끊긴다. 편은 `<title>` 과 h1 **아래**
+      한 줄로 낸다 — 사람은 보고 빌더는 안 읽는다.
     """
     name = subjects().get(subject_no, "")
+    u = unit_of(key) if key else None
+    pt, rng = (u[1], u[2]) if u else ((1, 1), None)
+    part_txt = f"{subject_no}과목 {pt[0]}편" if pt[1] > 1 else f"{subject_no}과목"
     return "\n".join([
         "<!DOCTYPE html>",
         '<html lang="ko">',
         "<head>",
         '<meta charset="utf-8">',
-        f"<title>{subject_no}과목 · {name}</title>",
+        f"<title>{part_txt} · {name}</title>",
         "<style>",
         _BASE_CSS.strip(),
         (css or "").strip(),
@@ -833,7 +932,9 @@ def render_html(subject_no: int, body_html: str, css: str = "") -> str:
         "</style>",
         "</head>",
         "<body>",
+        # ★ 이 한 줄이 빌더와의 계약이다. 편을 붙이지 말 것(위 머리말).
         f"<h1>{subject_no}과목 · {name}</h1>",
+        (f'<p class="part">{part_txt}</p>' if pt[1] > 1 else ""),
         # ★ 누출 조각을 걷어내고(`strip_junk`) 문번을 접는다(`fold_refs`).
         fold_refs(strip_junk(body_html.strip())[0]),
         "</body>",
@@ -933,14 +1034,67 @@ def source_view(book_dir: str) -> str:
     ★ 복사한다(심볼릭 링크가 아니다). Windows 에서 링크는 관리자 권한이 필요하고,
       권한 없이 조용히 실패하면 **차단이 없는 채로 도는 것**이 최악이다. 2MB 다.
     """
-    import shutil
+    import json as _json
     import tempfile
     view = tempfile.mkdtemp(prefix="theory-src-")
     dst = os.path.join(view, "_rounds")
     os.makedirs(dst, exist_ok=True)
+
+    # ★ 회차 파일을 그대로 복사하지 **않는다.** 편마다 필요한 문항만 모아 **한 파일**로 준다.
+    #
+    #   전에는 `_rounds/m01.json`~`m20.json` 을 통째로 복사했다. 파일 하나에 50문항
+    #   (두 과목 전부)이 들어 있고 회차가 20개다. 1과목 요약노트는 그중 10문항×20 =
+    #   200문항만 필요한데, 모델이 20개 파일을 열어 필요한 것을 골라야 한다.
+    #   실측(2026-08-20): `m20.json` 을 일곱 번 다시 읽으며 25분이 지나도 안 끝났다.
+    #   빅분기는 9회차라 견뎠던 것이 20회차에서 무너졌다.
+    #
+    #   그래서 편마다 `_rounds/<편키>.json` 하나를 만든다. 그 편의 문항번호 범위에
+    #   드는 문항만, 이론에 필요한 필드만 담는다 — 열 파일이 하나이고 크기도 작다.
+    docs = {}
     for rc in available_rounds(book_dir):
-        shutil.copy2(os.path.join(book_dir, "_rounds", f"{rc}.json"),
-                     os.path.join(dst, f"{rc}.json"))
+        try:
+            with open(os.path.join(book_dir, "_rounds", f"{rc}.json"),
+                      encoding="utf-8") as f:
+                docs[rc] = _json.load(f) or {}
+        except (OSError, ValueError):
+            continue
+
+    from services.authoring import parts as _P
+
+    units = _P.theory_units()
+    for key, _no, _pt, (lo, hi) in units:
+        rows = []
+        for rc, d in docs.items():
+            for q in d.get("questions") or []:
+                try:
+                    qn = int(q.get("question_no") or 0)
+                except (TypeError, ValueError):
+                    continue
+                if not (lo <= qn <= hi):
+                    continue
+                rows.append({
+                    "round": d.get("round_label") or rc,
+                    "question_no": qn,
+                    "subject": q.get("subject") or "",
+                    "difficulty": q.get("difficulty") or "",
+                    "tags": q.get("tags") or [],
+                    # ★ 이론은 **해설에서** 개념을 뽑는다. 발문·보기는 넣지 않는다 —
+                    #   넣으면 파일이 세 배가 되고 모델이 문항을 베끼는 쪽으로 간다.
+                    "explanation": q.get("explanation") or "",
+                    # ★★ 해설의 **인라인 SVG 를 그대로 넘긴다.** 집필이 그 개념을
+                    #   설명하려고 만든 그림이다 — 이론에서 다시 그리면 원본과
+                    #   어긋나고, 버리면 이미 만든 것을 잃는다(2026-08-20 지시:
+                    #   「만든건 잘 써줘」). 모델이 이 문자열을 그대로 붙여 쓴다.
+                    "assets": [{"name": a.get("name") or "",
+                                "svg": a.get("svg") or ""}
+                               for a in (q.get("assets") or [])
+                               if isinstance(a, dict) and a.get("svg")],
+                })
+        rows.sort(key=lambda r: (r["question_no"], str(r["round"])))
+        with open(os.path.join(dst, f"{key}.json"), "w", encoding="utf-8") as f:
+            _json.dump({"unit": key, "question_range": [lo, hi],
+                        "n": len(rows), "items": rows},
+                       f, ensure_ascii=False, indent=1)
     return view
 
 
@@ -998,7 +1152,7 @@ def draft_theory(*, key: str, book_dir: str,
     try:
         got = author.structured(
             system(),
-            theory_prompt(subject_no=subject_no, rounds=rounds),
+            theory_prompt(subject_no=subject_no, rounds=rounds, key=key),
             theory_schema())
     except ProviderError as e:
         res.problems.append(str(e))
@@ -1025,7 +1179,7 @@ def draft_theory(*, key: str, book_dir: str,
         return res
 
     html = render_html(subject_no, str(got.get("body_html") or ""),
-                       str(got.get("css") or ""))
+                       str(got.get("css") or ""), key=key)
     hp = paths.summary_html(key)
     # ★ 개행은 `to_disk()` 한 곳을 지난다(atomic_io 머리말). 03/ 이 아직 없으면
     #   형제가 없어 LF 로 떨어지는데, 그것이 `03/*` 의 실측 규약이다.

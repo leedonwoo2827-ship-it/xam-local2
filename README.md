@@ -211,8 +211,37 @@ _rounds/mNN.json  ──[문항 교정]──┬─► 02/mNN-KK.md + _index.jso
 data/youtube_map.bigdata.json   ─┘                                  └─► 06/problems.json
                                                                           └─브라우저 업로드─► /adm/exam_import.php ─► ex_problem
 
-05/*/source/deck.html ──[#3]──► 05/*/draft/*.static.mp4 ──[유튜브 수동 업로드]──► youtube_map 의 id
+05/*/source/deck.html ──[#4]──► 05/*/source/deck.pptx ──[PowerPoint]──► 05/*/images/slide_NN.png
+                                                                            │
+                                              05/*/script/*_script.json ────┼──[#3]──► draft/*.static.mp4
+                                              (씬을 pptx 장 나눔에 맞춰 씀)  ┘         └─[유튜브 수동]─► youtube_map
 ```
+
+### ★ 슬라이드의 진실이 PPTX 로 옮겨 왔다 (2026-08-24)
+
+전에는 `deck.html` 을 Chromium 으로 캡처한 것이 영상의 슬라이드였다. 지금은
+`vendor/exam2deck` 이 **좌표를 재서** pptx 를 그리고, PowerPoint 로 뽑은 PNG 가
+영상으로 간다. 바꾼 이유는 채움률이다 — `services/deck/paginate.py` 는 잘림을 막으려고
+넉넉히 일찍 쪼갠다(캡처에서 잘리면 내용이 **사라진다**). 그 대가로 한 장이 높이 예산의
+3할밖에 안 찼다. pptx 는 캡처가 아니라 좌표라서 재서 놓을 수 있다.
+
+| | 전 | 후 |
+|---|---|---|
+| 장 나눔의 진실 | `deck.html` 의 `.slide` | `05/<번들>/source/pages.json` |
+| 영상의 슬라이드 | Chromium 캡처 | PowerPoint 로 뽑은 PNG (`--reuse-images`) |
+| `deck.html` 의 몫 | 전부 | 미리보기 + **변환기의 입력** |
+| 씬(script) | `render.build_pages()` 의 metas | pptx 의 장 목록 (`bake.write_script`) |
+| 문항이 여러 장일 때 낭독 | 첫 장만 읽고 뒷장은 조용한 4초 | **n등분해서 장마다** (쉬는 자리에서 자른다) |
+
+★ 화면 순서는 `슬라이드` 메뉴의 ① 굽기 → ② PPTX → ③ 장수 확정 → ④ 그림파일 이고,
+  바닥의 띠가 다음에 누를 것 하나를 말한다.
+
+★ **장수는 PowerPoint 에서 합치지 않는다.** ③의 ± 표에서 고친다 —
+  `_deck-export/NN회.pages.json` 에 남고, 씬·낭독·이미지가 같이 따라온다. pptx 를
+  손으로 고치는 것은 되지만(고친 파일이 그대로 PNG 가 된다), **장 수가 바뀌면 멈춘다.**
+
+★ 품목별 값은 `exams/<pd>.json` 의 `deck.pptx_scale`. SQLD 실측(2026-08-24):
+  배율 1.0 → 채움 0.31 · 덜 찬 장 236 / 배율 **1.6** → 채움 0.61 · 덜 찬 장 25 · 넘침 0.
 
 **★ `build_check.py` 는 문제 본문(문제문·보기·해설·정답)을 `05/*/source/lesson_*.json`
 에서만 읽는다.** `02/*.md` 는 과목·난이도·태그·`verified`/`reviewed`/`needs_review` 만
@@ -397,6 +426,10 @@ _ref\axexam\.venv\Scripts\python.exe scripts\build_check.py
 | 2 crossfade 전달 | `voicewright/batch.py` · `chodangi_app/synth.py` |
 | 3 무음 씬 포함(오디오 기준 훑기) | `chodangi_app/synth.py::rebuild_chapter_srt` |
 | 4 `CROSSFADE_SEC` 단일 상수 · `review.json` `timebase` · 진행 로그 · 스크래치 비우기 | `make_bundle_video.py` |
+| 5 1:1 판정의 근거를 `source/pages.json` 으로 (2026-08-24) | `make_bundle_video.py::_count_pages_manifest` |
+
+5번이 필요한 이유는 아래 「슬라이드의 진실이 PPTX 로 옮겨 왔다」 다. 강의덱을 쓰는
+번들은 `deck.html` 의 `.slide` 수와 씬 수가 **일부러** 다르다.
 
 반입 기준은 이 PC 의 `D:\00work\260724-chodangi-mp4` =
 `chodangi-mp4-forge` **main @3ff1350 (07-31, 상류와 동기)** 였고, 그 복사본은
@@ -472,8 +505,12 @@ services/publish/ validate buildcheck ftplist  +  axbuild/ ★ 발행 빌더 내
 services/jobs/    jobstore registry
 static/           index.html · css/{app,ocr}.css · vendor/tex-svg.js(수식)
                   js/{util icons charts panel shell store + 화면 6개(ocr 포함)}
+services/deck/    render paginate slidecss theme preview  (deck.html — 미리보기·변환기 입력)
+                  + rounddeck pptxdeck slideimg  ★ 강의덱: 회차 합침 → pptx → PNG
 vendor/chodangi/  ★ 도구 #3 렌더 엔진 내장 — make_bundle_video · slides · voicewright
                   · mp4maker · chodangi_app · config · assets(TTS 395MB, git 제외)
+vendor/exam2deck/ ★ 도구 #4 강의덱 변환기 내장 — deck HTML → pptx (좌표를 재서 그린다)
+                  출처·고친 곳은 `vendor/exam2deck/_SOURCE.md`
 data/             런타임 (git 제외) — books.json · jobs/ · publish/ · youtube_map.<pd>.json
 _ref/axexam/      웹 소스 참고용(선택). 발행 빌드에는 필요 없다
 ```
@@ -487,6 +524,8 @@ _ref/axexam/      웹 소스 참고용(선택). 발행 빌드에는 필요 없�
 | `ffmpeg` (PATH) | 바이너리 | TTS 를 몇 분 돌린 뒤 **마지막 합성에서** 실패 |
 | Chromium (playwright) | 바이너리 · 114MB | deck 캡처 불가 (`--no-audio` 도 못 씀) |
 | `vendor/chodangi/assets/` | 395MB · git 실용성 | 음성 없음(`--no-audio` 로만 렌더) |
+| PowerPoint | 상용 프로그램 | pptx → PNG 불가 = **영상 슬라이드를 못 만든다.** 캡처로 대신하지 않는다 |
+| Pretendard (설치 글꼴) | 라이선스·용량 | 줄 수를 맑은 고딕으로 재서 "일찍 줄바꿈" 쪽으로 떨어진다 |
 | 도구 #2 (Claude Desktop 스킬) | 저작 도구 | `05/` deck·lesson 을 만들 수 없다 |
 
 프론트는 `aim-local`(`d:\00work\260801-aim redesign`) 구조를 이식했다. 3층 레이어

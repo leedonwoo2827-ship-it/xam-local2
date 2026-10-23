@@ -128,12 +128,28 @@ def _build_env() -> dict:
     return env
 
 
+def _reuse_images(bundle: str) -> bool:
+    """이 번들의 `images/` 가 **지금 pptx 에서 나온 것**인가.
+
+    ★ 맞으면 deck.html 캡처를 건너뛰고 그 PNG 를 그대로 쓴다 — 사람이 PowerPoint 로
+      확정한 화면이 그대로 영상이 되는 자리다. 조금이라도 어긋나면 False 를 돌려
+      캡처로 떨어진다(드라이버 쪽도 부분 재사용을 금지한다).
+    """
+    try:
+        from services.deck import slideimg
+        return slideimg.images_ready(bundle)
+    except Exception:                                        # noqa: BLE001
+        return False
+
+
 def _args(bundle: str, *, no_audio: bool, keep_scratch: bool) -> list[str]:
     a = [driver_python(), "make_bundle_video.py",
          # ★ 항상 명시하고, 상수가 아니라 **지금 고른 폴더**를 넘긴다.
          #   상수를 넘기면 폴더를 바꿔도 옛 책을 렌더한다.
          "--book", paths.book_dir(),
          "--round", bundle]
+    if _reuse_images(bundle):
+        a.append("--reuse-images")
     if no_audio:
         a.append("--no-audio")
     if keep_scratch:

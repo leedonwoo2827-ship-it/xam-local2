@@ -9,7 +9,7 @@
 "use strict";
 
 import { $, $$, api, el, escapeHtml, toast, confirmModal, fmtBytes } from "./util.js";
-import { pollJob, fireJobChanged } from "./store.js";
+import { pollJob, fireJobChanged, getPref, setPref } from "./store.js";
 import { icon, hydrateIcons } from "./icons.js";
 import { donut, stackedBar } from "./charts.js";
 import { actionBtn } from "./panel.js";
@@ -17,9 +17,25 @@ import { actionBtn } from "./panel.js";
 const P = { pre: null, env: null, problems: null, ftp: null, checklist: null,
             ytmap: null, polling: false };
 
+/* ★ 발행은 **2단계**다 (2026-08-25 운영 결정).
+ *
+ *     #/publish/problems   1차 «문제집»  — 문항만 본다. 영상을 기다리지 않는다.
+ *     #/publish/video      2차 «해설영상» — 렌더·유튜브까지 끝난 뒤
+ *     #/publish            (옛 주소) = 2차와 같다
+ *
+ *   화면은 하나다. 게이트의 **범위**만 다르다 — 범위별로 다른 화면을 만들면
+ *   1차에서 통과한 것이 2차에서 다른 이유로 막힌다(`validate.SCOPES` 머리말과 같은 규약).
+ */
+function scopeFromHash() {
+  return /#\/publish\/problems/.test(location.hash) ? "problems" : "all";
+}
+
 export const meta = {
-  title: "발행 to XAMpass",
-  subtitle: "로컬 산물 → axexam 빌드 → FTP + 관리자 화면 임포트. 순서대로 진행합니다.",
+  title: () => (scopeFromHash() === "problems"
+    ? "etest 발행 — 문제집 (1차)" : "해설영상 발행 (2차)"),
+  subtitle: () => (scopeFromHash() === "problems"
+    ? "문항만 먼저 내보냅니다. 영상·요약노트는 2차에서 봅니다."
+    : "슬라이드·렌더·유튜브까지 끝난 뒤 — 영상 링크를 붙여 마저 내보냅니다."),
   actions: () => [
     actionBtn("사전점검 다시", () => refresh(), { iconName: "refresh" }),
     actionBtn("06/ 폴더 열기", () => openOut(), { iconName: "folder" }),
@@ -27,20 +43,30 @@ export const meta = {
 };
 
 export async function mount(root, ctx) {
+  /* ★ 영상 매핑은 **2차에만** 둔다(2026-08-26 지시).
+   *
+   *   1차(문제집)를 낼 때는 아직 영상이 없다 — mp4 도 유튜브 링크도 없는 단계다.
+   *   그런데 카드가 1차 화면에 있으니 「링크 0 / 100」 이 붉게 떠서, 지금 해야 할
+   *   일처럼 보이고 실제로 그래서 1차를 미루셨다. 발행이 2단계인 이유가 바로
+   *   영상을 기다리지 않으려는 것인데 화면이 반대로 말하고 있었다.
+   *
+   *   번호는 그 화면에 **실제로 있는 카드**로만 매긴다 — 1차에서 ②를 건너뛰고
+   *   ③으로 가면 사람이 빠진 단계를 찾는다.
+   */
+  const video = scopeFromHash() !== "problems";
+  const cards = [
+    ["사전점검", "pb-pre"],
+    ...(video ? [["영상 매핑 — 링크를 여기 넣습니다", "pb-ytmap"]] : []),
+    ["빌드 — axexam scripts/build_check.py", "pb-build"],
+    ["problems.json 검증 (임포트 드라이런)", "pb-problems"],
+    ["웹 소스 올리기 — PHP·화면이 바뀔 때만", "pb-ftp"],
+    ["전체 순서 — 0.x 는 앱에서, 1번부터는 서버에서", "pb-server"],
+  ];
+  const NO = "①②③④⑤⑥⑦";
   const page = el("div", "page");
-  page.innerHTML = `
-    <div class="card"><div class="card-title">① 사전점검</div><div id="pb-pre"></div></div>
-    <div class="card"><div class="card-title">② 영상 매핑 — 링크를 여기 넣습니다</div>
-      <div id="pb-ytmap"></div></div>
-    <div class="card"><div class="card-title">③ 빌드 — axexam scripts/build_check.py</div>
-      <div id="pb-build"></div></div>
-    <div class="card"><div class="card-title">④ problems.json 검증 (임포트 드라이런)</div>
-      <div id="pb-problems"></div></div>
-    <div class="card"><div class="card-title">⑤ 업로드 — 폴더 하나를 /www/ 로</div>
-      <div id="pb-ftp"></div></div>
-    <div class="card"><div class="card-title">⑥ 전체 순서 — 0.x 는 앱에서, 1번부터는 서버에서</div>
-      <div id="pb-server"></div></div>
-  `;
+  page.innerHTML = cards.map(([t, id], i) =>
+    `<div class="card"><div class="card-title">${NO[i]} ${escapeHtml(t)}</div>`
+    + `<div id="${id}"></div></div>`).join("");
   root.appendChild(page);
   hydrateIcons(page);
   await refresh();
@@ -66,14 +92,19 @@ async function refresh() {
 
   await Promise.all([
     one("/api/publish/env", "env", renderBuild, ["#pb-build", "빌드 환경 확인 중…"]),
-    one("/api/publish/ytmap", "ytmap", renderYtmap, ["#pb-ytmap", "매핑 확인 중…"]),
+    // 1차에는 매핑 카드가 없다 — 부르지도 않는다.
+    ...($("#pb-ytmap")
+      ? [one("/api/publish/ytmap", "ytmap", renderYtmap, ["#pb-ytmap", "매핑 확인 중…"])]
+      : []),
     one("/api/publish/problems", "problems", renderProblems,
         ["#pb-problems", "problems.json 확인 중…"]),
-    one("/api/publish/checklist", "checklist", renderServer, null),
+    // 체크리스트도 발행 단계마다 다르다 — 1차에 「영상 올리기」 가 뜨면 안 된다.
+    one(`/api/publish/checklist?scope=${scopeFromHash()}`, "checklist", renderServer, null),
     // 업로드 카드는 사전점검과 무관하다 — 먼저 뜬다.
     Promise.resolve().then(() => renderStage()),
     // 가장 느린 것을 마지막에 둔다(순서는 무관하지만 읽는 사람에게 의도가 보인다).
-    one("/api/publish/preflight", "pre", renderPre, ["#pb-pre", "점검 중… (720문항)"]),
+    one(`/api/publish/preflight?scope=${scopeFromHash()}`, "pre", renderPre,
+        ["#pb-pre", "점검 중…"]),
   ]);
 }
 
@@ -115,21 +146,31 @@ function renderPre() {
   head.appendChild(bars);
   box.appendChild(head);
 
+  /* ★ 범위 밖 그룹은 **막지 않는다** — 세지 않으므로 오류·경고 수에 안 들어간다.
+   *   그런데 화면은 그것을 말해 주지 않아서, 1차인데 「유튜브 ID 전부 입력됨 · 오류」
+   *   가 붉게 떠 있었다. 머리글은 「오류 0」 인데 줄은 오류라, 빌드를 눌러도 되는지
+   *   사람이 판단할 수 없다(2026-08-26 질문). 미룬 것은 미뤘다고 적는다.
+   */
   d.groups.forEach((g) => {
-    const wrap = el("div", "pb-group");
+    const out = !!g.out_of_scope;
+    const wrap = el("div", "pb-group" + (out ? " pb-later" : ""));
     const title = el("div", "qz-label",
-      `${g.label} — 오류 ${g.errors} · 경고 ${g.warnings}`);
+      out ? `${g.label} — 2차에서 봅니다`
+          + (g.pending ? ` · 남은 것 ${g.pending}` : " · 준비됨")
+          : `${g.label} — 오류 ${g.errors} · 경고 ${g.warnings}`);
     wrap.appendChild(title);
     const list = el("div", "pb-check");
     g.checks.forEach((chk) => {
-      const tone = chk.ok ? "ok" : chk.level === "error" ? "err" : "warn";
+      // 범위 밖이면 못 지킨 줄도 「나중」 으로 — 지금 막는 것이 아니다.
+      const tone = chk.ok ? "ok" : out ? "idle" : chk.level === "error" ? "err" : "warn";
       const row = el("div", "item " + tone);
-      row.appendChild(icon(chk.ok ? "check" : chk.level === "error" ? "alert" : "bulb", 13));
+      row.appendChild(icon(chk.ok ? "check" : out ? "clock" : chk.level === "error" ? "alert" : "bulb", 13));
       const mid = el("div");
       mid.appendChild(el("span", null, chk.label));
       if (chk.detail && !chk.ok) mid.appendChild(el("div", "muted", chk.detail));
       row.appendChild(mid);
-      row.appendChild(el("span", "muted", chk.ok ? "" : chk.level === "error" ? "오류" : "경고"));
+      row.appendChild(el("span", "muted",
+        chk.ok ? "" : out ? "2차" : chk.level === "error" ? "오류" : "경고"));
       list.appendChild(row);
     });
     wrap.appendChild(list);
@@ -149,6 +190,193 @@ function fmtSec(n) {
   const m = Math.floor((n || 0) / 60);
   return `${m}:${String((n || 0) % 60).padStart(2, "0")}`;
 }
+
+/* 붙여넣은 드라이브 주소에서 **폴더 ID** 만 꺼낸다. 못 알아보면 빈 문자열.
+
+ * ★ 세 가지 모양을 다 받는다 — 사람이 어디서 복사해 오는지 정해져 있지 않다:
+ *     https://drive.google.com/drive/folders/<ID>?usp=drive_link   주소창
+ *     https://drive.google.com/open?id=<ID>                        옛 공유 주소
+ *     <ID>                                                         ID 만 복사
+ * ★ 파일 주소(`/file/d/<ID>/view`)는 **일부러 받지 않는다.** 그건 폴더가 아니라
+ *   영상 한 편이고, 그것을 FOLDER_ID 에 넣으면 스크립트가 "File not found" 로만
+ *   죽어서 무엇이 틀렸는지 안 보인다. 빈 값으로 두어 화면이 말하게 한다.
+ */
+const FOLDER_URL_RE = /(?:\/folders\/|[?&]id=)([A-Za-z0-9_-]{10,})/;
+
+function folderId(s) {
+  const t = (s || "").trim();
+  if (!t) return "";
+  const m = FOLDER_URL_RE.exec(t);
+  if (m) return m[1];
+  return /^[A-Za-z0-9_-]{10,}$/.test(t) ? t : "";
+}
+
+
+/* 드라이브 폴더에서 (파일명 | 파일ID | 크기) 를 뽑는 앱스 스크립트.
+ *
+ * ★ 100편의 링크를 손으로 옮길 수는 없다. script.google.com 에 붙여 한 번 돌리면
+ *   시트가 생기고, 그것을 TSV 로 내려받아 위 칸에 붙이면 된다.
+ * ★ 화면 안에 둔다 — 밖에 적어 두면 품목마다 다시 찾아야 한다(2026-08-26 요청).
+ * ★ 개수(EXPECT)와 이름을 **이 품목의 값으로** 채워서 낸다. 상수로 두면 다음 품목에서
+ *   조용히 틀린 숫자를 검증하게 된다.
+ */
+function appsScriptBox(d) {
+  const title = (d && d.pd) || "영상";
+  const expect = (d && d.bundles) || 0;
+  const code = [
+    "/** ${TITLE} 폴더의 mp4 를 시트에 (파일명 | 파일ID | 크기) 로 적는다.",
+    " *",
+    " *  독립 스크립트(script.google.com)에서도, 시트에 붙인 스크립트에서도 돈다 —",
+    " *  쓸 시트를 _시트() 가 알아서 고른다.",
+    " *  실행: 편집기의 ▶ 실행, 함수는 「링크목록」. 실행 로그에 시트 URL 이 찍힌다.",
+    " */",
+    "",
+    "const FOLDER_ID = '${FOLDER}';",
+    "const SHEET_NAME = '링크목록';",
+    "const SS_TITLE = '${TITLE} 링크목록';",
+    "const EXPECT = ${EXPECT};                  // 이 품목의 번들 수",
+    "",
+    "",
+    "function onOpen() {",
+    "  // 시트에 붙인 경우에만 메뉴가 뜬다. 독립 스크립트에선 아무 일도 안 한다.",
+    "  try {",
+    "    SpreadsheetApp.getUi().createMenu('링크')",
+    "      .addItem('링크목록 뽑기', '링크목록').addToUi();",
+    "  } catch (e) {}",
+    "}",
+    "",
+    "",
+    "function 링크목록() {",
+    "  const folder = DriveApp.getFolderById(FOLDER_ID);",
+    "",
+    "  // 폴더를 '링크가 있는 모든 사용자'로 열어 둔다. 안의 파일이 이 설정을 물려받는다.",
+    "  // ★ 로그인 없이 누구나 재생·다운로드할 수 있다는 뜻이다.",
+    "  folder.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);",
+    "",
+    "  const rows = [];",
+    "  const it = folder.getFiles();",
+    "  while (it.hasNext()) {",
+    "    const f = it.next();",
+    "    const name = f.getName();",
+    "    if (!/\\.mp4$/i.test(name)) continue;   // mp4 만",
+    "    rows.push([name, f.getId(), Math.round(f.getSize() / 1048576) + ' MB']);",
+    "  }",
+    "  rows.sort((a, b) => a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0);",
+    "",
+    "  // 같은 이름이 둘이면 옛 파일이 안 지워진 것 — 앱에 엉뚱한 ID 가 들어간다.",
+    "  const seen = {}, dup = [];",
+    "  rows.forEach(r => { if (seen[r[0]]) dup.push(r[0]); seen[r[0]] = 1; });",
+    "",
+    "  const ss = _시트();",
+    "  const sh = ss.getSheetByName(SHEET_NAME) || ss.insertSheet(SHEET_NAME);",
+    "  sh.clear();",
+    "  sh.getRange(1, 1, rows.length + 1, 3).setNumberFormat('@');   // ID 가 숫자로 변형되는 것 방지",
+    "  sh.getRange(1, 1, 1, 3).setValues([['파일명', '파일ID', '크기']])",
+    "    .setFontWeight('bold').setBackground('#eeeeee');",
+    "  if (rows.length) sh.getRange(2, 1, rows.length, 3).setValues(rows);",
+    "  sh.setFrozenRows(1);",
+    "  sh.autoResizeColumns(1, 3);",
+    "",
+    "  let msg = 'mp4 ' + rows.length + '개 (' + EXPECT + '개여야 합니다)';",
+    "  if (rows.length !== EXPECT) {",
+    "    msg += '\\n\\n⚠ 개수가 다릅니다. 적으면 업로드가 덜 끝난 것,'",
+    "         + ' 많으면 옛 파일이 안 지워진 것입니다.';",
+    "  }",
+    "  if (dup.length) msg += '\\n\\n⚠ 이름이 겹치는 파일: ' + dup.join(', ');",
+    "",
+    "  Logger.log(msg);",
+    "  Logger.log('시트: ' + ss.getUrl() + '#gid=' + sh.getSheetId());",
+    "  try { SpreadsheetApp.getUi().alert(msg); } catch (e) {}",
+    "  return msg;",
+    "}",
+    "",
+    "",
+    "/** 쓸 스프레드시트를 고른다 — 실행마다 새 시트가 쌓이지 않게 ID 를 기억한다. */",
+    "function _시트() {",
+    "  const active = SpreadsheetApp.getActiveSpreadsheet();",
+    "  if (active) return active;",
+    "",
+    "  const props = PropertiesService.getScriptProperties();",
+    "  const saved = props.getProperty('SHEET_ID');",
+    "  if (saved) {",
+    "    try { return SpreadsheetApp.openById(saved); } catch (e) {}",
+    "  }",
+    "  const ss = SpreadsheetApp.create(SS_TITLE);",
+    "  props.setProperty('SHEET_ID', ss.getId());",
+    "  Logger.log('새 스프레드시트를 만들었습니다 — ' + ss.getUrl());",
+    "  return ss;",
+    "}",
+  ].join(String.fromCharCode(10))
+    .split("${TITLE}").join(title)
+    .split("${EXPECT}").join(String(expect));
+  const det = el("details", "pb-more");
+  det.appendChild(el("summary", null,
+    `드라이브 링크 ${expect}개 뽑기 — 앱스 스크립트`));
+  const wrap = el("div");
+  wrap.appendChild(el("div", "field-hint",
+    "script.google.com → 새 프로젝트 → 아래를 통째로 붙여넣고 [링크목록] 실행 → "
+    + "실행 기록의 주소를 열면 시트 → 파일 → 다운로드 → 탭으로 구분된 값(.tsv) → "
+    + "그 파일을 위 「좌표 TXT」 자리에 끌어다 놓으십시오. 첫 실행 때 드라이브 권한을 한 번 묻습니다."));
+
+  /* 폴더 주소를 붙이면 코드의 FOLDER_ID 를 채워서 낸다.
+   *
+   * ★ 왜. 이 상자에서 사람이 고칠 것은 그 한 줄뿐인데, 그 한 줄 때문에 절차가
+   *   「복사 → 붙여넣기 → 그 줄 찾기 → 주소에서 ID 만 잘라 넣기」 가 된다. 잘라내다
+   *   `?usp=drive_link` 를 함께 넣으면 스크립트가 폴더를 못 찾는데, 오류는
+   *   "File not found" 뿐이라 그게 원인인지 화면에서 보이지 않는다. 자를 일을 없앤다.
+   * ★ 품목별로 기억한다. 폴더는 품목마다 다르고 한 폴더를 여러 번 쓴다.
+   *   품목은 매핑 파일 이름에서 읽는다(`youtube_map.<pd>.json`) — 서버에 값을
+   *   더 달지 않으려고 그렇게 한다. */
+  const pd = (/youtube_map\.(.+)\.json$/.exec((d && d.path) || "") || [])[1] || "";
+  const PREF = "ytmapFolder" + (pd ? "." + pd : "");
+
+  const fin = el("input");
+  fin.type = "text";
+  fin.className = "pb-folder";
+  fin.placeholder = "드라이브 폴더 주소를 붙여넣으십시오 — "
+    + "https://drive.google.com/drive/folders/…";
+  fin.value = getPref(PREF, "") || "";
+  wrap.appendChild(fin);
+
+  const say = el("div", "field-hint");
+  wrap.appendChild(say);
+
+  const pre = el("pre", "pb-cmd");
+  wrap.appendChild(pre);
+
+  function paint() {
+    const raw = fin.value.trim();
+    const id = folderId(raw);
+    pre.textContent = code.split("${FOLDER}").join(id || "여기에_폴더_ID");
+    if (!raw) {
+      say.className = "field-hint";
+      say.textContent = "주소를 붙이면 아래 코드의 FOLDER_ID 가 채워집니다. "
+        + "비워 두면 그 한 줄만 직접 고치십시오.";
+    } else if (id) {
+      say.className = "field-hint";
+      say.textContent = `폴더 ID ${id} — 아래 코드에 넣었습니다. 그대로 복사하십시오.`;
+    } else {
+      say.className = "field-hint bad";
+      say.textContent = "이 주소에서 폴더 ID 를 찾지 못했습니다 — 드라이브에서 폴더를 연 "
+        + "주소창의 drive.google.com/drive/folders/… 를 통째로 붙여넣으십시오.";
+    }
+    setPref(PREF, raw);
+  }
+  fin.addEventListener("input", paint);
+  paint();
+
+  const b = el("button", "btn sm", "코드 복사");
+  b.type = "button";
+  b.addEventListener("click", async () => {
+    // 화면에 보이는 것을 그대로 복사한다 — `code` 를 쓰면 자리표시자가 따라간다.
+    try { await navigator.clipboard.writeText(pre.textContent); toast("복사했습니다."); }
+    catch (e) { toast("복사하지 못했습니다 — 직접 긁어 가세요.", "err"); }
+  });
+  wrap.appendChild(b);
+  det.appendChild(wrap);
+  return det;
+}
+
 
 function renderYtmap() {
   const box = $("#pb-ytmap");
@@ -204,11 +432,37 @@ function renderYtmap() {
     });
     acts.appendChild(open);
   }
+  /* ★ 2차의 첫 일은 「영상 100편을 올려 둔다」 인데, mp4 가 05/<번들>/draft/ 로
+   *   100곳에 흩어져 있다. 탐색기 검색으로 긁어모으라고 적어 두었지만 드래그가
+   *   실수하기 쉽고 세기도 어렵다 — 한 폴더로 모아 준다.
+   * ★ 복사가 아니라 **하드링크**다. 100편이면 2GB 인데 자리를 먹지 않는다. */
+  const gat = el("button", "btn primary", "영상 한 폴더로 모으기");
+  gat.type = "button";
+  gat.title = "05/<번들>/draft/*.static.mp4 를 <작업폴더>/_videos/ 로 모읍니다 "
+    + "(하드링크 — 자리를 먹지 않습니다). 그 폴더째 드라이브에 올리시면 됩니다.";
+  gat.addEventListener("click", async () => {
+    gat.disabled = true;
+    try {
+      const r = await api("/api/publish/gather-videos", { method: "POST" });
+      toast(`${r.total - r.missing}편을 모았습니다 `
+        + `(링크 ${r.linked} · 복사 ${r.copied}`
+        + (r.missing ? ` · 없음 ${r.missing}` : "") + `) — ${r.dir}`,
+        r.missing ? "warn" : "ok");
+      await api("/api/publish/open", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ which: "videos" }),
+      }).catch(() => {});
+    } catch (e) {
+      toast("모으지 못했습니다: " + e.message, "err");
+    } finally { gat.disabled = false; }
+  });
+  acts.appendChild(gat);
   acts.appendChild(el("span", "field-hint qz-foot-hint",
     "공유 URL 을 그대로 id 에 붙여넣어도 됩니다 — 빌더가 ID 만 뽑습니다. "
     + "이미 넣은 링크는 다시 눌러도 지워지지 않습니다."));
   box.appendChild(acts);
   if (d.path) box.appendChild(el("pre", "pb-cmd", d.path));
+  box.appendChild(appsScriptBox(d));
 
   if (d.extra && d.extra.length) {
     box.appendChild(el("div", "field-hint",
@@ -271,12 +525,16 @@ function renderYtmap() {
   wrap.appendChild(tbl);
   box.appendChild(wrap);
 
-  // 붙여넣기 — 72개를 손으로 넣으면 한 줄 밀려 영상이 엉뚱한 회차에 붙는다.
+  /* 붙여넣기·드롭 — 번들이 72개(SQLD 100개)라 목록을 옮겨 붙이다 사고가 난다.
+   *
+   * ★ 넣기 전에 판정을 보여 준다. 예전에는 누르는 즉시 파일이 바뀌었고 백업도 없어서
+   *   잘못 넣으면 되돌릴 방법이 없었다. 지금은 preview → 표 → 반입 → (되돌리기) 다.
+   *   같은 ID 가 두 자리에 붙었으면 서버가 dup 로 잡고 여기서 [반입] 을 막는다.
+   */
   const tEmpty = (d.theory_total || 0) - (d.theory_filled || 0);
   const pd = el("details", "pb-paste");
   pd.open = d.empty > 0 || tEmpty > 0;
-  const sm = el("summary", null, `링크 붙여넣기 (${d.empty + tEmpty}개 비어 있음)`);
-  pd.appendChild(sm);
+  pd.appendChild(el("summary", null, `링크 넣기 (${d.empty + tEmpty}개 비어 있음)`));
   pd.appendChild(el("div", "field-hint",
     "번들코드와 링크가 같은 줄에 있으면 됩니다 — 파일명·URL·따옴표 섞여도 잡습니다. "
     + "예: m01-1.static.mp4  https://drive.google.com/file/d/1AbC.../view"));
@@ -285,16 +543,147 @@ function renderYtmap() {
       "이론 강의도 같은 칸에 넣습니다. 렌더 파일명이 그대로 통하고 「2과목」·「t3」 도 됩니다. "
       + "예: 1summary-planning.mp4  https://drive.google.com/file/d/1AbC.../view"));
   }
+
   const ta = el("textarea");
   ta.rows = 8;
   ta.placeholder = "m01-1.static.mp4  https://drive.google.com/file/d/1AbC.../view";
   ta.style.width = "100%";
-  pd.appendChild(ta);
-  const pb = el("button", "btn primary", "붙여넣은 링크 채우기");
-  pb.type = "button";
-  pb.addEventListener("click", async () => {
+
+  // 드롭 영역 — TXT 를 떨어뜨리거나 눌러 고른다. 둘 다 같은 통로다(브라우저가 읽어
+  // 텍스트로 보낸다). 그래서 서버에 multipart 를 붙일 필요가 없다.
+  const drop = el("div", "pb-drop",
+    "좌표 TXT 를 여기에 끌어다 놓거나, 눌러서 고르십시오");
+  const fi = el("input");
+  fi.type = "file";
+  fi.accept = ".txt,.csv,.tsv,.md,text/plain";
+  fi.multiple = true;
+  fi.hidden = true;
+
+  const pv = el("div", "pb-plan");
+  let plan = null;
+
+  const btnPv = el("button", "btn", "판정 보기");
+  btnPv.type = "button";
+  const btnGo = el("button", "btn primary", "이대로 반입");
+  btnGo.type = "button";
+  btnGo.disabled = true;
+  const btnUndo = el("button", "btn", "되돌리기");
+  btnUndo.type = "button";
+
+  async function preview() {
     const text = ta.value.trim();
-    if (!text) { toast("붙여넣을 내용이 없습니다."); return; }
+    pv.innerHTML = "";
+    plan = null;
+    btnGo.disabled = true;
+    if (!text) return;
+    try {
+      plan = await api("/api/publish/ytmap/preview", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+    } catch (e) {
+      pv.appendChild(el("div", "qz-warn err", e.message));
+      return;
+    }
+    renderPlan();
+  }
+
+  function renderPlan() {
+    pv.innerHTML = "";
+    const c = plan.counts || {};
+    const dupIds = (plan.dup && plan.dup.ids) || [];
+    const dupTargets = (plan.dup && plan.dup.targets) || [];
+    const rows = plan.rows || [];
+
+    const bits = [];
+    if (c.new) bits.push(`새로 채움 ${c.new}`);
+    if (c.replace) bits.push(`갈아끼움 ${c.replace}`);
+    if (c.same) bits.push(`이미 같음 ${c.same}`);
+    pv.appendChild(el("div", "qz-label",
+      bits.join(" · ") || "알아볼 수 있는 줄이 없습니다."));
+
+    // ★ 여기가 이 화면의 이유다 — 같은 것이 두 자리에 붙으면 파일을 봐도 어느 쪽이
+    //   이겼는지 알 수 없다. 그래서 경고가 아니라 차단이다.
+    if (dupIds.length || dupTargets.length) {
+      const lines = dupIds.map((x) =>
+        `같은 링크가 ${x.targets.join(" · ")} 에 붙었습니다 (${x.id.slice(0, 18)}…)`)
+        .concat(dupTargets.map((x) =>
+          `${x.target} 에 서로 다른 링크가 ${x.ids.length}개 왔습니다`));
+      pv.appendChild(el("div", "qz-warn err",
+        "목록이 어긋났습니다 — 반입할 수 없습니다.\n" + lines.join("\n")));
+    }
+    if (plan.unknown && plan.unknown.length) {
+      pv.appendChild(el("div", "qz-warn",
+        `05/ 에 없는 번들 ${plan.unknown.length}개는 건너뜁니다: `
+        + plan.unknown.slice(0, 8).join(", ")));
+    }
+    if (plan.unknown_theory && plan.unknown_theory.length) {
+      pv.appendChild(el("div", "qz-warn",
+        `03/ 에 없는 과목 ${plan.unknown_theory.join("·")} 는 건너뜁니다.`));
+    }
+    if (plan.skipped && plan.skipped.length) {
+      pv.appendChild(el("div", "field-hint",
+        `알아보지 못한 줄 ${plan.skipped_total}개 — 예: ${plan.skipped[0]}`));
+    }
+
+    if (rows.length) {
+      const t = el("table", "tbl");
+      t.innerHTML = `<thead><tr><th>자리</th><th>이름</th><th>지금</th>
+        <th>새로</th><th>판정</th></tr></thead>`;
+      const tb = el("tbody");
+      const VER = { new: ["새로 채움", "ok"], replace: ["갈아끼움", "warn"],
+                    same: ["이미 같음", ""] };
+      rows.forEach((r) => {
+        const tr = el("tr", r.verdict === "same" ? "state-todo" : "");
+        tr.appendChild(el("td", null, r.kind === "theory"
+          ? `${r.target}과목` : r.target));
+        tr.appendChild(el("td", "muted", r.label || ""));
+        tr.appendChild(el("td", "muted", r.now_id
+          ? r.now_id.slice(0, 18) + "…" : "비어 있음"));
+        tr.appendChild(el("td", "muted", r.new_id.slice(0, 18) + "…"));
+        const v = VER[r.verdict] || ["", ""];
+        const cell = el("td");
+        cell.appendChild(el("span", "status-chip " + v[1], v[0]));
+        tr.appendChild(cell);
+        tb.appendChild(tr);
+      });
+      t.appendChild(tb);
+      const w = el("div", "tbl-wrap");
+      w.appendChild(t);
+      pv.appendChild(w);
+    }
+
+    btnGo.disabled = !rows.length || dupIds.length > 0 || dupTargets.length > 0;
+  }
+
+  async function addFiles(list) {
+    const parts = [];
+    for (const f of list || []) parts.push(await f.text());
+    // ★ 같은 파일을 다시 고를 수 있게 반드시 비운다.
+    fi.value = "";
+    if (!parts.length) return;
+    const cur = ta.value.replace(/\s+$/, "");
+    ta.value = (cur ? cur + "\n" : "") + parts.join("\n");
+    await preview();
+  }
+
+  drop.addEventListener("click", () => fi.click());
+  drop.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    drop.classList.add("over");
+  });
+  drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+  drop.addEventListener("drop", async (e) => {
+    e.preventDefault();
+    drop.classList.remove("over");
+    await addFiles(e.dataTransfer && e.dataTransfer.files);
+  });
+  fi.addEventListener("change", (e) => addFiles(e.target.files));
+  btnPv.addEventListener("click", () => preview());
+
+  btnGo.addEventListener("click", async () => {
+    const text = ta.value.trim();
+    if (!text) { toast("반입할 내용이 없습니다."); return; }
     try {
       const r = await api("/api/publish/ytmap/paste", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -309,11 +698,45 @@ function renderYtmap() {
         bits.push(`03/ 에 없는 과목 ${r.unknown_theory.join("·")}`);
       }
       if (r.skipped?.length) bits.push(`건너뜀 ${r.skipped.length}줄`);
+      if (r.backup) bits.push("되돌릴 수 있습니다");
       toast(bits.join(" · "), (r.matched.length || nt) ? "" : "err");
+      ta.value = "";
+      pv.innerHTML = "";
+      plan = null;
+      btnGo.disabled = true;
       await refresh();
     } catch (e) { toast("채우지 못했습니다: " + e.message, "err"); }
   });
-  pd.appendChild(pb);
+
+  btnUndo.addEventListener("click", async () => {
+    const ok = await confirmModal({
+      title: "직전 반입을 되돌릴까요?",
+      body: `<div style="text-align:left;line-height:1.7">
+        매핑 파일을 <code>.bak</code> 와 <b>맞바꿉니다</b> — 한 번 더 누르면 다시
+        돌아옵니다.<br>
+        <span class="dim">되돌린 뒤에는 빌드를 다시 해야 서버에 반영됩니다.</span></div>`,
+      ok: "되돌리기", cancel: "그대로",
+    });
+    if (!ok) return;
+    try {
+      await api("/api/publish/ytmap/restore", { method: "POST" });
+      toast("되돌렸습니다.");
+      await refresh();
+    } catch (e) { toast("되돌리지 못했습니다: " + e.message, "err"); }
+  });
+
+  pd.appendChild(ta);
+  pd.appendChild(drop);
+  pd.appendChild(fi);
+  const pfoot = el("div", "qz-foot");
+  pfoot.appendChild(btnPv);
+  pfoot.appendChild(btnGo);
+  pfoot.appendChild(btnUndo);
+  pfoot.appendChild(el("span", "field-hint qz-foot-hint",
+    "[판정 보기] 는 파일을 고치지 않습니다. 무엇이 갈아끼워지는지 확인한 뒤 "
+    + "[이대로 반입] 을 누르십시오."));
+  pd.appendChild(pfoot);
+  pd.appendChild(pv);
   box.appendChild(pd);
 
   box.appendChild(el("div", "field-hint",
@@ -437,7 +860,8 @@ async function startBuild(force) {
     const job = await api("/api/publish/build", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ force_ignore_warnings: !!force }),
+      body: JSON.stringify({ scope: scopeFromHash(),
+                             force_ignore_warnings: !!force }),
     });
     attachBuild(job.id);
   } catch (err) {
@@ -536,7 +960,9 @@ function renderProblems() {
   };
   if (!d.count) {
     box.appendChild(el("div", "empty",
-      d.errors?.[0] || "problems.json 이 아직 없습니다. ② 빌드를 먼저 실행하세요."));
+      d.errors?.[0] || "problems.json 이 아직 없습니다. "
+      // 빌드 카드 번호는 발행마다 다르다 — 1차는 ②, 2차는 영상 매핑이 끼어 ③ 이다.
+      + `${scopeFromHash() === "problems" ? "②" : "③"} 빌드를 먼저 실행하세요.`));
     return;
   }
   add(d.pd_id === (P.env?.pd), `pd_id = ${d.pd_id}`);
@@ -670,10 +1096,16 @@ async function renderStage() {
   let st = null;
   try { st = await api("/api/publish/stage"); } catch (e) { /* 아래에서 처리 */ }
 
+  /* ★ 이 카드는 **문제집 내용물의 자리가 아니다**(2026-08-26 지적).
+   *   문항·영상·요약노트·도식은 `06/_올릴것/` 에서 반입 화면(adm/exam_deploy.php)으로
+   *   간다. 여기는 그 반입 화면을 **담고 있는 웹 소스 자체**(adm/ theme/ extend/
+   *   index.php .htaccess)가 바뀌었을 때만 쓴다. 이름이 「업로드」 라 매번 눌러야
+   *   하는 자리로 읽혔다. */
   const head = el("div", "field-hint");
-  head.innerHTML = "왼쪽(로컬)에 <b>업로드 폴더</b>, 오른쪽(서버)에 <b>/www/</b> 를 놓고 "
-    + "통째로 끌어놓으세요. 폴더 안이 이미 서버와 같은 모양입니다 — "
-    + "<b>어디로 갈지 생각할 것이 없습니다.</b>";
+  head.innerHTML = "<b>문제집 내용물은 여기가 아닙니다</b> — 문항·영상·요약노트·도식은 "
+    + "<code>06/_올릴것/</code> 에서 <b>반입 화면</b>으로 갑니다.<br>"
+    + "이 폴더는 <b>웹 소스(adm · theme · extend · index.php · .htaccess)가 바뀌었을 때만</b> "
+    + "씁니다. 폴더 안이 이미 서버와 같은 모양이라, 통째로 <b>/www/</b> 에 올리면 됩니다.";
   box.appendChild(head);
 
   // ★ 빌드보다 낡았으면 크게 알린다. 파일 수만 보면 그럴듯해서 사람이 못 알아챈다 —
@@ -682,8 +1114,9 @@ async function renderStage() {
   if (st?.exists && st.stale) {
     const w = el("div", "qz-warn err");
     w.appendChild(icon("alert", 15));
-    w.appendChild(el("span", null, st.stale_text
-      || "빌드가 이 폴더보다 새롭습니다 — 다시 만드세요."));
+    w.appendChild(el("span", null, (st.stale_text
+      || "빌드가 이 폴더보다 새롭습니다 — 다시 만드세요.")
+      + " (웹 소스를 올릴 때만 뜻이 있습니다 — 내용물만 바뀌었으면 그냥 두십시오.)"));
     box.appendChild(w);
   }
 
@@ -740,8 +1173,7 @@ async function renderStage() {
   }
 
   box.appendChild(el("div", "field-hint",
-    "FileZilla 설정(한 번만): 전송 유형 바이너리 · 동시 전송 2 · 문자셋 UTF-8 강제"
-    + "(요약노트 파일명이 한글입니다)."));
+    "올릴 때: 전송 유형 바이너리 · 문자셋 UTF-8 (요약노트 파일명이 한글입니다)."));
   box.appendChild(el("div", "field-hint",
     "★ problems.json 은 이 폴더에 넣지 않았습니다 — 관리자 화면(/adm/exam_import.php)에서 "
     + "올리거나 붙여넣습니다. .htaccess 가 .json 을 403 으로 막아서 FTP 로는 읽히지 않습니다."));
@@ -797,7 +1229,7 @@ function renderFtp() {
   }
 
   const acts = el("div", "qz-foot");
-  const open = el("button", "btn primary", "06/ 폴더 열기 (FileZilla 로 끌어놓기)");
+  const open = el("button", "btn primary", "06/ 폴더 열기");
   open.type = "button";
   open.addEventListener("click", openOut);
   acts.appendChild(open);
@@ -862,14 +1294,21 @@ function renderServer() {
   const note = el("div", "field-hint");
   // ★ 이 카드는 인수인계 문서다 — 처음 보는 사람이 이것만 읽고 할 수 있어야 한다.
   //   그래서 번호를 **실제 하는 순서**로 두고, 0.x(앱) 와 1~(서버) 를 갈라 둔다.
-  note.textContent = "이 순서대로 하시면 됩니다. 0.x 는 이 앱에서 버튼으로 끝나고, "
-    + "1번부터는 FileZilla·브라우저에서 사람이 합니다. "
+  note.textContent = "묶음 순서대로 하시면 됩니다. 「문제집 세팅」은 보통 첫 발행에만 "
+    + "하고, 두 번째부터는 「업로드」만 반복합니다. "
     + "임포트는 1회용 관리자 토큰을 쓰기 때문에 스크립트로 부를 수 없습니다. "
     + "서버에서는 이력을 되읽을 수 없으므로(.htaccess 가 .json 을 403 으로 막습니다) "
     + "여기 체크 기록이 유일한 발행 이력입니다.";
   box.appendChild(note);
 
+  // ★ 묶음이 바뀌면 머리글을 끼운다 — 매번 하는 일과 처음 한 번만 하는 일이
+  //   한 줄로 이어져 있으면, 두 번째 발행에서 무엇을 건너뛸지 알 수 없다.
+  let section = null;
   d.items.forEach((it, i) => {
+    if (it.section && it.section !== section) {
+      section = it.section;
+      box.appendChild(el("div", "pb-section", it.section_label || ""));
+    }
     const st = (d.state || {})[it.key] || {};
     const card = el("div", "pb-step " + (st.done ? "done" : ""));
     const cb = el("input");
@@ -879,7 +1318,9 @@ function renderServer() {
       try {
         const r = await api("/api/publish/checklist", {
           method: "PUT", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ key: it.key, done: cb.checked }),
+          // 기록은 품목·단계마다 따로 남는다 — 어느 발행의 기록인지 같이 보낸다.
+          body: JSON.stringify({ key: it.key, done: cb.checked,
+                                 scope: scopeFromHash() }),
         });
         d.state = r.state;
         card.classList.toggle("done", cb.checked);
@@ -899,6 +1340,16 @@ function renderServer() {
     //   링크가 되면 읽는 순서가 흐트러진다.
     mid.appendChild(linkify(it.where, "pb-where"));
     mid.appendChild(el("div", "muted", it.detail));
+    /* ★ 긴 설명은 **접는다.** 단계마다 열 줄씩 적혀 있어 화면이 글로 덮였다 —
+     *   품목마다 매번 하는 일이라 좌표와 넣을 값만 있으면 되고, 왜 그런지는 처음
+     *   한 번만 읽으면 된다. 지우지는 않는다 — 지우면 다음 사람이 같은 함정에
+     *   다시 빠진다(2026-08-26 지시). */
+    if (it.more && it.more.trim()) {
+      const det = el("details", "pb-more");
+      det.appendChild(el("summary", null, "자세히"));
+      det.appendChild(el("div", "muted", it.more));
+      mid.appendChild(det);
+    }
     if (it.sql) {
       const btn = el("button", "btn sm", "SQL 보기");
       btn.type = "button";

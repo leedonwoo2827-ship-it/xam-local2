@@ -43,6 +43,18 @@ def _count(dir_path: str, suffix: str) -> int:
     return sum(1 for f in os.listdir(dir_path) if f.endswith(suffix))
 
 
+def _pages_slides(bundle: str) -> int:
+    """`05/<번들>/source/pages.json` 의 장 수. 없으면 0(강의덱을 안 쓰는 번들)."""
+    p = paths.bundle_pages(bundle)
+    if not os.path.isfile(p):
+        return 0
+    try:
+        with open(p, encoding="utf-8") as f:
+            return int(json.load(f).get("slides") or 0)
+    except (OSError, ValueError, json.JSONDecodeError):
+        return 0
+
+
 def _deck_slides(deck_path: str) -> int:
     """deck.html 의 .slide 개수. chodangi 는 Playwright 로 세지만 우리는 정규식으로
     충분하다 — 목적이 '스폰 전에 1:1 이 깨졌는지' 만 보는 것이다."""
@@ -52,6 +64,24 @@ def _deck_slides(deck_path: str) -> int:
     except OSError:
         return -1
     return len(re.findall(r'class="[^"]*\bslide\b[^"]*"', html))
+
+
+def _speech_edited(bundle: str) -> int:
+    """사람이 자막·발음을 고친 씬의 수. 없으면 0."""
+    try:
+        from services.render import speech
+        return len(speech.read_raw(bundle))
+    except Exception:                                        # noqa: BLE001
+        return 0
+
+
+def _images_ready(bundle: str) -> bool:
+    """`slideimg.images_ready` 를 그대로 쓴다 — 규칙을 여기에 베끼지 않는다."""
+    try:
+        from services.deck import slideimg
+        return bool(slideimg.images_ready(bundle))
+    except Exception:                                        # noqa: BLE001
+        return False
 
 
 def scan_one(bundle: str) -> dict:
@@ -82,8 +112,15 @@ def scan_one(bundle: str) -> dict:
         except (OSError, json.JSONDecodeError):
             pass
 
+    # ★ **장 나눔의 진실이 어디인가.** 강의덱(pptx)을 쓰는 번들은 `source/pages.json`
+    #   이 있고, 그 장 수가 씬의 근거다. deck.html 은 변환기의 입력·미리보기로만
+    #   남으므로 장 수가 다르다(변환기가 과분할을 되붙여 다시 쪼갠다). 그것을 모르고
+    #   deck.html 을 세면 멀쩡한 번들을 「1:1 깨짐」으로 표시한다.
+    n_pages = _pages_slides(bundle)
     deck_slides = _deck_slides(deck) if has_deck else -1
-    ok_1to1 = has_deck and has_script and deck_slides == capture
+    slide_src = "pages.json" if n_pages else "deck.html"
+    ref_slides = n_pages or deck_slides
+    ok_1to1 = bool(has_script) and ref_slides == capture and (has_deck or n_pages)
 
     total_seconds = None
     review_slides = None
@@ -99,17 +136,26 @@ def scan_one(bundle: str) -> dict:
 
     mp4_bytes = paths.size(mp4)
     mp4_mtime = paths.mtime(mp4)
-    newest_input = max(paths.mtime(deck), paths.mtime(script), paths.mtime(lesson))
+    # ★ 손수정(`<번들>_speech.json`)도 **입력이다.** 자막·발음을 고치면 script.json 은
+    #   그대로라, 이것을 빼면 고쳐도 목록이 「완료」 로 남아 낡은 mp4 가 그대로 나간다
+    #   (실측 2026-08-26 — 사람이 고치고도 다시 돌려야 하는 줄 알 방법이 없었다).
+    speech_json = os.path.join(d, "script", f"{bundle}_speech.json")
+    newest_input = max(paths.mtime(deck), paths.mtime(script), paths.mtime(lesson),
+                       paths.mtime(speech_json))
 
     if not (has_deck and has_script):
         status, reason = "broken", "deck.html 또는 script JSON 이 없습니다."
     elif not ok_1to1:
         status, reason = "broken", (
-            f"deck 슬라이드({deck_slides}) ≠ 캡처 씬({capture}) — 슬라이드/씬 1:1 이 깨졌습니다.")
+            f"{slide_src} 슬라이드({ref_slides}) ≠ 캡처 씬({capture}) — "
+            f"슬라이드/씬 1:1 이 깨졌습니다.")
     elif not mp4_bytes:
         status, reason = "missing", "아직 렌더하지 않았습니다."
     elif mp4_mtime < newest_input:
-        status, reason = "stale", "문항·deck 이 mp4 보다 새롭습니다 — 다시 렌더해야 합니다."
+        status = "stale"
+        reason = ("자막·발음을 고쳤습니다 — 다시 렌더해야 영상에 들어갑니다."
+                  if paths.mtime(speech_json) > mp4_mtime
+                  else "문항·deck 이 mp4 보다 새롭습니다 — 다시 렌더해야 합니다.")
     else:
         status, reason = "done", None
 
@@ -126,6 +172,10 @@ def scan_one(bundle: str) -> dict:
         "scenes": scenes,
         "capture_scenes": capture,
         "deck_slides": deck_slides,
+        # ★ 1:1 판정에 실제로 쓴 수와 그 출처. 강의덱을 쓰는 번들은
+        #   pages.json 이 진실이고 deck_slides 와 **일부러 다르다.**
+        "slides_ref": ref_slides,
+        "slides_src": slide_src,
         "ok_1to1": ok_1to1,
         "has_deck": has_deck,
         "has_script": has_script,
@@ -137,6 +187,12 @@ def scan_one(bundle: str) -> dict:
         "review": {"exists": os.path.isfile(review), "total_seconds": total_seconds,
                    "slides": review_slides},
         "images": _count(paths.bundle_images_dir(bundle), ".png"),
+        # ★ 렌더가 그 PNG 를 **그대로 쓰는가**(`--reuse-images`). 판정은 한 곳뿐이다 —
+        #   runner 도 같은 함수를 부른다. 어긋나면 deck.html 캡처로 폴백하므로,
+        #   화면이 그것을 말해 주지 않으면 「확정한 화면과 다른 영상」이 조용히 나간다.
+        "images_ready": _images_ready(bundle),
+        # 이 번들에서 사람이 자막·발음을 고친 씬 수 — 목록이 배지로 보여 준다
+        "speech_edited": _speech_edited(bundle),
         "audio": _count(paths.bundle_audio_dir(bundle), ".wav"),
         "exists": os.path.isdir(d),
         "status": status,
@@ -209,6 +265,8 @@ def scenes(bundle: str) -> dict:
             #     narration  자막 — 화면에 뜨는 원문
             #     speech     발음 — TTS 가 읽는 글(숫자가 소리로 바뀌어 있고 손수정이 얹힌다)
             "narration": s.get("narration") or "",
+            # 고치기 전의 자막 원문 — 화면이 저장할 때 `from` 으로 되돌려 보낸다
+            "narration_src": s.get("narration_src") or s.get("narration") or "",
             "speech": s.get("narration_text") or s.get("narration") or "",
             "speech_edited": si in hand,
             "silent": s.get("kind") in ("countdown", "gap"),

@@ -139,6 +139,18 @@ class Piece:
     atomic: bool = True
     # 발문처럼 **첫 장에 반드시 있어야** 하는 것. 없으면 무슨 문제인지 모른다.
     sticky: bool = False
+    # ★★ **다음 조각과 같은 장**에 있어야 하는 것. 표 위의 이름표(「[ORDERS]」)가
+    #   그렇다. 떨어지면 앞 장 끝에 이름표만 남고 표가 다음 장에서 시작한다 —
+    #   무엇의 표인지 알 수 없다(2026-08-20 실측 SQLD 11·12번).
+    #   `sticky` 로는 안 된다. 그건 「첫 장에 남는다」 는 뜻이라 자리가 다르다.
+    with_next: bool = False
+    # ★★ 남는 자리에 맞춰 **둘로 쪼개는** 함수. `f(자리높이) -> (앞, 뒤) | None`.
+    #   표는 행으로, 코드는 줄로 쪼갠다(2026-08-20 지시: 「쭈욱 흐르게 해도 됩니다.
+    #   박스가 중간에 끊겨도 되고요」 · 「지문이나 표를 안 읽는다」). 낭독이 발문만
+    #   읽고 해설로 넘어가므로, 문제 면은 **눈으로 훑는 자리**다 — 장 경계에서
+    #   끊겨도 읽는 데 지장이 없다. 못 쪼개면 None 을 주면 통째로 넘어간다.
+    #   쪼개지 못하던 때는 한 장에 표 하나만 남고 아래가 텅 비었다.
+    splitter: object = None
 
 
 @dataclass
@@ -154,6 +166,11 @@ class Page:
     @property
     def html(self) -> str:
         return "".join(p.html for p in self.pieces)
+
+
+# ★ 쪼개려면 남는 자리가 최소 이만큼은 있어야 한다. 그보다 좁으면 표 머리나
+#   코드 한 줄만 남아 보기 나쁘다.
+SPLIT_MIN = 140.0
 
 
 def pack(pieces: List[Piece], budget: float = BUDGET,
@@ -174,9 +191,26 @@ def pack(pieces: List[Piece], budget: float = BUDGET,
         # ★ 남은 것이 얼마 없으면 쪼개지 않는다. 쪼개면 그 장에 한 줄만 남고,
         #   1920×1080 프레임에 한 줄만 뜨면 핸드폰에서 안 보인다.
         rest = sum(x.h for x in pieces[k:]) + CARD_GAP * max(0, len(pieces) - k - 1)
+        # ★ `with_next` 면 **다음 조각까지** 들어갈 자리를 본다. 이름표만 넣고
+        #   표를 다음 장으로 보내면 이름표가 홀로 남는다.
+        if p.with_next and k + 1 < len(pieces):
+            need += CARD_GAP + pieces[k + 1].h
         if cur.pieces and cur.h + need > lim and rest > ORPHAN:
-            pages.append(Page())
-            cur = pages[-1]
+            # ★ 넘어가기 전에 **쪼갤 수 있으면 쪼갠다.** 남는 자리가 한 줌이면
+            #   쪼개지 않는다 — 표 머리만 남은 장이 생긴다.
+            room = lim - cur.h - CARD_GAP
+            cut = None
+            if p.splitter and room > SPLIT_MIN and not p.with_next:
+                cut = p.splitter(room)
+            if cut:
+                head, tail = cut
+                cur.pieces.append(head)
+                pages.append(Page())
+                cur = pages[-1]
+                p = tail
+            else:
+                pages.append(Page())
+                cur = pages[-1]
         cur.pieces.append(p)
     return [pg for pg in pages if pg.pieces]
 

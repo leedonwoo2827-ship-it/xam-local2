@@ -100,9 +100,12 @@ function renderTabs() {
   if (!box) return;
   box.innerHTML = "";
   S.list.items.forEach((it) => {
-    const b = el("button", "chip" + (S.key === it.key ? " on" : ""), it.key);
+    // ★ 파일 키(`sql-1`)가 아니라 사람이 읽는 이름을 띄운다. 과목이 여러 편으로
+    //   나뉘면 키만 보고는 어느 편인지 모른다(2026-08-20).
+    const b = el("button", "chip" + (S.key === it.key ? " on" : ""),
+                 it.label || it.key);
     b.type = "button";
-    b.title = `${it.md_path} · ${fmtBytes(it.md_bytes)}`;
+    b.title = `${it.key} · ${it.md_path} · ${fmtBytes(it.md_bytes)}`;
     // ★ .md 가 없어도 막지 않는다 — .html 을 직접 고친다(그게 발행되는 파일이다).
     //   예전에는 여기서 disabled 라서, #2 가 .html 만 만든 회차는 요약노트를 아예
     //   고칠 수 없었다.
@@ -155,6 +158,24 @@ async function loadTheory() {
  */
 let TICK = null, JOB0 = 0, ITEM0 = 0, ITEMKEY = "", LASTJOB = null;
 
+/* ★ 버튼을 매 초 다시 만들지 않는다 — `innerHTML` 을 갈아치우면 리스너가 날아가서,
+   1초마다 다시 걸어야 한다. 그래서 위임(delegation)으로 한 번만 건다. */
+let CANCEL_BOUND = false;
+
+function bindCancel(job) {
+  if (CANCEL_BOUND) return;
+  CANCEL_BOUND = true;
+  document.addEventListener("click", async (e) => {
+    const b = e.target.closest && e.target.closest("#sm-th-cancel");
+    if (!b) return;
+    const j = LASTJOB;
+    if (!j || !j.id) return;
+    b.disabled = true;
+    await api(`/api/jobs/${j.id}/cancel`, { method: "POST" }).catch(() => {});
+    toast("일시정지했습니다 — 끝난 편은 남습니다.", "");
+  });
+}
+
 function startTick() {
   stopTick();
   TICK = setInterval(() => {
@@ -169,24 +190,58 @@ function stopTick() {
   if (TICK) { clearInterval(TICK); TICK = null; }
 }
 
+/* ★ 집필 화면(`authoring.js` 의 `drawJob`)과 **같은 모양**으로 낸다.
+   편 하나가 10~15분이라 화면이 오래 안 바뀐다 — 숫자가 작으면 멈춘 것으로 보인다.
+   경과·진행을 20px 로 키우고 `tabular-nums` 로 자릿수를 고정한다(2026-08-20 지시). */
+/* 편 키(`sql-1`) 대신 읽는 이름(`2과목 1편`). 키만 보고는 어느 편인지 모른다. */
+function curLabel(job) {
+  const it = ((S.th && S.th.items) || []).find((i) => i.key === job.current);
+  return (it && it.label) || job.current || "";
+}
+
 function clockHtml(job) {
   if (!job) return "";
-  const parts = [`경과 <b>${fmtSec((Date.now() - JOB0) / 1000)}</b>`];
-  if (ITEM0 && job.current) {
-    parts.push(`이 과목 ${fmtSec((Date.now() - ITEM0) / 1000)}`);
-  }
-  // 이번 잡에서 끝난 과목들의 실측 평균으로만 계산한다.
   const done = Object.values(job.items || {}).filter((v) => v.status === "done");
   const secs = done.map((v) => v.seconds || 0).filter((s) => s > 0);
-  const total = job.total_count || 4;
+  const total = job.total_count || (S.th && (S.th.items || []).length) || 1;
+  const pct = total ? Math.round((done.length / total) * 100) : 0;
+
+  let eta = `<span class="dim">첫 편이 끝나면 남은 시간을 계산합니다</span>`;
   if (secs.length && done.length < total) {
     const per = secs.reduce((a, b) => a + b, 0) / secs.length;
-    parts.push(`약 <b>${fmtSec(per * (total - done.length))}</b> 남음`
-      + ` <span class="dim">(이번 잡 실측 · 과목당 ${fmtSec(per)})</span>`);
-  } else if (!secs.length) {
-    parts.push(`<span class="dim">첫 과목이 끝나면 남은 시간을 계산합니다</span>`);
+    eta = `약 <b>${fmtSec(per * (total - done.length))}</b> 남음`
+      + ` <span class="dim">(이번 잡 실측 · 편당 ${fmtSec(per)})</span>`;
+  } else if (secs.length) {
+    eta = `<span class="dim">—</span>`;
   }
-  return parts.join(" · ");
+
+  const big = "font-size:20px;font-variant-numeric:tabular-nums";
+  return `<div class="row" style="gap:18px;align-items:baseline;flex-wrap:wrap">
+      <div><span class="dim small">경과</span>
+        <b style="${big}">${fmtSec((Date.now() - JOB0) / 1000)}</b></div>
+      <div><span class="dim small">진행</span>
+        <b style="font-size:20px">${done.length}/${total}</b>
+        <span class="dim">(${pct}%)</span></div>
+      <div><span class="dim small">남은 시간</span> ${eta}</div>
+    </div>
+    <div class="bar" style="margin:10px 0"><span style="width:${pct}%"></span></div>
+    ${job.current ? `<div class="kvs"><div class="kv">
+      <span class="k">지금</span><span class="v"><b>${escapeHtml(curLabel(job))}</b>
+      ${ITEM0 ? ` · <span style="font-variant-numeric:tabular-nums">`
+        + `${fmtSec((Date.now() - ITEM0) / 1000)}</span> 경과` : ""}</span>
+    </div></div>` : ""}
+    ${["running", "queued"].includes(job.status) ? `<div class="row" style="margin-top:10px">
+      ${job.cancel_requested
+        ? `<b class="warn">⏸ 정지 요청됨</b>
+           <span class="dim">지금 편(<b>${escapeHtml(curLabel(job))}</b>)이 끝나면 멈춥니다.
+             편 하나가 10~15분이라 <b>바로 멈추지 않습니다</b> — 중간에 끊으면 그 편이
+             통째로 날아가기 때문입니다. 지금 끄고 싶으면 서버 창을 닫으십시오
+             (그 편만 잃고 끝난 편은 남습니다).</span>`
+        : `<button class="btn pause" id="sm-th-cancel" type="button">⏸ 일시정지</button>
+           <span class="dim">돌고 있는 편은 끝까지 갑니다 — 그 뒤만 멈춥니다.
+             <b>끝난 편은 파일로 남습니다</b>. 다시 [이론 집필] 을 누르면 남은 편만
+             고르면 됩니다.</span>`}
+    </div>` : ""}`;
 }
 
 function renderTheory(job) {
@@ -218,17 +273,21 @@ function renderTheory(job) {
   let txt;
   if (job) {
     const done = Object.values(job.items || {}).filter((v) => v.status === "done").length;
-    txt = `이론 집필 중 — ${done}/${job.total_count || 4}과목`
-      + (job.current ? ` · 지금 ${job.current}` : "");
+    // ★ 단위는 「과목」 이 아니라 **편**이다. 상수 4 도 뺀다(품목마다 다르다).
+    const _t = job.total_count || (S.th.items || []).length || 1;
+    const _cur = (S.th.items || []).find((i) => i.key === job.current);
+    txt = `이론 집필 중 — ${done}/${_t}편`
+      + (job.current ? ` · 지금 ${_cur ? _cur.label : job.current}` : "");
   } else if (have === 0) {
-    txt = `03/ 에 요약노트가 없습니다. 소스 ${rounds}회차로 4과목을 만들 수 있습니다.`
+    txt = `03/ 에 요약노트가 없습니다. 소스 ${rounds}회차로 `
+      + `${(S.th.items || []).length}편을 만들 수 있습니다.`
       + ` 위 [이론 집필] 을 누르십시오. (지금 보이는 탭 이름은 폴백값입니다 —`
       + ` 만들면 실제 파일명으로 바뀝니다.)`;
   } else {
     // ★ "무엇을 눌러야 하나" 를 말한다. 4/4 가 있다는 사실만 알려 주면 사람이
     //   빈 편집기를 보고 멈춘다 — 실제로 그렇게 됐다(2026-08-12).
     txt = `03/ 에 ${have}/4 과목이 있습니다 · 소스 ${rounds}회차`
-      + `  —  위 탭(${(S.th.items || []).filter((i) => i.exists).map((i) => i.key).join(" · ")})`
+      + `  —  위 탭(${(S.th.items || []).filter((i) => i.exists).map((i) => i.label || i.key).join(" · ")})`
       + `을 눌러 본문을 열고, [발행될 HTML 보기] 로 실제 모양을 확인하십시오.`;
   }
   if (!job && !S.th.rounds_ready) {
@@ -244,21 +303,14 @@ function renderTheory(job) {
   const split = $(".sm-split");
   if (split) split.hidden = !!job;
 
-  // ★ 진행 바 + 초시계. 이 두 줄이 "흐르고 있다" 를 말한다.
+  // ★ 진행 바는 `clockHtml` 안에 있다 — 여기서 또 만들면 바가 둘이 된다.
+  //   `field-hint` 클래스도 빼야 한다. 그 클래스가 글씨를 작게 하니 20px 이 죽는다.
   if (job) {
-    const total = job.total_count || 4;
-    const done = Object.values(job.items || {}).filter((v) => v.status === "done").length;
-    // ★ 새 클래스를 만들지 않는다 — `.bar > span` 이 이미 이 앱의 진행 바다.
-    const bar = el("div", "bar");
-    const fill = el("span");
-    fill.style.width = Math.round((done / total) * 100) + "%";
-    bar.appendChild(fill);
-    box.appendChild(bar);
-
-    const clock = el("div", "field-hint");
+    const clock = el("div");
     clock.id = "sm-th-clock";
     clock.innerHTML = clockHtml(job);
     box.appendChild(clock);
+    bindCancel(job);
     startTick();
   }
 
@@ -279,15 +331,28 @@ async function startTheory() {
 
   const have = (S.th.items || []).filter((i) => i.exists);
   const rounds = (S.th.rounds || []).length;
-  const all = (S.th.items || []).length || 4;
+  // ★ 과목 수는 **시험정보에서** 온다(서버가 `items` 로 준다). `|| 4` 로 떨어지면
+  //   SQLD(2과목)인데 확인창이 「4과목을 집필할까요?」 라고 묻는다(2026-08-20 실측).
+  const all = (S.th.items || []).length;
   // ★ 다 있으면 **다시 만들 것인지** 를 묻는다. 예전에는 그대로 POST 해서 서버가
   //   "모두 이미 있습니다" 로 400 을 냈다 — 사람은 버튼이 고장난 줄 안다.
   const redo = have.length >= all;
   const notes = [];
-  notes.push(`소스 <b>${rounds}회차</b>의 해설에서 시험 키워드를 뽑아 과목별 요약 이론`
-    + ` 4개를 만듭니다.`);
+  // ★ 과목을 **고를 수 있게** 한다. 서버는 `keys` 를 받는데 화면이 안 보내서
+  //   늘 전 과목이 돌았다. SQLD 2과목은 크기가 크게 다르다 — 1과목 200문항 ·
+  //   2과목 800문항이라, 큰 쪽을 돌리기 전에 작은 쪽으로 확인해야 한다(2026-08-20).
+  notes.push('<b>돌릴 편</b>을 고르십시오 — 편 하나가 호출 하나이고 영상 하나입니다.'
+    + (S.th.items || []).map((i) => `<div style="margin:4px 0 0 6px">`
+        + `<label><input type="checkbox" class="th-pick" value="${escapeHtml(i.key)}" checked> `
+        + `<b>${escapeHtml(i.label || i.key)}</b>`
+        + `<span class="dim"> · ${escapeHtml(i.range_label || "")}`
+        + ` — ${escapeHtml(i.key)}.html</span>`
+        + (i.exists ? ` <span class="warn">이미 있음 · 덮어씁니다</span>` : "")
+        + `</label></div>`).join(""));
+  notes.push(`소스 <b>${rounds}회차</b>의 해설에서 시험 키워드를 뽑아 과목별 요약 이론을`
+    + ` 만듭니다.`);
   if (redo) {
-    notes.push(`★ 4과목이 <b>이미 있습니다.</b> 계속하면 <b>전부 다시 만들어 덮어씁니다</b>`
+    notes.push(`★ ${all}편이 <b>이미 있습니다.</b> 계속하면 <b>전부 다시 만들어 덮어씁니다</b>`
       + ` (기존 파일은 <code>.bak</code> 으로 남습니다).`);
   }
   if (!S.th.rounds_ready) {
@@ -295,26 +360,32 @@ async function startTheory() {
       + ` 지금은 ${rounds}회차뿐이라 남은 회차를 집필한 뒤 다시 만들어야 합니다.`);
   }
   if (have.length) {
-    notes.push(`이미 있는 ${have.length}과목(${have.map((i) => i.key).join(" · ")})은`
+    notes.push(`이미 있는 ${have.length}편(${have.map((i) => i.label || i.key).join(" · ")})은`
       + ` <b>건너뜁니다.</b> 다시 만들려면 그 파일을 지우고 누르십시오.`);
   }
   if (S.th.authoring_running) {
     notes.push("★ 문항 집필이 돌고 있습니다 — 서버가 거절합니다. 끝난 뒤 누르십시오.");
   }
-  notes.push("과목당 10분쯤 걸립니다. 구독 한도를 씁니다.");
+  notes.push("편당 10~15분쯤 걸립니다. 구독 한도를 씁니다.");
 
   if (!(await confirmModal({
-    title: "이론 4과목을 집필할까요?",
+    title: `이론 ${all}편을 집필할까요?`,
     body: notes.map((t) => `<p>${t}</p>`).join(""),
     ok: "집필 시작", cancel: "취소",
   }))) return;
+
+  // ★ 모달이 닫히기 **전에** 읽어야 한다 — 닫히면 그 마크업이 사라진다.
+  //   `confirmModal` 이 true 를 돌려준 직후가 그 자리다(모달 DOM 은 아직 있다).
+  const picked = [...document.querySelectorAll(".th-pick")]
+    .filter((c) => c.checked).map((c) => c.value);
+  if (!picked.length) { toast("돌릴 과목을 고르십시오.", "err"); return; }
 
   let r;
   try {
     r = await api("/api/theory/draft", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
+      body: JSON.stringify({ keys: picked }),
     });
   } catch (e) {
     toast("시작하지 못했습니다: " + e.message, "err");

@@ -28,6 +28,8 @@ const routes = [
   // OCR 실행 — PDF 고르고 돌리는 **바탕** 화면. 로그가 아래로 흐르므로 패널이 아니다.
   { re: /^\/ocr-run$/, nav: "oc", layer: "base", load: () => import("./ocrrun.js") },
   { re: /^\/scan\/(.+)$/,       nav: "sc", layer: "base",  load: () => import("./scan.js") },
+  // 과정 정의 — 시험정보(exams/<id>.json). 스캔이 없어도 여는 화면이라 입구 쪽이다.
+  { re: /^\/exams$/,            nav: "ed", layer: "base",  load: () => import("./examdef.js") },
   { re: /^\/questions\/(.+)$/,  nav: "q",  layer: "base",  load: () => import("./questions.js") },
   { re: /^\/video\/(.+)$/,      nav: "v",  layer: "base",  load: () => import("./video.js") },
   // 일괄 렌더의 진행·터미널. 목록(패널)에서 시작하면 여기로 온다 — 작업은 바탕에서.
@@ -36,7 +38,12 @@ const routes = [
   // 패널에 두면 Esc·스크림 클릭에 닫히고, 돌던 잡의 진행을 놓친다.
   { re: /^\/authoring$/,        nav: "a",  layer: "base",  load: () => import("./authoring.js") },
   { re: /^\/authoring\/(.+)$/,  nav: "a",  layer: "base",  load: () => import("./authoring.js") },
-  { re: /^\/publish$/,          nav: "p",  layer: "base",  load: () => import("./publish.js") },
+  // ★ 발행은 2단계다 — 화면은 하나이고 **게이트의 범위**만 다르다.
+  //   `/publish` 는 옛 주소라 2차와 같게 둔다(북마크·「발행 이력」 링크가 그걸 쓴다).
+  { re: /^\/publish\/problems$/, nav: "p",  layer: "base",  load: () => import("./publish.js") },
+  { re: /^\/publish\/video$/,    nav: "p2", layer: "base",  load: () => import("./publish.js") },
+  { re: /^\/publish$/,          nav: "p2", layer: "base",  load: () => import("./publish.js") },
+  { re: /^\/slides$/,           nav: "sl", layer: "base",  load: () => import("./slides.js") },
   { re: /^\/summary$/,          nav: "s",  layer: "base",  load: () => import("./summary.js") },
   { re: /^\/summary\/(.+)$/,    nav: "s",  layer: "base",  load: () => import("./summary.js") },
 

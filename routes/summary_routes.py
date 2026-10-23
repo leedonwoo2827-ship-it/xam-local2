@@ -64,8 +64,19 @@ def setup_summary_routes() -> APIRouter:
         items = []
         for key in paths.summary_keys():
             html, md = paths.summary_html(key), paths.summary_md(key)
+            # ★ 탭 라벨은 사람이 읽는 이름이다. 파일 키(`sql-1`)를 그대로 쓰면
+            #   무엇인지 모른다 — 「2과목 (1/3) · 11~24번」 으로 적는다.
+            try:
+                from services.authoring import theory as _T
+
+                _label = _T.unit_label(key)
+                _range = _T.unit_range_label(key)
+            except Exception:                                # noqa: BLE001
+                _label, _range = key, ""
             items.append({
                 "key": key,
+                "label": _label,
+                "range_label": _range,
                 "html_path": paths.rel(html),
                 "md_path": paths.rel(md),
                 "html_bytes": paths.size(html),

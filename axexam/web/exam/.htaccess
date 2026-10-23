@@ -39,7 +39,7 @@
 
 # ── 노출 차단 ───────────────────────────────────────────────────────────
 # sql/ 은 자체 .htaccess 로 막는다. 여기서는 실수로 올라올 수 있는 것들.
-<FilesMatch "\.(json|sql|md|py|log|bak|orig)$">
+<FilesMatch "\.(json|sql|md|py|log|bak|orig|zip|tar|gz|tgz|7z|rar)$">
     <IfModule mod_authz_core.c>
         Require all denied
     </IfModule>
@@ -51,6 +51,11 @@
 
 # ⚠ 위 규칙이 problems.json 을 막는다 — 임포트용 파일이 실수로 웹루트에 남아도
 #   내려받을 수 없다. (원래 adm/exam_import.php 화면으로만 올린다.)
+
+# ★ 압축 파일도 막는다 (2026-08-21). adm/exam_deploy.php 가 정적 파일 반입용 ZIP 을
+#   받기 시작했다. 그 화면은 업로드된 임시 파일을 처리 직후 지우지만, 사람이 ZIP 을
+#   FTP 로 여기 올려두는 일은 언제든 생긴다. 그 안에는 문항 전체가 들어 있다.
+#   막는 비용이 0 이므로 먼저 막는다.
 
 # api/lib/ 은 include 전용이다. 직접 열 이유가 없다.
 <IfModule mod_rewrite.c>

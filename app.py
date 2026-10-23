@@ -242,6 +242,24 @@ async def print_lesson(b: str | None = None):
     return _print_page(printdoc.lesson_html, b)
 
 
+@app.get("/print/summary")
+async def print_summary(k: str | None = None):
+    """이론 요약노트 인쇄본 — 발행되는 그 HTML 그대로. `?k=<과목키>` 면 그 과목만."""
+    from services.export import printdoc
+    return _print_page(printdoc.summary_html, k)
+
+
+@app.get("/print/slides")
+async def print_slides(rd: str | None = None):
+    """슬라이드 장수표 인쇄본 — **회차 하나가 한 쪽**이다.
+
+    PowerPoint 100편을 넘겨 보며 "이 문항은 줄였다" 를 종이에 체크하는 자리다.
+    `?rd=m03` 이면 그 회차만.
+    """
+    from services.export import printdoc
+    return _print_page(printdoc.slides_html, rd)
+
+
 # ── 슬라이드 미리보기 ───────────────────────────────────────────────────────
 # ★ `def` 다. `async def` 가 아니다 — 나중에 ?fit=1 이 Chromium 으로 실제 높이를 재게
 #   되는데 `sync_playwright()` 는 asyncio 루프가 도는 스레드에서 죽는다. `def` 면
@@ -277,12 +295,37 @@ async def version():
         "name": APP_NAME,
         "version": APP_VERSION,
         "port": PORT,
-        "pd": PD_CODE,
-        "pd_label": PD_LABEL,
+        # ★ 품목은 **작업 폴더에서** 읽는다. `.env` 의 `PD_CODE`·`PD_LABEL` 은
+        #   첫 실행 기본값이라, SQLD 폴더를 열어 놓고 「빅데이터분석기사 필기」 가
+        #   홈 카드에 떴다(2026-08-20 실측). 폴더가 진실이다.
+        **_active_pd(),
         "book": _initial_book_dir(),
         "engine": ENGINE_DIR,
         "axexam": AXEXAM_DIR,
     }
+
+
+def _active_pd() -> dict:
+    """작업 폴더의 품목 코드·이름. 못 읽으면 `.env` 기본값으로 떨어진다."""
+    try:
+        from services.book import books
+
+        m = books.active_meta() or {}
+        pd = str(m.get("pd") or "").strip()
+        label = str(m.get("label") or "").strip()
+    except Exception:                                        # noqa: BLE001
+        pd = label = ""
+    # 시험정보에 정식 이름이 있으면 그것을 쓴다 — `_book.json` 의 label 은 약칭이다
+    # (`SQLD`). 카드에는 「SQL 개발자 (SQLD)」 가 맞다.
+    try:
+        from services.authoring import parts
+
+        d = parts.active() or {}
+        if str(d.get("pd_id") or "").strip() == pd and d.get("label"):
+            label = str(d["label"]).strip()
+    except Exception:                                        # noqa: BLE001
+        pass
+    return {"pd": pd or PD_CODE, "pd_label": label or PD_LABEL}
 
 
 @app.get("/api/health")

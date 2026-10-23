@@ -53,7 +53,22 @@ def _samples(mode: str = "") -> List[Dict[str, Any]]:
       비용만 있는 기록도 받아들이고, 시간은 그런 표본을 빼고 평균 낸다.
     """
     out: List[Dict[str, Any]] = []
-    pat = os.path.join(DATA_DIR, "authoring", "*", "*.json")
+    # ★ 경로가 한 단계 모자랐다 (2026-09-08 실측).
+    #
+    #   스테이징은 `data/authoring/<품목>/<회차>/<파트>.json` 다. 그런데 이 패턴은
+    #   `authoring/*/*.json` 이라 `authoring/adsp-26/*.json` 을 찾았고, 그 자리엔
+    #   회차 폴더만 있어서 **표본이 늘 0** 이었다. 품목별로 가른 2026-08-19 변경
+    #   때 함께 못 고친 자리다 — 그 전에는 `authoring/<회차>/<파트>.json` 이라
+    #   이 패턴이 맞았다.
+    #   결과: SQLD 20회차를 돌린 뒤에도 화면이 「아직 실측이 없어 보수적인
+    #   기본값」($0.099/문항)을 계속 말했다. 예상이 실제보다 크게 나온다.
+    #
+    # ★ **지금 품목만** 센다. 파트 크기가 품목마다 다르다(빅분기 20문항,
+    #   ADsP 10·10·15·15) — 섞으면 과목당 평균이 뜻을 잃는다. 새 품목이면
+    #   표본이 0 이고, 그때는 폴백 상수를 쓰는 것이 맞다.
+    from .draft import _pd
+
+    pat = os.path.join(DATA_DIR, "authoring", _pd(), "*", "*.json")
     for p in glob.glob(pat):
         try:
             with open(p, encoding="utf-8") as f:
@@ -83,8 +98,14 @@ def per_part(mode: str = "") -> Dict[str, Any]:
     """
     rows = _samples(mode)
     if not rows:
+        # ★ 파트당 문항수는 **시험정보에서** 온다. `PART_SIZE`(20)는 빅분기 값이라
+        #   ADsP(파트 10·10·15·15 → 평균 12.5)에서는 문항당 단가를 싸게 잡는다.
+        try:
+            per = round_size() / max(1, n_parts())
+        except Exception:                                    # noqa: BLE001
+            per = PART_SIZE
         return {"usd": FALLBACK_USD, "sec": FALLBACK_SEC,
-                "per_item_usd": FALLBACK_USD / PART_SIZE,
+                "per_item_usd": FALLBACK_USD / max(1, per),
                 "samples": 0, "measured": False, "mode": mode}
 
     usd = sum(r["usd"] for r in rows) / len(rows)

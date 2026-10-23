@@ -208,15 +208,23 @@ def scan(path: str) -> dict:
 
     # ★ 어느 단계까지 온 폴더인지. "완성된 책" 만 쓸 수 있게 하면 안 된다 —
     #   #1 로 01/ 만 만들어 놓고 #2 를 돌리기 직전인 폴더가 정상적인 작업 상태다.
+    # ★ 그 앞에 **00/ 에 원본 PDF 만 있는 폴더**가 있다. 새 문제집은 거기서 시작한다 —
+    #   [PDF 렌더] 가 읽는 곳이 바로 이 폴더의 00/ 이기 때문이다
+    #   (services/ocr/project.py 의 pdf_dir → book_dir()/00).
+    #   예전에는 01/ 을 바깥 도구가 만들어 왔으므로 00/ 만 있는 폴더를 거절해도
+    #   말이 됐다. 지금은 그 판독을 이 앱에서 하므로, 거절하면 **새 문제집을 등록할
+    #   방법 자체가 없다** — 바깥 폴더를 골라도 "작업할 것이 없습니다" 가 뜨고,
+    #   00/ 을 대신 골라도 그 안엔 pdf 뿐이라 똑같이 막힌다.
+    has_raw = stages["00"]["pdf"] > 0
     has_scan = stages["01"]["md"] > 0
     has_edit = os.path.isdir(rdir) and stages["02"]["md"] > 0
     has_video = stages["05"]["bundles"] > 0
-    out["can"] = {"scan": has_scan, "edit": has_edit,
+    out["can"] = {"ocr": has_raw, "scan": has_scan, "edit": has_edit,
                   "video": has_video, "publish": has_edit and has_video}
     out["stage"] = ("video" if has_video else "edit" if has_edit
-                    else "scan" if has_scan else "empty")
-    # 01/ 하나만 있어도 쓸 수 있다. 아무 단계도 없을 때만 거절한다.
-    out["usable"] = has_scan or has_edit or os.path.isdir(rdir)
+                    else "scan" if has_scan else "raw" if has_raw else "empty")
+    # 00/ 에 PDF 하나만 있어도 쓸 수 있다. 정말 빈 폴더일 때만 거절한다.
+    out["usable"] = has_raw or has_scan or has_edit or os.path.isdir(rdir)
     return out
 
 
@@ -360,7 +368,8 @@ def add(path: str, *, pd: str = "", label: str = "") -> dict:
     if not info["usable"]:
         raise ValueError(
             f"이 폴더에는 작업할 것이 없습니다: {path}\n"
-            "01/ 에 문항 md 가 있거나 _rounds/ 가 있는 폴더를 골라 주세요.")
+            "새 문제집이면 그 폴더 안에 00 폴더를 만들고 원본 PDF 를 넣은 뒤 다시 고르세요. "
+            "이미 진행 중이면 01/ 에 문항 md 가 있거나 _rounds/ 가 있는 폴더입니다.")
 
     g_pd, g_label = _guess(path)
     pd = (pd or g_pd).strip()
@@ -451,7 +460,7 @@ def select(path: str) -> dict:
 _PS_SCRIPT = r"""
 Add-Type -AssemblyName System.Windows.Forms | Out-Null
 $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
-$dlg.Description = '문제집 폴더를 고르세요 (01/ 또는 _rounds/ 가 있는 폴더)'
+$dlg.Description = '문제집 폴더를 고르세요 - 00/ 01/ _rounds/ 를 담는 바깥 폴더입니다 (00/ 안이 아닙니다)'
 $dlg.ShowNewFolderButton = $false
 if ($args.Count -gt 0 -and (Test-Path $args[0])) { $dlg.SelectedPath = $args[0] }
 if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {

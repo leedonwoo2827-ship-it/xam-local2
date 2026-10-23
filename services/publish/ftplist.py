@@ -230,18 +230,89 @@ def _board_title(pd_id: str, pd_name: str) -> str:
     return f"{name or pd_id} 과목게시판"
 
 
-def server_checklist() -> list[dict]:
+# 각 단계가 **어느 발행에 속하는가**. `_STAGE[key]` 에 없으면 둘 다에 나온다.
+#
+# ★ 왜 가르나(2026-08-26 지시). 발행은 2단계다 — 1차 문제집, 2차 해설영상. 그런데
+#   체크리스트는 한 벌이라 1차 화면에도 「영상 100편을 올려 둔다」 가 떠 있었다.
+#   아직 영상이 없는 단계인데 화면이 그것을 요구하니, 1차를 미루게 된다. 발행을
+#   둘로 가른 이유가 바로 영상을 기다리지 않으려는 것이었다.
+# ★ 번호는 **그 화면에 실제로 있는 단계**로 다시 매긴다. 0.x 는 앱에서, 1번부터는
+#   서버에서 — 그 경계는 지킨다(사람이 "여기부터 서버" 로 읽는 자리다).
+_STAGE = {
+    "youtube": "video",        # 영상 올리기
+    "youtube_map": "video",    # 링크 매핑
+    "ex_product": "problems",  # 품목 등록
+    "ex_plan": "problems",     # 수강 과정
+    "import": "problems",      # 문제 임포트
+    "report": "problems",      # 임포트 리포트
+    "board": "problems",       # 과목게시판
+    "board_sync": "problems",  # 말머리 동기화
+}
+# 단계를 크게 넷으로 묶는다(2026-08-26 지시).
+#
+#   app     앱에서 버튼으로 끝난다
+#   setting 문제집 세팅 — 서버에 이 품목이 **존재하게** 한다. 보통 첫 발행에만.
+#   upload  업로드 — 내용물을 올린다. **발행할 때마다** 한다.
+#   later   나중에 고칠 때
+#
+# ★ 전에는 서버 일이 한 줄로 이어져 있어서, 매번 하는 일과 처음 한 번만 하는 일이
+#   섞여 보였다. 두 번째 발행부터는 2·3·7·8 을 건너뛰어야 하는데 그것이 목록에
+#   드러나지 않는다.
+_SECTION = {
+    # ★ 영상 올리기·매핑은 **빌드보다 앞**이다. 매핑이 빌드의 입력이라 순서가
+    #   뒤집히면 링크 없는 videos.js 가 나간다. 그래서 같은 앱 묶음에 둔다.
+    "start": "app", "youtube": "app", "youtube_map": "app",
+    "build": "app", "stage": "app",
+    "ex_product": "setting", "ex_plan": "setting",
+    "board": "setting", "board_sync": "setting",
+    "deploy": "upload", "import": "upload", "report": "upload", "verify": "upload",
+    "revise_video": "later", "revise_question": "later",
+}
+_SECTION_ORDER = ("app", "setting", "upload", "later")
+SECTION_LABEL = {
+    "app": "앱에서 — 버튼으로 끝납니다",
+    "setting": "문제집 세팅 — 서버에 품목을 만듭니다 (보통 첫 발행에만)",
+    "upload": "업로드 — 내용물을 올립니다 (발행할 때마다)",
+    "later": "나중에 고칠 때",
+}
+
+
+def _active_label() -> str:
+    """활성 폴더가 쓰는 품목의 사람이 읽는 이름(`exams/<id>.json` 의 `label`)."""
+    try:
+        from services.authoring import parts
+        return str((parts.active() or {}).get("label") or "").strip()
+    except Exception:                                        # noqa: BLE001
+        return ""
+
+
+def server_checklist(scope: str = "all") -> list[dict]:
     """서버 쪽 순서 — 우리가 대신 할 수 없는 단계들.
+
+    `scope="problems"` 면 1차(문제집), 그 밖이면 2차(해설영상)의 단계만 낸다.
 
     임포트는 브라우저 단계다. adm/exam_import.php 가 check_admin_token() 을 쓰고
     그 토큰이 1회용이라 curl -F 로 스크립트할 수 없다.
     """
-    from core.constants import PD_CODE, PD_LABEL
+    # ★ 품목은 **활성 폴더**에서 읽는다. `core.constants.PD_CODE` 는 .env 기본값
+    #   `bigdata` 라, SQLD 폴더로 작업하면서 이 체크리스트만 「pd_id='bigdata' 로
+    #   등록하라」 고 말하게 된다 — 그대로 따르면 다른 품목에 문제은행을 심는다.
+    #   같은 파일의 `_upload_plan()` 은 이미 `active_pd()` 를 쓰고 있었다(2026-08-26).
+    from services.publish import buildcheck
+    PD_CODE = buildcheck.active_pd() or "(품목 미정)"
+    PD_LABEL = _active_label() or PD_CODE
     from services.book import shape
 
     # ★ 숫자를 상수로 두지 않는다. 이 체크리스트가 곧 작업 절차라서, 낡은 숫자가
     #   적혀 있으면 사람이 그 숫자를 기준으로 검증하고 "맞다" 고 판단해 버린다.
     #   실제로 3회차·240문항·24편 시절 값이 굳어 있었다 — 9회차로 늘자 전부 틀렸다.
+    # ★ 안내문이 가리키는 **카드 번호**는 발행마다 다르다. 1차에는 「영상 매핑」
+    #   카드가 없어서 그 뒤가 하나씩 당겨진다 — 숫자를 박아 두면 사람이 없는 카드를
+    #   찾는다(2026-08-26).
+    _v = scope != "problems"
+    CARD = {"map": "②", "build": "③" if _v else "②",
+            "problems": "④" if _v else "③",
+            "upload": "⑤" if _v else "④"}
     sh = shape.summary()
     n_q = sh["total_questions"]
     n_r = sh["round_count"]
@@ -251,9 +322,10 @@ def server_checklist() -> list[dict]:
     bo = _board_table(PD_CODE)
     site = SITE_BASE.rstrip("/")
     book = paths.book_dir()
+    outdir = paths.out_dir()
     # ★ 순서는 **실제로 하는 순서**다. 번호와 순서가 다르면 처음 보는 사람이 그대로
     #   따라가다 막힌다(seed_pd.php 는 FTP 로 올라간 뒤에야 열린다).
-    return [
+    items = [
         {"key": "start", "label": "0.1  앱을 띄우고 품목·작업 폴더를 확인한다",
          "where": f"run.bat  →  {SITE_BASE and 'http://127.0.0.1:8870/'}",
          "detail": (f"좌하단 칩에 품목({PD_CODE})과 작업 폴더가 맞는지 본다: {book}\n"
@@ -270,7 +342,7 @@ def server_checklist() -> list[dict]:
                     "유튜브면 '미등록(unlisted)' 으로 올리고 확인 후 공개로 바꾼다.")},
 
         {"key": "youtube_map", "label": f"0.3  영상 링크 {n_b}개를 매핑에 넣는다",
-         "where": f"발행 화면 ②  →  {ymap}",
+         "where": f"발행 화면 {CARD['map']}  →  {ymap}",
          "detail": ("[영상 매핑 만들기] → [링크 붙여넣기] 에 '파일명 + 링크' 목록을 그대로 "
                     "붙여넣는다. URL 이든 ID 든 잡고, 형식이 느슨해도 된다.\n"
                     "드라이브 링크를 한 번에 뽑으려면 script.google.com 에서 폴더의 "
@@ -281,15 +353,16 @@ def server_checklist() -> list[dict]:
                     f"끝나면 칩이 '링크 {n_b} / {n_b}' 가 되어야 한다.")},
 
         {"key": "build", "label": "0.4  빌드 — 06/ 산출물을 만든다",
-         "where": "발행 화면 ③  →  [빌드 실행]",
+         "where": f"발행 화면 {CARD['build']}  →  [빌드 실행]",
          "detail": ("사전점검 **오류가 0** 이어야 시작한다. 경고는 한 번 더 누르면 진행한다.\n"
-                    f"로그에서 확인: '영상 {n_b}개 매핑 ({n_b}/{n_b} 유튜브 ID 입력됨)' 과 "
-                    f"'{n_q}문제 · {n_r}회'.\n"
+                    + (f"로그에서 확인: '영상 {n_b}개 매핑 ({n_b}/{n_b} 유튜브 ID 입력됨)' 과 "
+                       f"'{n_q}문제 · {n_r}회'.\n" if _v else
+                       f"로그에서 확인: '{n_q}문제 · {n_r}회'. 영상 매핑은 2차에서 본다.\n") +
                     "★ --book 과 --pd 는 항상 명시된다. 둘 다 기본값이 SQLD 라서 하나라도 "
                     "빠지면 라이브 SQLD 문제은행을 덮어쓰고 되돌릴 수 없다.")},
 
         {"key": "stage", "label": "0.5  업로드 폴더를 만든다",
-         "where": f"발행 화면 ⑤  →  [업로드 폴더 만들기]",
+         "where": f"발행 화면 {CARD['upload']}  →  [업로드 폴더 만들기]",
          "detail": (f"{book}\\_upload 이 만들어진다. 안이 **서버와 같은 모양**"
                     "(exam/ adm/ theme/ extend/ index.php .htaccess)이라 어디로 갈지 생각할 "
                     "것이 없다.\n"
@@ -299,18 +372,19 @@ def server_checklist() -> list[dict]:
                     "problems.json 과 mp4 는 이 폴더에 없다(각각 3번·0.2번에서 처리한다).")},
 
         # ── 여기부터 서버. 앱 밖에서 사람이 한다. ─────────────────────────────
-        {"key": "ftp", "label": "1.  FileZilla 로 /www/ 에 올린다",
-         "where": f"{book}\\_upload   →   /www/",
-         "detail": ("왼쪽(로컬)에 그 폴더, 오른쪽(서버)에 /www/ 를 놓고 **왼쪽 전체 선택 → "
-                    "끌어놓기**. 337개 2.3MB 라 몇 분이다.\n"
-                    "FileZilla 설정(한 번만): 전송 유형 **바이너리** · 동시 전송 2 · "
-                    "문자셋 **UTF-8 강제**(요약노트 파일명이 한글이다).\n"
-                    "덮어쓰기를 물으면 [덮어쓰기] + '항상 이 동작 사용' 체크.\n"
-                    "★ FileZilla 는 폴더를 **합친다** — 서버의 기존 파일을 지우지 않고 같은 "
-                    "이름만 덮어쓴다. 다른 품목(pd/sqld 등)은 이 폴더에 없으니 안전하다.\n"
-                    "끝나면 앱에서 [다 올렸습니다 — 지우기].")},
+        # ★ 도구 이름을 적지 않는다(2026-08-26). FileZilla 를 쓰지 않으시고, 무엇을
+        #   쓰든 하는 일은 같다 — 폴더 하나를 /www/ 로. 설정 안내는 도구마다 달라
+        #   적어 두면 틀린 말이 된다. 제목만 남긴다.
+        # ★ FTP 가 아니라 **반입 화면에 끌어다 놓는다**(2026-08-26 변경).
+        #   `adm/exam_deploy.php` 가 그 자리다 — 시험운용자마다 FTP 계정을 줄 수
+        #   없어서 만든 화면이고, 빌드가 `06/_올릴것/` 에 올릴 것만 모아 둔다.
+        {"key": "deploy", "label": "1.  정적 파일을 반입한다 — 끌어다 놓기",
+         "where": f"{outdir}\\_올릴것   →   {site}/adm/exam_deploy.php?pd={PD_CODE}",
+         "detail": ("파일 4개(problems.js · videos.js · theory.js · theory_content.js)는 "
+                    "[＋ 품목 파일 넣기], ZIP 2개는 [ZIP 올리기] — 공용껍데기는 대상을 "
+                    "「공용 껍데기」로 바꿔 올린다.\n"
+                    "순서와 크기는 `_올릴것/올리는순서.txt` 에 빌드가 적어 둔다.")},
 
-        # ★ FTP 뒤에 온다 — 이 파일이 서버에 올라가야 열린다.
         {"key": "ex_product", "label": f"2.1  품목 등록 — ex_product 에 pd_id='{PD_CODE}'",
          "where": f"{site}/adm/seed_pd.php",
          "detail": ("**최고관리자로 로그인한 브라우저**에서 연다(부관리자는 안 된다).\n"
@@ -371,11 +445,11 @@ def server_checklist() -> list[dict]:
                     "— 부관리자에게 위임할 수 있다.\n"
                     "1회용 관리자 토큰 때문에 스크립트로는 못 부른다 — 브라우저 단계다. "
                     "서버는 처리 후 업로드 파일을 즉시 지운다.\n"
-                    "★ 고친 문항만 올릴 때는 발행 화면 ④ [부분 임포트] 로 잘라 "
+                    f"★ 고친 문항만 올릴 때는 발행 화면 {CARD['problems']} [부분 임포트] 로 잘라 "
                     "'또는 붙여넣기' 에 붙여넣는다(문항 하나 2.6KB · 회차 하나 92KB).\n"
                     "★ FTP 로는 올려도 읽히지 않는다 — .htaccess 가 .json 을 403 으로 막는다.")},
 
-        {"key": "report", "label": "4.  임포트 리포트를 읽는다",
+        {"key": "report", "label": "4.  「2. 문제 임포트」 결과를 확인한다 (중요)",
          "where": f"{site}/adm/exam_import.php",
          "detail": (f"첫 발행이면 **신규 {n_q} · 갱신 0 · 회차 {n_r}행**.\n"
                     "두 번째부터는 신규 0 · 갱신(고친 수) · 변경없음(나머지).\n"
@@ -445,7 +519,7 @@ def server_checklist() -> list[dict]:
                     "min_level 이 1 이면 대신 videos.js 를 올린다.")},
 
         {"key": "revise_question", "label": "[나중] 문항을 고칠 때 — 임포트까지",
-         "where": "#/questions  →  빌드  →  ④ 부분 임포트  →  관리자 화면",
+         "where": f"#/questions  →  빌드  →  {CARD['problems']} 부분 임포트  →  관리자 화면",
          "detail": ("문항은 서버 DB 에 있으므로 재임포트가 필요하다. 고친 문항만 잘라 올리면 "
                     "리포트가 '갱신 1' 만 찍어 확인이 쉽다.\n"
                     "★ 임포트는 DELETE 를 하지 않는다 — 로컬에서 문항을 빼도 서버에 남는다. "
@@ -454,3 +528,133 @@ def server_checklist() -> list[dict]:
                     "만들고 드라이브에서 그 mp4 만 교체한다(버전 관리로 ID 유지).\n"
                     "pr_key 가 같은 행을 UPDATE 하므로 회차·번호를 바꾸면 새 행이 생긴다.")},
     ]
+    return _for_stage(items, scope)
+
+
+def _fill(text: str) -> str:
+    """짧은 설명 안의 자리표시를 지금 품목의 값으로 채운다."""
+    from services.book import shape
+    from services.publish import buildcheck
+    pd = buildcheck.active_pd() or "(품목 미정)"
+    sh = shape.summary()
+    return (text.replace("{PD}", pd)
+            .replace("{LABEL}", _active_label() or pd)
+            .replace("{BO}", _board_table(pd))
+            .replace("{NQ}", str(sh["total_questions"]))
+            .replace("{NR}", str(sh["round_count"])))
+
+
+# 화면에 **먼저 보이는 설명**. 원래 설명은 지우지 않고 「자세히」로 접는다.
+#
+# ★ 왜(2026-08-26 지시). 단계마다 열 줄씩 적혀 있어 화면이 글로 덮였다.
+#   품목마다 매번 다시 쓰는 일이라 **좌표와 넣을 값**만 있으면 되고, 왜 그런지는
+#   처음 한 번만 읽으면 된다. 그래서 지우는 대신 접었다 — 지우면 다음 사람이
+#   같은 함정에 다시 빠진다.
+_SHORT = {
+    'start': (
+        "좌하단 칩의 품목·작업 폴더가 맞는지 본다. 폴더가 곧 품목이다."),
+    'build': (
+        "사전점검 **오류 0** 이어야 시작한다. 경고는 한 번 더 누르면 진행."),
+    'stage': (
+        "**웹 소스(adm·theme 같은 PHP)가 바뀌었을 때만** 필요하다.\n"
+        "문제집 내용물은 아래 [정적 파일 반입] 으로 간다."),
+    'deploy': (
+        "파일 4개는 [＋ 품목 파일 넣기], ZIP 2개는 [ZIP 올리기].\n"
+        "공용껍데기는 대상을 「공용 껍데기」로 바꿔 올린다.\n"
+        "순서는 `_올릴것/올리는순서.txt` 에 빌드가 적어 둔다."),
+    'ex_product': (
+        "pd_id `{PD}` · 이름 「{LABEL} 2026~2027 시험대비」 · 정렬 10 → [등록].\n"
+        "★ 폼에 **다른 품목이 미리 채워져 있다** — 세 칸 다 바꾼다.\n"
+        "최고관리자로 로그인한 브라우저에서 연다(부관리자 불가)."),
+    'ex_plan': (
+        "같은 화면 아래 <수강 과정>. 품목 줄의 「과정」 이 0 이면 [＋과정 3종].\n"
+        "확인: buy.php?pd={PD} 에 [신청하기] 가 보이면 끝."),
+    'import': (
+        "올릴 파일: `06/pd/{PD}/problems.json` (필드 이름 jsonfile).\n"
+        "★ FTP 로는 안 올라간다 — .htaccess 가 .json 을 403 으로 막는다."),
+    'report': (
+        "첫 발행이면 **신규 {NQ} · 갱신 0 · 회차 {NR}행**.\n"
+        "★ **실패·건너뜀은 항상 0**."),
+    'verify': (
+        "products.php 에 open:1 · problems:{NQ} · rounds:{NR}\n"
+        "buy.php 에 [신청하기] · check.php 에 문항 필터\n"
+        "영상은 로그인 레벨이 min_level 이상일 때만 보인다(정상)."),
+    'board': (
+        "테이블 이름 `{BO}` · 제목 「{LABEL} 과목게시판」. 나머지는 기본값.\n"
+        "★ 게시판은 **문제집당 1개** — 과목은 말머리로 갈린다."),
+    'board_sync': (
+        "과목 목록을 게시판 말머리로 맞춘다. 과목이 늘거나 이름이 바뀌면 다시."),
+    'revise_video': (
+        "매핑의 id 를 고치고 빌드한 뒤 `videos.private.json` **한 파일만** 반입."),
+    'revise_question': (
+        "고친 문항만 잘라 [부분 임포트]. 리포트가 '갱신 1' 만 찍는다."),
+}
+
+
+def _for_stage(items: list[dict], scope: str) -> list[dict]:
+    """이 발행에 속한 단계만 남기고, 묶음별로 모아 번호를 다시 매긴다."""
+    want = "problems" if scope == "problems" else "video"
+    keep = [dict(it) for it in items
+            if _STAGE.get(it["key"], "both") in ("both", want)]
+    # 묶음 순서로 다시 세운다 — 목록의 순서가 곧 하는 순서다.
+    keep.sort(key=lambda it: _SECTION_ORDER.index(_SECTION.get(it["key"], "upload")))
+    out, n = [], {}
+    for it in keep:
+        sec = _SECTION.get(it["key"], "upload")
+        it["section"] = sec
+        it["section_label"] = SECTION_LABEL[sec]
+        if it["key"] in _SHORT:
+            it["more"] = it.get("detail") or ""
+            it["detail"] = _fill(_SHORT[it["key"]])
+
+        title = re.sub(r"^\d+(?:\.\d+)?\.?\s+", "", it["label"])
+        if sec == "later":
+            it["label"] = title
+        else:
+            n[sec] = n.get(sec, 0) + 1
+            it["label"] = (f"0.{n[sec]}  {title}" if sec == "app"
+                           else f"{n[sec]}.  {title}")
+        out.append(it)
+    return out
+
+
+# ── 영상 한 폴더로 모으기 ──────────────────────────────────────────────────
+#
+# ★ 왜 필요한가(2026-08-26). 2차 발행의 첫 일이 「영상 100편을 올려 둔다」 인데,
+#   mp4 가 `05/<번들>/draft/` 로 100곳에 흩어져 있다. 탐색기 검색으로 긁어모으라고
+#   적어 두었지만, 검색 결과를 드래그하는 것은 실수하기 쉽고 세기도 어렵다.
+#
+# ★ **복사하지 않는다.** 100편이면 2GB 다. 같은 드라이브면 하드링크가 즉시 만들어지고
+#   자리를 먹지 않는다 — 원본과 같은 파일이라 드라이브에 올리는 데 아무 차이가 없다.
+#   드라이브가 다르거나 링크가 막히면 그때만 복사로 떨어진다.
+def gather_videos(*, dest: str = "") -> dict:
+    """모든 번들의 `*.static.mp4` 를 한 폴더로 모은다(하드링크, 안 되면 복사)."""
+    import shutil
+
+    book = paths.book_dir()
+    out = dest or os.path.join(book, "_videos")
+    os.makedirs(out, exist_ok=True)
+    linked = copied = missing = 0
+    rows = []
+    for b in paths.all_bundles():
+        src = paths.bundle_mp4(b)
+        if not os.path.isfile(src):
+            missing += 1
+            rows.append({"bundle": b, "how": "없음"})
+            continue
+        dst = os.path.join(out, f"{b}.static.mp4")
+        if os.path.isfile(dst) and os.path.getsize(dst) == os.path.getsize(src):
+            rows.append({"bundle": b, "how": "이미 있음"})
+            continue
+        if os.path.exists(dst):
+            os.remove(dst)
+        try:
+            os.link(src, dst)
+            linked += 1
+            rows.append({"bundle": b, "how": "링크"})
+        except OSError:
+            shutil.copy2(src, dst)
+            copied += 1
+            rows.append({"bundle": b, "how": "복사"})
+    return {"dir": out, "linked": linked, "copied": copied, "missing": missing,
+            "total": len(rows), "rows": rows}

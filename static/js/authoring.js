@@ -46,7 +46,9 @@ let LOADED = false;         // [불러오기] 를 눌렀는가
 
 const multOf = (r) => (r in MULT_BY_ROW ? MULT_BY_ROW[r] : DEFAULT_MULT);
 
-/** 시험정보 목록. 회차당 문항수·과목 구성이 여기서 온다(코드가 아니라 파일이다). */
+/** 시험정보 목록을 받아 `EXAMS`·`EXAM` 을 채운다.
+ *  돌려주는 값 = **작업 폴더에서 시험정보를 정했는가**. 그때만 계획을 자동으로
+ *  그린다(`refresh`) — 사람이 다른 품목을 고르면 [불러오기] 를 요구한다. */
 async function loadExams() {
   const r = await api("/api/authoring/exams").catch(() => ({ items: [] }));
   EXAMS = r.items || [];
@@ -55,8 +57,12 @@ async function loadExams() {
   //   반대로 늘 비워 두면 새로고침마다 다시 고르게 되고, 그 사이 화면이 규격을
   //   몰라 진행 칩이 엉뚱한 문항범위로 뜬다(2026-08-20 실측: `12회 41~60번`).
   //   폴더가 진실이므로 그것을 고른 것으로 본다. 표는 여전히 [불러오기] 뒤에 뜬다.
-  if (!EXAM && r.active && EXAMS.some((e) => e.id === r.active)) EXAM = r.active;
-  return EXAMS;
+  let fromFolder = false;
+  if (!EXAM && r.active && EXAMS.some((e) => e.id === r.active)) {
+    EXAM = r.active;
+    fromFolder = true;
+  }
+  return fromFolder;
 }
 
 /** 기출 회차 목록과 규격. 배수는 화면이 행별로 들고 있으므로 여기서는 목록만 받는다. */
@@ -118,8 +124,16 @@ export async function mount(root, ctx) {
 async function refresh() {
   const st = await api("/api/authoring/status").catch((e) => ({ error: emsg(e) }));
   drawConn(st);
-  await loadExams();
+  const fromFolder = await loadExams();
   await loadPlan();
+  // ★ 시험정보가 **작업 폴더에서 온 것**이면 계획도 바로 그린다.
+  //
+  //   [불러오기] 를 한 번 눌러야 하게 둔 이유는 「화면이 고른 것과 다른 품목으로
+  //   조용히 계획이 잡히는 것」을 막기 위해서였다(SQLD 를 고르고 빅분기 회차가
+  //   뜬 일이 있었다). 그런데 시험정보를 **폴더에서** 정하면 그 어긋남이 구조적으로
+  //   생기지 않는다 — 폴더가 진실이다. 그래서 그때만 자동으로 그린다.
+  //   사람이 콤보박스로 **다른** 품목을 고르면 여전히 [불러오기] 를 요구한다.
+  if (fromFolder) LOADED = true;
   // ★ 화면을 새로 열어도 돌고 있는 잡에 다시 붙는다. 안 붙이면 20분짜리 집필이
   //   진행 중인데 화면은 "돌고 있는 집필이 없습니다" 라고 말한다.
   if (st && st.running_job) attach(st.running_job);
@@ -217,11 +231,11 @@ async function drawRound() {
   // 총계는 **켜진 행만** 센다 — 끈 행을 세면 예상 비용이 거짓말을 한다.
   const nR = (P.rows || []).reduce(
     (a, r) => a + (PICK_BY_ROW[r.pool_round] !== false ? multOf(r.pool_round) : 0), 0);
-  const perRound = P.round_size || 80;
+  const perRound = P.round_size || null;      // 없으면 아래에서 화면이 막는다
   // ★ 서버가 준 **과목당 실측**을 여기서 켜진 회차 수에 곱한다. 예전에는 화면이
   //   `nR * 6.9` 로 자체 상수를 곱했고, 서버는 또 다른 상수를 썼다 — 두 값이 서로
   //   달랐고 실측이 나오자 둘 다 두 배쯤 틀린 것으로 드러났다(2026-08-10).
-  const est = scaleEst(P.est, nR, partCount(P), perRound);
+  const est = scaleEst(P.est, nR, partCount(P) || 0, perRound || 0);
   // ── 시험정보 콤보 + 관리 창 링크 ───────────────────────────────────────
   // ★ 시험은 매년·개정마다 바뀐다. 회차당 문항수·과목 구성이 여기서 온다 —
   //   빅분기 80문항 4과목, SQLD 50문항 2과목(10:40). 코드가 아니라 파일이다.
@@ -268,6 +282,18 @@ async function drawRound() {
       : !LOADED ? `<div class="empty" style="text-align:left">
         <b>${escapeHtml(cur ? cur.label : EXAM)}</b> 로 계획을 잡으려면
         위 <b>[불러오기]</b> 를 누르십시오.
+      </div>`
+      /* ★ 서버가 이 폴더의 시험정보를 못 찾았다. 예전에는 이 자리에서 빅분기
+       *   규격(80문항·4파트)으로 조용히 떨어져 «그럴듯한» 계획을 그렸고, 그 옆
+       *   [실행] 이 몇 시간과 수십 달러를 썼다. 숫자 대신 사실을 그린다. */
+      : (P.exam_missing || !P.round_size || !P.part_count)
+      ? `<div class="empty" style="text-align:left;border-color:#d64545">
+        <b class="bad">이 작업 폴더의 시험정보를 찾지 못했습니다.</b><br>
+        <span class="dim">집필은 회차당 문항수·과목 구성을 그 파일에서 받습니다 —
+          없으면 <b>어느 규격으로 집필될지 알 수 없어</b> 계획을 그리지 않습니다.<br>
+          폴더의 <code>_book.json</code> 의 <code>pd</code> 와 같은
+          <code>pd_id</code> 를 가진 <code>exams/*.json</code> 이 있어야 합니다 —
+          <b>[과정 정의]</b> 화면에서 만드십시오.</span>
       </div>` : `
     ${sizeClash ? `<div class="empty" style="text-align:left;border-color:#f0b429">
         <b class="warn">시험정보와 기출이 맞지 않습니다.</b><br>
@@ -370,15 +396,28 @@ async function start() {
   }
   if (!items.length) { toast("집필할 회차를 고르십시오.", "err"); return; }
 
+  /* ★ 여기서 계획을 **다시 받는다** (2026-09-08).
+   *
+   *   `PLAN` 은 화면을 열 때 잡은 값이다. 한 번 돌리고 중단한 뒤 다시 누르면
+   *   그 값이 낡아서 확인창이 「아직 안 된 60파트」라고 묻는다 — 실제로는 5파트가
+   *   이미 만들어져 있고 서버는 55파트만 돈다(실측). 서버가 옳게 돌더라도
+   *   **묻는 말이 틀리면 사람이 계획을 잘못 읽는다.**
+   *   싼 호출이다(모델을 안 부른다). 묻기 전에 사실을 맞춘다. */
+  await loadPlan();
+
   // ★ 총계 줄과 **같은 값**을 쓴다. 예전엔 확인창이 자기 상수로 다시 곱해서
   //   같은 화면의 두 숫자가 서로 달랐다($62 와 $71).
   const nParts = partCount(PLAN);
+  if (!nParts || !PLAN.round_size) {
+    toast("시험정보를 찾지 못해 집필할 수 없습니다 — [과정 정의] 에서 만드십시오.", "err");
+    return;
+  }
   // ★ **실제로 돌 파트 수**로 묻는다. `회차 × 파트` 로 물었더니 「60회」라고 묻고
   //   29번만 돌았고, 그 차이 때문에 사람이 계획을 잘못 읽었다(2026-08-20).
   const nCall = PLAN.remaining_count != null
     ? PLAN.remaining_count : items.length * nParts;
   const done = items.length * nParts - nCall;
-  const e = scaleEst(PLAN.est, nCall / nParts, nParts, PLAN.round_size || 80);
+  const e = scaleEst(PLAN.est, nCall / nParts, nParts, PLAN.round_size);
   if (!window.confirm(
       `${items.length}회차 중 아직 안 된 ${nCall}파트를 집필합니다.\n`
       + (done > 0 ? `이미 합격한 ${done}파트는 건너뜁니다.\n` : "")
@@ -683,8 +722,23 @@ function drawJob(j) {
   // 과목이 바뀌면 그 과목의 초시계를 다시 잡는다
   if (j.current && j.current !== ITEMKEY) { ITEMKEY = j.current; ITEM0 = Date.now(); }
 
-  const pct = j.total_count ? Math.round((j.done_count / j.total_count) * 100) : 0;
   const running = ["running", "queued"].includes(j.status);
+  /* ★ 「끝났다」와 「중단했다」를 가른다 (2026-09-08).
+   *
+   *   `status:"done"` 만 보고 그리면 일시정지로 마감된 잡도 완료로 읽힌다.
+   *   실측: 5파트를 만들고 멈춘 잡이 「60/60 (100%) done」 으로 떴고, 7시간짜리
+   *   집필이 41분에 끝난 줄 알았다. 서버에서 `skipped` 를 done_count 에서
+   *   뺐지만(`services/jobs/registry.py`), **이미 저장된 기록은 그대로**다 —
+   *   그 기록의 done_count 는 60 이다. 그래서 화면은 **저장된 숫자를 믿지 않고
+   *   파트 상태에서 직접 센다.** `skipped` 는 옛 이름, `canceled` 는 새 이름이고
+   *   둘 다 「안 한 것」이다. */
+  const st = Object.values(j.items || {});
+  const nDone = st.filter((v) => ["done", "error"].includes(v.status)).length;
+  const nStop = st.filter((v) => ["canceled", "skipped"].includes(v.status)).length;
+  const doneN = st.length ? nDone : (j.done_count || 0);
+  const totalN = j.total_count || st.length || 0;
+  const pct = totalN ? Math.round((doneN / totalN) * 100) : 0;
+  const stopped = !running && (nStop > 0 || (totalN && doneN < totalN));
   /* ★ 칩 이름은 **회차 + 문항범위** 다. `m01 1과목` 이 아니라 `1회 1~20`.
    *   자사 회차 코드(m01…)를 사람에게 보이지 않는 것은 계획 표에서 이미 정한
    *   규칙인데("m10은 뭐에요?", 2026-08-10) 진행 칩만 옛 형태로 남아 있었다.
@@ -696,6 +750,8 @@ function drawJob(j) {
    *   (1과목 10 / 2과목 20 / 2과목 20). 서버가 준 `part_labels` 를 쓴다. */
   const labels = (PLAN && PLAN.part_labels) || [];
   const items = Object.entries(j.items || {}).map(([k, v]) => {
+    // ★ `canceled` 는 «안 한» 것이다 — `dim` 으로 떨어지게 둔다(done 색을 주면
+    //   중단한 잡이 다 끝난 것처럼 보인다).
     const cls = v.status === "done" ? "ok" : v.status === "error" ? "bad"
       : v.status === "running" ? "warn" : "dim";
     const p = Number(String(k).split("-p")[1] || 0);
@@ -717,11 +773,13 @@ function drawJob(j) {
         <b id="au-elapsed" style="font-size:20px;font-variant-numeric:tabular-nums">
           ${fmtDur(Date.now() - JOB0)}</b></div>
       <div><span class="dim small">진행</span>
-        <b style="font-size:20px">${j.done_count}/${j.total_count}</b>
-        <span class="dim">(${pct}%)</span></div>
+        <b style="font-size:20px">${doneN}/${totalN}</b>
+        <span class="dim">(${pct}%)</span>
+        ${stopped ? `<b class="warn">· ${totalN - doneN}파트 남음</b>` : ""}</div>
       <div><span class="dim small">남은 시간</span> <span id="au-eta">${etaHtml(j)}</span></div>
       <div class="dim small" style="margin-left:auto">
-        <code>${escapeHtml(j.id.slice(0, 8))}</code> ${escapeHtml(j.status)}</div>
+        <code>${escapeHtml(j.id.slice(0, 8))}</code>
+        ${stopped ? `<b class="warn">중단됨</b>` : escapeHtml(j.status)}</div>
     </div>
     <div class="bar" style="margin:10px 0"><span style="width:${pct}%"></span></div>
     <div class="row" style="flex-wrap:wrap;gap:6px;margin-bottom:8px">${items}</div>
@@ -731,11 +789,23 @@ function drawJob(j) {
           ${fmtDur(Date.now() - (ITEM0 || Date.now()))}</span> 경과`)}
       ${kv("하는 일", `<span class="dim">${escapeHtml(nowDoing)}</span>`)}
     </div>` : ""}
+    ${stopped && !j.error ? `<div class="empty" style="text-align:left;border-color:#f0b429">
+      <b class="warn">중단된 집필입니다 — 아직 다 만들어지지 않았습니다.</b><br>
+      <span class="dim"><b>${doneN}파트</b>가 만들어졌고
+        <b>${totalN - doneN}파트</b>가 남았습니다.
+        위 <b>[실행]</b> 을 다시 누르면 <b>끝난 파트는 건너뛰고</b> 남은 것부터 갑니다.</span>
+    </div>` : ""}
     ${j.error ? `<div class="kvs">${kv("오류", `<b class="bad">${escapeHtml(j.error)}</b>`)}</div>` : ""}
     ${running ? `<div class="row" style="margin-top:10px">
-      <button class="btn" id="au-cancel" type="button">취소</button>
-      <span class="dim">지금 돌고 있는 과목은 끝까지 갑니다 — 그 뒤의 과목만 건너뜁니다.
-        (이미 쓴 비용은 돌려받지 못합니다.)</span>
+      <button class="btn pause" id="au-cancel" type="button">⏸ 일시정지</button>
+      <span class="dim">돌고 있는 파트는 끝까지 갑니다 — 그 뒤만 멈춥니다.
+        <b>합격한 파트는 남습니다</b>. 나중에 [실행] 을 다시 누르면 멈춘 자리부터
+        이어 갑니다(끝난 파트는 건너뜁니다).</span>
+    </div>` : ""}
+    ${!running && j.status !== "done" ? `<div class="row" style="margin-top:10px">
+      <button class="btn primary" id="au-resume" type="button">이어서 실행</button>
+      <span class="dim">멈춘 자리부터 남은 파트만 집필합니다. 세션 한도로 멈췄다면
+        사용량 화면에서 <b>현재 세션</b>이 리셋된 뒤에 누르십시오 — 주간 %가 아닙니다.</span>
     </div>` : ""}
     <pre class="job-log">${escapeHtml(LOGBUF.slice(-140).join("\n"))}</pre>`;
 
@@ -749,8 +819,15 @@ function drawJob(j) {
   if (c) c.onclick = async () => {
     c.disabled = true;
     await api(`/api/jobs/${j.id}/cancel`, { method: "POST" }).catch(() => {});
-    toast("취소를 요청했습니다.", "");
+    // ★ 「취소」 가 아니라 「일시정지」 다. 만든 것은 `data/authoring/<품목>/` 에
+    //   파일로 남고, 다시 [실행] 하면 끝난 파트를 건너뛴다 — 잃는 것이 없다.
+    //   이름이 「취소」 였을 때 사람이 누르기를 망설였다(2026-08-20).
+    toast("일시정지했습니다 — 만든 파트는 남습니다. 나중에 [이어서 실행].", "");
   };
+  // ★ 멈춘 잡에서 바로 이어 갈 수 있게. 계획을 다시 고르게 하면 그 사이에
+  //   설정이 어긋난다(실측: 21회차·m11~m30 계획이 그렇게 잡혔다).
+  const rs = $("#au-resume");
+  if (rs) rs.onclick = () => { rs.disabled = true; start(); };
 }
 
 /* ── 공용 ─────────────────────────────────────────────────────────────── */
@@ -780,8 +857,10 @@ function render(r) {
  *   값을 켜진 회차 수에 곱하기만 한다. 곱셈이 두 군데(총계 줄·확인창)에 있으므로
  *   함수 하나로 묶는다 — 따로 쓰다가 실제로 두 숫자가 갈렸다.
  */
-const partCount = (P) => (P && P.part_count)
-  || Math.max(1, Math.round(((P && P.round_size) || 80) / ((P && P.part_size) || 20)));
+/* ★ 되돌림값을 두지 않는다 (2026-09-08). 전에는 `|| 80` · `|| 20` 이라 시험정보를
+ *   못 찾으면 조용히 **빅분기 4파트**가 됐다 — 그 숫자가 그대로 [실행] 확인창의
+ *   「36파트는 건너뜁니다」 로 갔다. 없으면 null 이고, 부르는 쪽이 막는다. */
+const partCount = (P) => (P && P.part_count) || null;
 
 function scaleEst(e, nRounds, nParts, perRound) {
   e = e || {};

@@ -129,6 +129,98 @@ def remove(key: str) -> dict:
     return {"key": k, "was": was, "removed": True, "count": len(rules)}
 
 
+# ── 품목 사전 (`exams/<pd>.json` 의 `speech_dict`) ─────────────────────────
+#
+# ★ 왜 여기 같이 두나(2026-08-26). 사전이 **넷**인데 화면에는 공용 하나만 나왔다.
+#   `DENSE_RANK` 를 고치려고 이 박스를 열었는데 없어서 못 찾으셨다 — 그것은 품목
+#   사전에 있다. 어디에 무엇이 있는지 사람이 외워야 하면 화면이 잘못된 것이다.
+#
+# ★ 두 사전은 **거는 때가 다르다.**
+#     품목 사전 : `bake` 가 대본을 쓸 때 — 대본에 한글로 박힌다. 화면에도 보인다.
+#     공용 사전 : 엔진이 합성 직전에 — 대본은 로마자 그대로고 소리만 바뀐다.
+#   그래서 품목 사전이 먼저 바꾼 낱말은 **공용 사전에 걸리지 않는다.** 대본에
+#   로마자가 안 남기 때문이다. 고칠 자리를 고를 때 이것이 갈림길이다.
+
+def read_product() -> dict:
+    """지금 작업 폴더가 쓰는 품목의 `speech_dict`. 없으면 빈 것.
+
+    ★ 품목은 **폴더가 정한다**(`parts.active()` — `_book.json` 의 `pd`). 화면에서
+      고른 것이 아니다. 파일은 `exams/<id>.json` 이고 YAML 이 아니라 JSON 이다.
+    """
+    try:
+        from services.authoring import examspec, parts
+        eid = str((parts.active() or {}).get("id") or "")
+        path = examspec.path_of(eid) if eid else ""
+        # ★ **파일을 곧바로 읽는다.** `parts.active()` 는 `_book.json` mtime 으로
+        #   캐시돼서, 시험정보만 고치면 옛 값을 돌려준다 — 화면이 방금 넣은 항목을
+        #   못 보여 주는 일이 그래서 생긴다.
+        spec = examspec.load(eid) if eid else {}
+    except Exception:                                        # noqa: BLE001
+        spec, eid, path = {}, "", ""
+    rules = {str(k): str(v) for k, v in (spec.get("speech_dict") or {}).items()}
+    return {"rules": rules, "count": len(rules), "pd": eid,
+            "label": str(spec.get("label") or eid), "path": path,
+            "exists": bool(path and os.path.isfile(path))}
+
+
+def _write_product(rules: dict) -> None:
+    """`exams/<pd>.json` 의 `speech_dict` 블록만 바꿔 쓴다.
+
+    ★ 파일 전체를 `json.dump` 로 다시 쓰지 않는다 — 키 순서와 들여쓰기가 그 파일의
+      읽기 순서다. 블록만 갈아 끼우고, 깨진 것은 쓰지 않는다.
+    """
+    d = read_product()
+    if not d["path"]:
+        raise ValueError("지금 품목을 알 수 없습니다 — exams/<pd>.json 을 못 찾았습니다.")
+    p = d["path"]
+    raw = open(p, encoding="utf-8").read()
+    nl = chr(10)
+    lines = ["    %s: %s" % (json.dumps(k, ensure_ascii=False),
+                             json.dumps(rules[k], ensure_ascii=False)) for k in rules]
+    head, tail = '  "speech_dict": {', '  },'
+    block = head + nl + ("," + nl).join(lines) + nl + tail
+    if '"speech_dict"' in raw:
+        i = raw.index(head)
+        j = raw.index(nl + tail, i) + len(nl + tail)
+        raw = raw[:i] + block + raw[j:]
+    else:                                    # 없으면 맨 앞 키 앞에 넣는다
+        i = raw.index("{") + 1
+        raw = raw[:i] + nl + block + raw[i:]
+    json.loads(raw)                          # 깨진 것을 쓰지 않는다
+    atomic_write_text(p, raw)
+    # ★ 캐시를 버린다 — 안 버리면 다음 굽기가 옛 사전을 쓴다.
+    try:
+        from services.authoring import parts
+        parts.invalidate()
+    except Exception:                                        # noqa: BLE001
+        pass
+
+
+def save_product(key: str, value: str) -> dict:
+    k, v = (key or "").strip(), (value or "").strip()
+    if not k:
+        raise ValueError("용어가 비어 있습니다.")
+    if not v:
+        raise ValueError("읽는 소리가 비어 있습니다 — 지우려면 [빼기] 를 쓰세요.")
+    d = read_product()
+    rules = d["rules"]
+    was = rules.get(k)
+    rules[k] = v
+    _write_product(rules)
+    return {"key": k, "value": v, "was": was, "count": len(rules), "scope": "product"}
+
+
+def remove_product(key: str) -> dict:
+    k = (key or "").strip()
+    d = read_product()
+    rules = d["rules"]
+    if k not in rules:
+        raise ValueError(f"품목 사전에 없습니다: {k}")
+    was = rules.pop(k)
+    _write_product(rules)
+    return {"key": k, "was": was, "removed": True, "count": len(rules), "scope": "product"}
+
+
 def candidates(prefix: str = "") -> list[dict]:
     """낭독문에 있는데 **사전에 없는** 대문자 약어. 빈도가 큰 것부터.
 

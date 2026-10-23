@@ -112,6 +112,15 @@ def block_from_rounds(question: dict, previous: dict | None = None) -> dict:
     names = derive.asset_filenames(question)
     if names:
         block["assets"] = names
+    # ★★ **지문이 가리킨 그림**을 따로 남긴다. 그림 줄을 지우고 이름만 `assets` 로
+    #   옮기면 「지문에 있었나 해설에 있었나」 가 사라진다 — 슬라이드가 전부 해설
+    #   면에만 그렸고, ERD 를 보고 묻는 문항은 그림 없이 나갔다(2026-08-20 실측
+    #   SQLD 2·5번: 「[주문 모델]」 한 줄만 남았다).
+    #   집필 규약이 「지문의 그림은 답을 가리고, 해설의 그림은 온전하게」 이므로
+    #   **어디에 있었는지가 내용**이다.
+    pass_names = derive.asset_filenames_in(raw_passage) if raw_passage else []
+    if pass_names:
+        block["passage_assets"] = pass_names
     return block
 
 

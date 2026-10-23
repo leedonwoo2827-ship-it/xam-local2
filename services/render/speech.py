@@ -28,8 +28,9 @@ import re
 from core.atomic_io import atomic_write_json
 from services.book import paths
 
-_NOTE = ("사람이 고친 발음대본. bake 가 병합만 한다(덮어쓰지 않는다). "
-         "from 은 고칠 때의 자막 원문 — 발문이 그 뒤에 바뀌면 bake 가 경고한다.")
+_NOTE = ("사람이 고친 자막·발음. bake 가 병합만 한다(덮어쓰지 않는다). "
+         "from 은 고칠 때의 자막 원문 — 발문이 그 뒤에 바뀌면 bake 가 경고한다. "
+         "subtitle 은 고친 자막, text 는 고친 발음. 둘 중 하나만 있어도 된다.")
 
 
 def path(bundle: str) -> str:
@@ -52,7 +53,10 @@ def read_raw(bundle: str) -> dict:
         return {}
     out = {}
     for k, v in (doc.get("scenes") or {}).items():
-        if isinstance(v, dict) and (v.get("text") or "").strip():
+        # ★ 자막만 고친 항목도 살린다 — 전에는 `text`(발음)가 있어야만 읽어서,
+        #   자막만 고치면 저장은 되고 다시 구울 때 조용히 사라졌다.
+        if isinstance(v, dict) and ((v.get("text") or "").strip()
+                                    or (v.get("subtitle") or "").strip()):
             out[str(k)] = v
     return out
 
@@ -68,7 +72,8 @@ def overrides(bundle: str) -> dict[int, dict]:
     return out
 
 
-def save(bundle: str, scene: int, text: str, *, src: str = "") -> dict:
+def save(bundle: str, scene: int, text: str, *, src: str = "",
+         subtitle: str = "") -> dict:
     """그 씬의 발음을 덮어쓰기 파일에 남긴다.
 
     `src` 는 지금 화면에 있는 **자막 원문**이다. 빈 값이면 script.json 의
@@ -92,11 +97,22 @@ def save(bundle: str, scene: int, text: str, *, src: str = "") -> dict:
 
     key = str(int(scene))
     body = (text or "").strip()
-    if not body:
+    sub = (subtitle or "").strip()
+    origin = (src or _subtitle_of(bundle, scene)).strip()
+    # ★ 자막을 원문 그대로 두었으면 자막 덮어쓰기는 남기지 않는다 — 안 그러면
+    #   손대지 않은 씬까지 「고침」으로 표시되고, 원문이 바뀌어도 옛 자막에 묶인다.
+    if sub == origin:
+        sub = ""
+    if not body and not sub:
         scenes.pop(key, None)
         removed = True
     else:
-        scenes[key] = {"text": body, "from": (src or _subtitle_of(bundle, scene)).strip()}
+        e = {"from": origin}
+        if sub:
+            e["subtitle"] = sub
+        if body:
+            e["text"] = body
+        scenes[key] = e
         removed = False
 
     doc["scenes"] = scenes
@@ -131,18 +147,25 @@ def read(bundle: str) -> dict:
         sub = str(s.get("narration") or "")
         e = ov.get(si) or {}
         edited = bool((e.get("text") or "").strip())
+        sub_edited = bool((e.get("subtitle") or "").strip())
+        # ★ 다시 굽기 전에도 화면은 **고친 값**을 보여야 한다. script.json 의
+        #   `narration` 은 다음 굽기까지 원문 그대로다.
+        shown_sub = e.get("subtitle") if sub_edited else sub
         items.append({
             "scene": si,
             "kind": s.get("kind"),
             "number": s.get("number"),
-            "subtitle": sub,                                  # 자막 — 원문
-            "speech": (e.get("text") or "") if edited else sub,  # 발음 — 실제로 읽는 글
+            "subtitle": shown_sub,                            # 자막 — 고친 것이 있으면 그것
+            "subtitle_src": sub,                              # 자막 원문 (drift 대조용)
+            "subtitle_edited": sub_edited,
+            "speech": (e.get("text") or "") if edited else shown_sub,
             "edited": edited,
             # 고친 뒤에 발문이 바뀌었나 — bake 가 이 경우 덮지 않는다
-            "drifted": bool(edited and (e.get("from") or "").strip() != sub.strip()),
+            "drifted": bool((edited or sub_edited)
+                            and (e.get("from") or "").strip() != sub.strip()),
         })
     return {"bundle": bundle, "path": paths.rel(path(bundle)),
-            "edited": sum(1 for i in items if i["edited"]),
+            "edited": sum(1 for i in items if i["edited"] or i["subtitle_edited"]),
             "drifted": [i["scene"] for i in items if i["drifted"]],
             "items": items}
 
@@ -171,7 +194,7 @@ def stale_scenes(bundle: str) -> list[int]:
     return sorted(out)
 
 
-def resynth(bundle: str, scene: int, *, text: str = "") -> dict:
+async def resynth(bundle: str, scene: int, *, text: str = "") -> dict:
     """그 씬의 wav 하나를 지금 발음으로 다시 만든다.
 
     ★ mp4·통합 자막은 **건드리지 않는다.** 발음 한 군데 고칠 때마다 번들 전체를
@@ -186,7 +209,6 @@ def resynth(bundle: str, scene: int, *, text: str = "") -> dict:
     ★ 발음사전·약어 음역·연도 변환은 `Engine.synth()` **안에서** 걸린다. 여기서
       미리 적용하면 이중 변환이 된다.
     """
-    import asyncio
     import sys
 
     body = (text or "").strip()
@@ -227,7 +249,13 @@ def resynth(bundle: str, scene: int, *, text: str = "") -> dict:
         write_wav(wav_path, wav, eng.sample_rate)
         return len(wav) / float(eng.sample_rate)
 
-    sec = asyncio.run(go())
+    # ★ `asyncio.run()` 을 쓰지 않는다. 이 함수는 **FastAPI 라우트 안**에서
+    #   불리고, 거기에는 이미 돌고 있는 루프가 있다 — 그 안에서 `asyncio.run()` 은
+    #   `cannot be called from a running event loop` 으로 죽는다(실측 2026-08-26).
+    # ★ 쓰레드로 돌려도 안 된다. `Engine.get()` 이 엔진을 캐시하므로 부를 때마다
+    #   새 루프를 만들면 두 번째부터 다른 루프의 객체를 건드리게 된다.
+    #   앱의 루프 하나를 그대로 쓴다.
+    sec = await go()
     return {"bundle": bundle, "scene": int(scene), "sec": round(sec, 3),
             "was": was, "text": body,
             # 길이가 달라지면 자막 시각이 밀린다 — 조용히 두지 않고 화면이 말한다

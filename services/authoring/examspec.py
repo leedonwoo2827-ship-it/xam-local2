@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from datetime import date
 from typing import Any, Dict, List, Tuple
 
 from core.atomic_io import atomic_write_json, backup_sibling
@@ -106,6 +107,33 @@ def validate(d: Dict[str, Any]) -> Tuple[List[str], List[str]]:
         del edges
 
     rev = d.get("revision") or {}
+
+    # ★ 시험정보에는 **끝나는 날이 있다** (2026-09-07).
+    #
+    #   전에는 `checked_at`(언제 확인했나) 만 있었다. 그런데 이 파일이 담는 것은
+    #   과목 구성뿐 아니라 **그 해의 출제경향**이고, 경향은 시험이 개편되면 통째로
+    #   갈아엎힌다. 끝나는 날이 안 적혀 있으면 개편 뒤에도 낡은 기준이 그대로
+    #   통과한다 — 아무도 안 틀렸는데 결과가 틀린다.
+    #
+    #   손해가 회차 수만큼 곱해지는 게 이 값의 무게다. 한 번 정한 시험정보로
+    #   10~20회를 집필하기 때문이다(실제 계획: 5회 판독 → 15회 집필).
+    #
+    #   막지 않고 알린다 — 날짜 하나로 집필을 세우면, 개편 직후 급히 고쳐야 할 때
+    #   고칠 길이 막힌다.
+    until = str(rev.get("effective_until") or "").strip()
+    if not until:
+        warns.append("revision.effective_until 이 비었습니다 — 이 값이 언제까지 "
+                     "유효한지 알 수 없습니다. 개편이 예상되는 회차의 직전 날짜를 "
+                     "넣으십시오(YYYY-MM-DD).")
+    else:
+        try:
+            if date.fromisoformat(until) < date.today():
+                warns.append(f"유효 기간이 지났습니다 — 이 시험정보는 {until} 까지였습니다. "
+                             "공고와 최근 출제경향을 다시 확인하고 갱신하십시오.")
+        except ValueError:
+            warns.append(f"revision.effective_until 이 날짜가 아닙니다: {until!r} "
+                         "(YYYY-MM-DD 로 적으십시오)")
+
     if not rev.get("confirmed"):
         warns.append("revision.confirmed 가 false 입니다 — 시행처 공고로 확인되지 "
                      "않은 값입니다. 집필 전에 확인하십시오.")
@@ -147,6 +175,8 @@ def listing() -> List[Dict[str, Any]]:
             "confirmed": bool(rev.get("confirmed")),
             "checked_at": rev.get("checked_at") or "",
             "effective_from": rev.get("effective_from") or "",
+            # 화면이 「언제까지 유효한가」 를 배지로 보여 준다 — 지났으면 붉게.
+            "effective_until": rev.get("effective_until") or "",
             "spec_version": rev.get("spec_version"),
         })
     return out

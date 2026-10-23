@@ -101,6 +101,16 @@ def existing_mock_rounds(book_dir: str) -> List[str]:
     return sorted(out)
 
 
+def _round_size() -> int:
+    """회차당 문항수 — 시험정보에서. 못 찾으면 되돌림값(읽기용)이다."""
+    from services.authoring import draft
+
+    try:
+        return int(draft.round_size()) or 0
+    except Exception:                                        # noqa: BLE001
+        return 0
+
+
 def plan_rounds(book_dir: str, multiple: int, start: str = "",
                 per_round: Dict[str, int] | None = None) -> Dict[str, Any]:
     """배수 → 만들 회차 코드 목록.
@@ -199,7 +209,9 @@ def plan_rounds(book_dir: str, multiple: int, start: str = "",
         "multiple": max(1, int(multiple)),
         "codes": codes,
         "n_rounds": len(codes),
-        "n_items": len(codes) * 80,
+        # ★ 회차당 문항수는 **시험정보에서** 온다. 여기 80 이 박혀 있었다 —
+        #   빅분기 규격이라 ADsP(50) · SQLD(50) 에서 총 문항수가 틀리게 나왔다.
+        "n_items": len(codes) * _round_size(),
         # ★ 겹치면 조용히 덮지 않는다. 화면이 경고하고 사람이 결정한다.
         "overwrites": over,
         "remaining_parts": remaining,

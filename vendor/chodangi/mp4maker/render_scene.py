@@ -55,7 +55,14 @@ def render_scene(
     kb = kb_for_scene(scene.index, duration, fps, mode=cfg.kenburns_mode)
 
     # Oversample factor to keep zoompan crisp at zoom 1.08.
-    over = 4
+    #
+    # ★ xam-local: motion off → **no oversample.** With `--kenburns off` the zoom
+    #   expression is a constant 1.0, so upscaling 16x only to scale back down costs
+    #   ~100MB per in-flight frame (7680x4320 rgb) and buys nothing — it is in fact
+    #   slightly *softer* than 1:1 because of the double resample.
+    #   Measured 2026-08-25: 31 parallel jobs x 8K buffers exhausted a 32GB machine
+    #   and x264 died with `malloc of size 7332416 failed` mid-round.
+    over = 1 if getattr(cfg, "kenburns_mode", "auto") == "off" else 4
     over_w, over_h = W * over, H * over
 
     # ffmpeg subtitles filter path needs forward slashes and an escaped colon for Windows.

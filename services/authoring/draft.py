@@ -59,7 +59,24 @@ CHARS_PER_SEC = 5.5                          # 한국어 낭독 환산(speed 1.0
 
 # ── 스테이징 경로 ───────────────────────────────────────────────────────────
 def _pd() -> str:
-    """지금 작업 폴더의 품목 코드. 스테이징을 품목별로 가르는 데 쓴다."""
+    """지금 작업 폴더의 품목 코드. 스테이징을 품목별로 가르는 데 쓴다.
+
+    ★ 되돌림값으로 **다른 품목의 이름을 쓰지 않는다** (2026-09-08).
+
+      전에는 시험정보를 못 찾으면 `.env` 의 `PD_CODE` 로 떨어졌다. 그 값은 이 PC 를
+      처음 세울 때 적은 품목(여기서는 `bigdata`)이고 **지금 연 폴더와 아무 상관이
+      없다.** 실측: ADsP 폴더를 열었는데 시험정보 캐시가 낡아 있어 이 함수가
+      `bigdata` 를 냈고, 집필 화면이 `data/authoring/bigdata/` 의 9회차 36파트를
+      「이미 합격」으로 세었다. 그 상태로 [실행] 하면 ADsP 집필이 빅분기 스테이징에
+      섞이고, 남의 파트를 건너뛴다.
+
+      그래서 순서를 이렇게 둔다:
+        1) 시험정보의 `pd_id`      — 정상 경로
+        2) 작업 폴더의 `_book.json` 의 `pd` — 시험정보가 아직 없어도 폴더는 안다
+        3) `unknown`               — 여기까지 오면 **아무 폴더와도 안 섞인다**
+
+      `.env` 는 더 이상 보지 않는다. 섞이는 것보다 비어 있는 편이 낫다.
+    """
     try:
         from services.authoring import parts
 
@@ -68,12 +85,20 @@ def _pd() -> str:
             return pd
     except Exception:                                        # noqa: BLE001
         pass
+    # 시험정보가 아직 없는 새 문제집 — 폴더가 아는 값을 쓴다.
     try:
-        from core.constants import PD_CODE
+        import json as _json
 
-        return str(PD_CODE or "unknown").strip() or "unknown"
+        from services.book import paths as _paths
+
+        with open(os.path.join(_paths.book_dir(), "_book.json"),
+                  encoding="utf-8") as f:
+            pd = str((_json.load(f) or {}).get("pd") or "").strip()
+        if pd:
+            return pd
     except Exception:                                        # noqa: BLE001
-        return "unknown"
+        pass
+    return "unknown"
 
 
 def staging_dir(round_code: str) -> str:

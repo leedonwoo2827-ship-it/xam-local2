@@ -23,6 +23,7 @@ import json
 import os
 import re
 
+from core import atomic_io
 from services.book import paths
 from services.publish import buildcheck
 
@@ -165,6 +166,20 @@ def prov_file(raw: dict, prov: str) -> str:
     return prov or raw.get("_provider") or "youtube"
 
 
+def _pd_label() -> str:
+    """사람이 읽는 품목 이름 — 화면이 앱스 스크립트 코드에 박아 낸다.
+
+    ★ 없으면 코드가 `SS_TITLE = '영상 링크목록'` 으로 나간다. 품목이 둘 이상이면
+      드라이브에 같은 이름의 시트가 쌓여 어느 것이 어느 문제집인지 알 수 없다.
+      `appsScriptBox()` 머리말이 "이 품목의 값으로 채워서 낸다" 고 적어 둔 그 값이다.
+    """
+    try:
+        from services.authoring import parts
+        return str((parts.active() or {}).get("label") or "").strip()
+    except Exception:                                        # noqa: BLE001
+        return ""
+
+
 def read() -> dict:
     """현재 매핑 상태. 파일이 없어도 예외를 내지 않는다."""
     p = path()
@@ -216,6 +231,7 @@ def read() -> dict:
         })
     return {
         "exists": exists, "path": p,
+        "pd": _pd_label(),
         "provider": raw.get("_provider") or ("youtube" if exists else ""),
         "bundles": len(bundles), "filled": filled,
         "empty": len(bundles) - filled,
@@ -272,12 +288,72 @@ def _theory_sub(s: str, by_key: dict[str, int]) -> int:
     return 0
 
 
-def fill_from_text(text: str) -> dict:
-    """붙여넣은 목록으로 `id` 를 한 번에 채운다.
+def _write(p: str, doc: dict) -> None:
+    """매핑 파일을 저장한다 — **그 파일이 쓰던 개행을 그대로 다시 쓴다.**
 
-    ★ 이 기능이 있는 이유: 번들이 72개다. 드라이브에서 공유 링크를 하나씩 복사해
-      파일에 붙여넣으면 그것만 한 시간이 넘고 중간에 한 줄이 밀리면 **영상이 엉뚱한
-      회차에 붙는다**(그리고 그건 영상을 봐야 알 수 있다).
+    ★ 개행을 상수로 두면 안 된다. 실측으로 두 품목이 갈린다 —
+      `youtube_map.sqld-2627.json` 은 CRLF, `youtube_map.bigdata.json` 은 LF 다.
+      한쪽에 맞춰 굳히면 다른 쪽이 저장 한 번에 전 줄이 바뀌고, 그러면 무엇을
+      고쳤는지 diff 로 볼 수 없다(그게 이 파일에서 제일 알고 싶은 것이다).
+      `core.atomic_io` 머리말이 같은 이유로 같은 규칙을 적어 두었다.
+    """
+    nl = atomic_io.file_newline(p) or atomic_io.LF
+    text = json.dumps(doc, ensure_ascii=False, indent=2) + "\n"
+    atomic_io.atomic_write_text(p, atomic_io.with_newline(text, nl))
+
+
+def _swap_bytes(p: str, data: bytes) -> None:
+    """바이트를 원자적으로 갈아 끼운다 — 되돌리기가 바이트 단위여야 하기 때문이다."""
+    tmp = f"{p}.tmp.{os.getpid()}"
+    with open(tmp, "wb") as f:
+        f.write(data)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, p)
+
+
+def _verdict(now: str, new: str) -> str:
+    """이 줄이 무엇을 하는가 — 새로 채움 / 갈아끼움 / 이미 같음."""
+    if not now:
+        return "new"
+    return "same" if now == new else "replace"
+
+
+def _dups(rows: list[dict]) -> dict:
+    """붙여넣기 사고의 두 가지 모양.
+
+    ★ 이 검사가 왜 필요한가
+      파서가 한 줄 안에서 번들코드와 ID 를 함께 찾으므로 "한 줄 밀림" 은 이미 막혀
+      있다. 남는 실수는 **목록을 잘못 옮겨 붙이는 것**이고, 그건 늘 이 두 모양으로
+      나타난다. 영상이 엉뚱한 회차에 붙으면 영상을 봐야 알 수 있어서 되돌리기가 비싸다.
+
+      ids      같은 ID 가 두 자리 이상에 붙었다 — 한 영상이 두 번들일 수는 없다.
+      targets  같은 자리에 서로 다른 ID 가 두 번 왔다 — 어느 쪽이 이길지 보이지 않는다.
+
+    같은 줄을 두 번 붙여넣은 것(자리도 ID 도 같다)은 사고가 아니라서 세지 않는다.
+    """
+    by_id: dict[str, list[str]] = {}
+    by_target: dict[str, list[str]] = {}
+    for r in rows:
+        by_id.setdefault(r["new_id"], []).append(r["target"])
+        ids = by_target.setdefault(r["target"], [])
+        if r["new_id"] not in ids:
+            ids.append(r["new_id"])
+    return {
+        "ids": [{"id": k, "targets": sorted(set(v))}
+                for k, v in by_id.items() if len(set(v)) > 1],
+        "targets": [{"target": k, "ids": v}
+                    for k, v in by_target.items() if len(v) > 1],
+    }
+
+
+def parse_text(text: str) -> dict:
+    """붙여넣은 목록의 판정 — **아무것도 쓰지 않는다.**
+
+    ★ 파싱과 쓰기를 나눈 이유
+      예전에는 파싱한 결과를 그대로 파일에 썼고 백업도 없었다. 그래서 무엇이 바뀌는지
+      누르기 전에 볼 수 없었고, 잘못 넣으면 되돌릴 방법이 없었다. 번들이 72개(SQLD 는
+      100개)라 그 위험이 실질적이다. 넣기 전에 보고, 넣은 뒤 되돌릴 수 있어야 한다.
 
     한 줄에서 **번들코드**(m01-1)와 **ID/URL** 을 각각 찾아 맞춘다. 그래서 형식이
     느슨해도 된다 — 아래 전부 같은 결과가 된다:
@@ -285,17 +361,17 @@ def fill_from_text(text: str) -> dict:
         m01-1.static.mp4    1AbCdEf...
         m01-1  https://drive.google.com/file/d/1AbCdEf.../view?usp=sharing
         "m01-1.static.mp4","1AbCdEf..."
-        m01-1 → https://youtu.be/dQw4w9WgXcQ
+        m01-1 -> https://youtu.be/dQw4w9WgXcQ
 
     **이론 강의**도 같은 칸에서 받는다. 번들코드가 없으면 과목 표기를 찾는다 —
     렌더 파일명이 그대로 통한다(`_theory_sub()`):
 
         1summary-planning.mp4  https://drive.google.com/file/d/1AbCdEf.../view
         2과목  https://drive.google.com/file/d/...
-        t3 → https://youtu.be/dQw4w9WgXcQ
+        t3 -> https://youtu.be/dQw4w9WgXcQ
 
     둘 다 아닌 줄은 건너뛰고 그 줄을 돌려준다(조용히 버리지 않는다).
-    URL 을 그대로 저장한다 — 빌더가 provider 를 보고 ID 를 뽑는다(손실 변환을 하지 않는다).
+    URL 을 그대로 싣는다 — 빌더가 provider 를 보고 ID 를 뽑으므로 여기서 깎지 않는다.
     """
     p = path()
     if not os.path.isfile(p):
@@ -309,8 +385,11 @@ def fill_from_text(text: str) -> dict:
     by_key = {s["key"].lower(): s["sub"] for s in subs}
     name_of = {s["sub"]: s["name"] for s in subs}
 
-    filled, skipped, unknown, overwrote = [], [], [], []
-    t_filled, t_unknown = [], []
+    rows: list[dict] = []
+    skipped: list[str] = []
+    unknown: list[str] = []
+    unknown_theory: list[int] = []
+
     for line in (text or "").splitlines():
         s = line.strip()
         if not s:
@@ -323,22 +402,17 @@ def fill_from_text(text: str) -> dict:
                 skipped.append(s[:80])
                 continue
             if sub not in name_of:
-                t_unknown.append(sub)
+                unknown_theory.append(sub)
                 continue
             vid = _id_in_line(s, _SUBNUM_RE)
             if not vid:
                 skipped.append(s[:80])
                 continue
-            e = _theory_entry(theory, sub)
-            if (e.get("id") or "").strip() and e["id"].strip() != vid:
-                overwrote.append(f"{sub}과목")
-            e["id"] = vid
-            e.setdefault("label", f"{sub}과목 · {name_of[sub]} 강의")
-            # `t1` 로 적혀 있던 항목은 정규 키로 옮긴다 — 두 표기가 같이 남으면
-            # 빌더가 둘 다 읽어 나중 것이 이긴다(어느 쪽이 이겼는지 보이지 않는다).
-            theory.pop(f"t{sub}", None)
-            theory[str(sub)] = e
-            t_filled.append(sub)
+            now = (_theory_entry(theory, sub).get("id") or "").strip()
+            rows.append({"kind": "theory", "target": str(sub),
+                         "label": f"{sub}과목 · {name_of[sub]}",
+                         "now_id": now, "new_id": vid,
+                         "verdict": _verdict(now, vid), "line": s[:80]})
             continue
         bundle = f"m{int(mb.group(1)):02d}-{int(mb.group(2))}"
         if bundle not in known:
@@ -348,31 +422,119 @@ def fill_from_text(text: str) -> dict:
         if not vid:
             skipped.append(s[:80])
             continue
-        e = dict(videos.get(bundle) or {})
-        if (e.get("id") or "").strip() and e["id"].strip() != vid:
-            overwrote.append(bundle)
-        e["id"] = vid
-        e.setdefault("label", _label(bundle))
-        e.setdefault("sec", 0)
-        videos[bundle] = e
-        filled.append(bundle)
+        e = videos.get(bundle) or {}
+        now = (e.get("id") or "").strip()
+        rows.append({"kind": "bundle", "target": bundle,
+                     "label": e.get("label") or _label(bundle),
+                     "now_id": now, "new_id": vid,
+                     "verdict": _verdict(now, vid), "line": s[:80]})
+
+    counts = {"new": 0, "replace": 0, "same": 0}
+    for r in rows:
+        counts[r["verdict"]] += 1
+    return {
+        "path": p, "rows": rows, "counts": counts, "dup": _dups(rows),
+        "unknown": sorted(set(unknown)),
+        "unknown_theory": sorted(set(unknown_theory)),
+        "skipped": skipped[:10], "skipped_total": len(skipped),
+    }
+
+
+def apply_text(text: str, *, force: bool = False) -> dict:
+    """판정대로 `id` 를 채운다. **쓰기 전에 `.bak` 를 남긴다.**
+
+    `force` 없이는 `dup` 가 있으면 쓰지 않는다 — 그 상태로 쓰면 어느 쪽이 이겼는지
+    파일을 봐도 알 수 없다.
+    """
+    plan = parse_text(text)
+    d = plan["dup"]
+    if not force and (d["ids"] or d["targets"]):
+        bits = []
+        for x in d["ids"][:3]:
+            bits.append("ID {}… → {}".format(x["id"][:16], "·".join(x["targets"])))
+        for x in d["targets"][:3]:
+            bits.append("{} 에 ID {}개".format(x["target"], len(x["ids"])))
+        raise ValueError("같은 것이 두 자리에 붙었습니다 — 목록을 확인하세요.\n"
+                         + "\n".join(bits))
+    if not plan["rows"]:
+        raise ValueError("알아볼 수 있는 줄이 없습니다. 한 줄에 번들코드(m01-1)와 "
+                         "ID/URL 이 함께 있어야 합니다.")
+
+    p = plan["path"]
+    with open(p, encoding="utf-8") as f:
+        raw = json.load(f)
+    videos: dict = raw.get("videos") or {}
+    theory: dict = raw.get("theory") or {}
+    name_of = {s["sub"]: s["name"] for s in subjects()}
+
+    filled, t_filled, overwrote = [], [], []
+    for r in plan["rows"]:
+        if r["verdict"] == "replace":
+            overwrote.append(r["target"] if r["kind"] == "bundle"
+                             else r["target"] + "과목")
+        if r["kind"] == "theory":
+            sub = int(r["target"])
+            e = _theory_entry(theory, sub)
+            e["id"] = r["new_id"]
+            e.setdefault("label", f"{sub}과목 · {name_of.get(sub, '')} 강의")
+            # `t1` 로 적혀 있던 항목은 정규 키로 옮긴다 — 두 표기가 같이 남으면
+            # 빌더가 둘 다 읽어 나중 것이 이긴다(어느 쪽이 이겼는지 보이지 않는다).
+            theory.pop(f"t{sub}", None)
+            theory[str(sub)] = e
+            t_filled.append(sub)
+        else:
+            e = dict(videos.get(r["target"]) or {})
+            e["id"] = r["new_id"]
+            e.setdefault("label", _label(r["target"]))
+            e.setdefault("sec", 0)
+            videos[r["target"]] = e
+            filled.append(r["target"])
 
     raw["videos"] = videos
     if theory:
         raw["theory"] = theory
-    tmp = p + ".tmp"
-    with open(tmp, "w", encoding="utf-8", newline="\n") as f:
-        json.dump(raw, f, ensure_ascii=False, indent=2)
-        f.write("\n")
-    os.replace(tmp, p)
+    backed = atomic_io.backup_sibling(p)
+    _write(p, raw)
 
     st = read()
     st["matched"] = sorted(set(filled))
     st["matched_theory"] = sorted(set(t_filled))
     st["overwrote"] = sorted(set(overwrote))
-    st["unknown"] = sorted(set(unknown))
-    st["unknown_theory"] = sorted(set(t_unknown))
-    st["skipped"] = skipped[:10]
+    st["unknown"] = plan["unknown"]
+    st["unknown_theory"] = plan["unknown_theory"]
+    st["skipped"] = plan["skipped"]
+    st["backup"] = (p + ".bak") if backed else ""
+    return st
+
+
+def fill_from_text(text: str) -> dict:
+    """붙여넣은 목록으로 `id` 를 한 번에 채운다 — 판정한 뒤 바로 쓴다."""
+    return apply_text(text)
+
+
+def restore() -> dict:
+    """직전 반입을 되돌린다 — `.bak` 와 현재 파일을 **맞바꾼다.**
+
+    맞바꾸는 이유: 되돌린 뒤 "아니 그게 맞았다" 가 되면 한 번 더 눌러 돌아올 수
+    있어야 한다. 한쪽으로만 복원하면 되돌리기 자체가 되돌릴 수 없는 동작이 된다.
+    """
+    p = path()
+    b = p + ".bak"
+    if not os.path.isfile(b):
+        raise ValueError(f"되돌릴 것이 없습니다 — {b} 가 없습니다.")
+    # ★ 바이트로 다룬다. 텍스트로 읽으면 파이썬이 CRLF 를 LF 로 접어 버려서
+    #   "되돌렸는데 파일이 원본과 다르다" 가 된다(실측: SQLD 매핑이 CRLF).
+    with open(b, "rb") as f:
+        prev = f.read()
+    cur = b""
+    if os.path.isfile(p):
+        with open(p, "rb") as f:
+            cur = f.read()
+    _swap_bytes(p, prev)
+    if cur:
+        _swap_bytes(b, cur)
+    st = read()
+    st["restored"] = True
     return st
 
 
@@ -456,12 +618,7 @@ def sync(provider: str = "") -> dict:
         if k not in out:
             out[k] = v
 
-    os.makedirs(os.path.dirname(p), exist_ok=True)
-    tmp = p + ".tmp"
-    with open(tmp, "w", encoding="utf-8", newline="\n") as f:
-        json.dump(out, f, ensure_ascii=False, indent=2)
-        f.write("\n")
-    os.replace(tmp, p)
+    _write(p, out)
 
     st = read()
     st["added"] = added

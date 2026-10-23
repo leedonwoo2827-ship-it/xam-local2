@@ -5,7 +5,9 @@ BOOK 은 도구 #1 이 원격 세션에서 만들어 동기화해 준 외부 트
 """
 from __future__ import annotations
 
+import contextlib
 import os
+import threading
 import re
 from typing import Iterator
 
@@ -20,6 +22,12 @@ BUNDLE_RE = re.compile(r"^m(\d{2})-(\d{1,2})$")      # m01-1
 ROUND_RE = re.compile(r"^m(\d{2})$")                 # m01
 
 
+# ★ **이 스레드에서만** 다른 책을 보게 하는 자리. 작업 폴더를 바꾸지 않고 다른
+#   품목을 검사·변환해야 할 때가 있다(강의덱 검증, 일괄 변환). 전역 상태를 바꾸면
+#   그 사이 화면을 열어 둔 사람이 엉뚱한 책을 보게 되므로 스레드 지역으로 둔다.
+_LOCAL = threading.local()
+
+
 def book_dir() -> str:
     """지금 쓰는 BOOK 경로.
 
@@ -28,11 +36,34 @@ def book_dir() -> str:
       이 모듈의 모든 경로 함수가 이걸 거치므로 폴더 전환이 즉시 반영된다.
       books 모듈을 못 불러오는 상황(초기 부팅·순환 import)에서는 상수로 떨어진다.
     """
+    forced = getattr(_LOCAL, "book", "")
+    if forced:
+        return forced
     try:
         from services.book import books
         return books.active_path()
     except Exception:
         return BOOK_DIR
+
+
+@contextlib.contextmanager
+def using_book(path: str):
+    """이 블록 안에서만 `book_dir()` 이 `path` 를 돌려준다 (이 스레드 한정).
+
+        with paths.using_book(r"D:/00work/ocr-output-260723"):
+            pptxdeck.build_round("m01")
+
+    빈 문자열이면 아무것도 하지 않는다 — 호출부가 `book or ""` 를 그냥 넘길 수 있게.
+    """
+    if not path:
+        yield
+        return
+    prev = getattr(_LOCAL, "book", "")
+    _LOCAL.book = path
+    try:
+        yield
+    finally:
+        _LOCAL.book = prev
 
 
 def exists() -> bool:
@@ -244,7 +275,24 @@ def summary_keys() -> tuple[str, ...]:
                     found.append(k)
         if found:
             break
-    return tuple(found) or SUMMARY_KEYS
+    if found:
+        return tuple(found)
+    # ★ 아직 만든 파일이 없으면 **시험정보의 과목 키**로 답한다.
+    #   상수 `SUMMARY_KEYS`(빅분기 4개)로 떨어지면, SQLD 폴더의 빈 `03/` 을 보고
+    #   요약노트 화면이 「분석기획·탐색·모델링·결과해석」 넷을 내놓는다(2026-08-20 실측).
+    #   만들기 **전에** 무엇을 만들지 말해야 하는 자리라 폴백이 곧 답이 된다.
+    try:
+        from services.authoring import parts
+
+        # ★ **편** 단위다. 과목 하나가 여러 편일 수 있고(`theory_parts`),
+        #   파일도 편마다 하나다(`summary_sql-1.html`). 과목 키로 답하면 탭과
+        #   파일이 갈린다.
+        keys = tuple(k for k, _no, _pt, _rng in parts.theory_units())
+        if keys:
+            return keys
+    except Exception:                                        # noqa: BLE001
+        pass
+    return SUMMARY_KEYS
 
 
 # ── 04/ 회차 lesson (읽기 전용 — build_check.py 가 읽지 않는다) ─────────────
@@ -270,6 +318,77 @@ def bundle_lesson(bundle: str) -> str:
 
 def bundle_deck(bundle: str) -> str:
     return os.path.join(bundle_dir(bundle), "source", "deck.html")
+
+
+# ── 강의덱 PPTX (vendor/exam2deck) ──────────────────────────────────────────
+# ★ 이 자리들은 `_deck-export/` 가 tools/deck_rounds.py 안에만 있던 것을 옮긴 것이다.
+#   그 파일이 책 경로를 상수로 들고 있어서 폴더를 바꿔도 옛 책을 합쳤다.
+#   `book=` 를 받는 이유는 하나 — 지금 고른 폴더가 아닌 책을 검증할 때가 있다.
+
+def deck_export_dir(book: str = "") -> str:
+    return os.path.join(book or book_dir(), "_deck-export")
+
+
+def round_deck_html(round_code_or_no, book: str = "") -> str:
+    """`<book>/_deck-export/NN회.html` — 회차 하나를 합친 변환기 입력."""
+    rc = (round_code_or_no if isinstance(round_code_or_no, str)
+          else round_code(int(round_code_or_no)))
+    return os.path.join(deck_export_dir(book), f"{rc.lstrip('m')}회.html")
+
+
+def round_pages_json(round_code_or_no, book: str = "") -> str:
+    """문항별 장수 지정 — 사람이 화면에서 ± 로 고치는 값이 여기 남는다."""
+    rc = (round_code_or_no if isinstance(round_code_or_no, str)
+          else round_code(int(round_code_or_no)))
+    return os.path.join(deck_export_dir(book), f"{rc.lstrip('m')}회.pages.json")
+
+
+def figcache_dir(book: str = "") -> str:
+    """도식 SVG → PNG 캐시. 해시 이름이라 회차끼리 공유된다."""
+    return os.path.join(deck_export_dir(book), "_figcache")
+
+
+def pptx_dir(book: str = "") -> str:
+    """강의덱 pptx 가 **다 모여 있는 한 폴더** — `<book>/04-2/`.
+
+    ★ 처음에는 번들 폴더 안(`05/<번들>/source/deck.pptx`)에 뒀다. 그게 자연스럽긴
+      한데, 회차 하나가 5편이라 **100편이 100개 폴더에 흩어졌다.** PowerPoint 로
+      검수하려면 폴더를 하나씩 들어가야 해서 실제로 못 쓸 UX 였다(2026-08-24 지시:
+      "04-2 폴더를 만들고 거기다가 쭉 모을순없나요").
+
+    ★ **사본을 모으지 않고 자리를 옮겼다.** 사본이면 사람이 손질한 것이 어느 쪽인지
+      갈리고, 이미지를 뽑을 때 엉뚱한 파일에서 뽑는다. 여기가 유일한 자리다.
+
+    ★ 이름은 변환기가 쓰던 것과 같다 — `01회_강의_11-20.pptx`. 파일 이름이 좌표를
+      그대로 말해야 100개를 한 폴더에 놓고도 헷갈리지 않는다.
+    """
+    return os.path.join(book or book_dir(), "04-2")
+
+
+def bundle_pptx(bundle: str) -> str:
+    """이 번들의 슬라이드. **사람이 PowerPoint 로 여는 파일이고 진실이다.**"""
+    return os.path.join(pptx_dir(), pptx_name(bundle))
+
+
+def pptx_name(bundle: str) -> str:
+    """`m01-2` → `01회_강의_11-20.pptx`."""
+    parsed = parse_bundle(bundle)
+    if not parsed:
+        return f"{bundle}.pptx"
+    rng = bundle_range(bundle)
+    if not rng:
+        return f"{parsed[0]:02d}회_강의_{parsed[1]}편.pptx"
+    return f"{parsed[0]:02d}회_강의_{rng[0]:02d}-{rng[1]:02d}.pptx"
+
+
+def bundle_pages(bundle: str) -> str:
+    """pptx 가 낸 장 목록. 씬(script)·이미지가 이 목록에 맞춰진다."""
+    return os.path.join(bundle_dir(bundle), "source", "pages.json")
+
+
+def bundle_images_manifest(bundle: str) -> str:
+    """images/ 가 어느 pptx 에서 나왔는지. 렌더가 `--reuse-images` 를 걸 근거."""
+    return os.path.join(bundle_images_dir(bundle), "_source.json")
 
 
 def bundle_script(bundle: str) -> str:
@@ -331,6 +450,36 @@ def problems_json() -> str:
         return flat
     # 아직 없을 때는 **지금 규약의 자리**를 돌려준다(빌드 후 여기 생긴다).
     return os.path.join(out_dir(), "pd", pd or "unknown", "problems.json")
+
+
+def active_pd() -> str:
+    """지금 작업 폴더의 품목 코드. 못 읽으면 빈 문자열."""
+    try:
+        from services.book import books
+        return (books.active_meta().get("pd") or "").strip()
+    except Exception:                                        # noqa: BLE001
+        return ""
+
+
+def pd_out_dir() -> str:
+    """빌더가 내는 품목별 폴더 — `06/pd/<pd>/`.
+
+    ★ 예전에는 `06/` 평면이었다. 품목이 둘이 되면서 빌더가 갈라 뒀는데, **검사하는
+      쪽이 옛 자리를 계속 봤다.** `problems.json` 이 그래서 한 번 조용히 통과했고
+      (`problems_json()` 머리말), `figs/` 도 같은 이유로 "06/figs 에 없는 그림
+      169건" 이라는 거짓 경고를 냈다(2026-08-25). 자리를 묻는 곳을 여기 하나로 모은다.
+    """
+    pd = active_pd()
+    if pd:
+        per = os.path.join(out_dir(), "pd", pd)
+        if os.path.isdir(per):
+            return per
+    return out_dir()
+
+
+def pd_figs_dir() -> str:
+    """문항 도식 SVG 가 실제로 놓이는 자리."""
+    return os.path.join(pd_out_dir(), "figs")
 
 
 # ── 파일 상태 ───────────────────────────────────────────────────────────────

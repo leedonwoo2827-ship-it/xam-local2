@@ -111,10 +111,13 @@ def speak_jamo(text: str) -> str:
     """보기 기호 자모를 **이름으로** 바꾼다. `ㄱ`→`기역`, `ㄱ~ㄹ`→`기역부터 리을까지`."""
     def rng(m: "re.Match[str]") -> str:
         a, b = _JAMO.get(m.group(1)), _JAMO.get(m.group(2))
-        return f"{a}부터 {b}까지" if a and b else m.group(0)
+        return f"{a}부터 {b}까지{_MARK}" if a and b else m.group(0)
 
     out = _JAMO_RANGE_RE.sub(rng, text or "")
-    return _JAMO_ONE_RE.sub(lambda m: _JAMO.get(m.group(1), m.group(0)), out)
+    # ★ 바꾼 끝에 표시를 남긴다 — 뒤에 온 조사를 붙이려고(`join_josa`).
+    #   「ㄱ 은 옳습니다」가 「기역 은」으로 남아 턱턱 끊겼다(2026-08-26).
+    return _JAMO_ONE_RE.sub(
+        lambda m: (_JAMO[m.group(1)] + _MARK) if m.group(1) in _JAMO else m.group(0), out)
 
 
 # 괄호 안이 **영문뿐**인 부가설명 — 낭독에서만 뺀다. 화면·자막에는 남는다.
@@ -125,6 +128,59 @@ def speak_jamo(text: str) -> str:
 # ★ 한글이 든 괄호는 건드리지 않는다 — `(단, …)` 조건과 `(ㄱ)` 보기 기호가 그렇다.
 #   `(소수점 넷째 자리에서 반올림)` 처럼 사람이 빼기로 한 것은 그 씬의 발음으로 뺀다.
 _PAREN_LATIN_RE = re.compile(r"\s*\([^()가-힣ㄱ-ㅎㅏ-ㅣ]*[A-Za-z][^()가-힣ㄱ-ㅎㅏ-ㅣ]*\)")
+
+
+# ── 조사 붙이기 ─────────────────────────────────────────────────────────────
+#
+# ★ 왜 필요한가(2026-08-26 지적). 자막은 로마자·숫자 뒤에 조사를 **띄어** 쓴다 —
+#   `NULL 이 포함됩니다` · `S1 의 MGR` · `결과는 0 입니다`. 한글로만 쓰면 붙여 쓸
+#   자리다. 그대로 두면 발음이 「널 이」·「에스원 의」·「영 입니다」가 되어 읽을 때
+#   턱턱 끊긴다. 자연스러운 곳도 있지만 아닌 곳이 훨씬 많다는 것이 사용자 판단이다.
+#
+# ★ **바꾼 자리에서만** 붙인다. 온 문장에 걸면 「정답은 이 번입니다」의 `이`(숫자 2)를
+#   앞말에 붙여 「정답은이 번입니다」로 만든다. 그래서 치환한 끝에 보이지 않는 표시를
+#   두고, 그 표시 뒤에 온 조사만 당겨 붙인 뒤 표시를 지운다.
+#
+# ★ 조사 **모양도 새 소리에 맞춘다.** 자막의 조사는 영문 철자를 보고 고른 것이라
+#   소리와 어긋난다 — `SELECT 은` 은 「셀렉트은」이 아니라 「셀렉트는」이어야 한다.
+_MARK = ""
+
+# 받침 있을 때 : 받침 없을 때
+_PAIRS = {"은": "는", "이": "가", "을": "를",
+          "과": "와", "으로": "로", "이나": "나",
+          "이라고": "라고", "이며": "며",
+          "이란": "란", "이야": "야", "이라": "라", "이라서": "라서",
+          "이지만": "지만", "으로서": "로서", "으로써": "로써", "이고": "고"}
+_HAS, _NO = dict(_PAIRS), {v: k for k, v in _PAIRS.items()}
+
+# 모양이 하나뿐인 조사 — 붙이기만 한다
+_PLAIN = ("의", "에서", "에게", "에", "도", "만",
+          "부터", "까지", "처럼", "보다", "마다",
+          "밖에", "입니다", "인")
+
+_JOSA_RE = re.compile(
+    "([가-힣])" + _MARK + r"[ 	]+("
+    + "|".join(sorted(set(list(_HAS) + list(_NO) + list(_PLAIN)), key=len, reverse=True))
+    + r")(?=[\s,.…!?)\]]|$)")
+
+
+def _agree(syllable: str, josa: str) -> str:
+    """앞 소리에 맞는 조사 모양. 받침이 있으면 `은/이/을/과/으로`, 없으면 `는/가/를/와/로`."""
+    jong = (ord(syllable) - 0xAC00) % 28
+    if josa in _PLAIN:
+        return josa
+    base = _NO.get(josa, josa)          # 받침 있을 때의 모양으로 통일
+    if jong == 0:                       # 받침 없음
+        return _HAS.get(base, base)
+    if base == "으로" and jong == 8:   # ㅊㄱ 받침은 「로」
+        return "로"
+    return base
+
+
+def join_josa(text: str) -> str:
+    """치환 표시 뒤의 조사를 앞말에 붙이고 표시를 지운다."""
+    out = _JOSA_RE.sub(lambda m: m.group(1) + _agree(m.group(1), m.group(2)), text or "")
+    return out.replace(_MARK, "")
 
 
 def spell_terms(text: str, terms: dict | None = None) -> str:
@@ -148,8 +204,14 @@ def spell_terms(text: str, terms: dict | None = None) -> str:
         v = str(terms[k] or "").strip()
         if not k or not v:
             continue
-        out = re.sub(r"(?<![0-9A-Za-z가-힣])" + re.escape(str(k))
-                     + r"(?![0-9A-Za-z가-힣])", v, out)
+        # ★★ 경계는 **숫자·로마자·밑줌만** 본다. 전에는 `가-힣` 도 들어 있어서
+        #   **뒤에 한글 조사가 붙으면 사전을 건너뛰었다** — 한국말 문장에서는 그게 가장
+        #   흔한 자리다. SQLD 대본 실재로 `NULL이` 667 · `SQL처럼` 562 ·
+        #   `JOIN이므로` 102 … 모든 1,467곳이 생으로 남았다(2026-08-25 실재).
+        # ★ `0-9A-Za-z` 는 지후다 — `NULLIF` 가 「널IF」 로 변하는 것을 그게 막는다.
+        # ★ 밑줌(`_`)도 경계다 — `TEAM` 이 `TEAM_ID` 의 앞부분을 바꿔 `팀_ID` 가 되지 않게.
+        out = re.sub(r"(?<![0-9A-Za-z_])" + re.escape(str(k))
+                     + r"(?![0-9A-Za-z_])", lambda _m, _v=v: _v + _MARK, out)
     return out
 
 
@@ -159,8 +221,13 @@ def to_speech(text: str, terms: dict | None = None) -> str:
     자막(`narration`)은 손대지 않는다 — 갈라지는 것은 `narration_text` 뿐이다.
     `terms` 는 그 품목의 약어 사전(`exams/<pd>.json` 의 `speech_dict`)이다.
     """
-    return speak_jamo(speak_numbers(
-        spell_terms(_PAREN_LATIN_RE.sub("", text or ""), terms)))
+    # ★ 사전을 **두 번** 돌린다. `1TB`·`128MB`·`log2` 처럼 숫자가 바로 앞뒤에 붙으면
+    #   경계 조건(`(?<![0-9A-Za-z_])`)에 막혀 1차에서 안 잡힌다. 숫자를 소리로 바꾸고
+    #   나면 「일 TB」 가 되어 그때 잡힌다(실측 2026-08-26, 빅분기 대본 17곳).
+    #   두 번 돌려도 안전하다 — 바뀐 값은 한글이라 다시 걸릴 키가 없다.
+    out = spell_terms(_PAREN_LATIN_RE.sub("", text or ""), terms)
+    out = spell_terms(speak_numbers(out), terms)
+    return join_josa(speak_jamo(out))
 
 
 def speak_numbers(text: str) -> str:
@@ -210,6 +277,7 @@ def speak_numbers(text: str) -> str:
 
         # 단위가 바로 붙어 있으면 한 칸 띄운다 — 「천구백육십년」보다 잘 읽힌다
         nxt = tail[:1]
-        return said + (" " if nxt and not nxt.isspace() and nxt not in ",.·)]%" else "")
+        return said + _MARK + (
+            " " if nxt and not nxt.isspace() and nxt not in ",.·)]%" else "")
 
     return _NUM_RE.sub(one, src)

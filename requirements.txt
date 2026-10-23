@@ -44,3 +44,17 @@ playwright>=1.44   # deck.html → 슬라이드 캡처 (Chromium)
 #     ffmpeg                                  PATH 에 있어야 한다
 #     python -m playwright install chromium   브라우저 1회 설치
 #   그리고 TTS 모델(vendor/chodangi/assets/, 395MB)은 .gitignore 대상이다.
+
+# ── 강의덱 PPTX(도구 #4 변환 엔진) 내장분 — vendor/exam2deck ────────────────
+# deck.html 을 캡처하는 대신 **좌표를 재서** pptx 로 그린다. 그 pptx 가 슬라이드의
+# 진실이 되고, PowerPoint 로 뽑은 PNG 가 영상의 슬라이드가 된다.
+python-pptx>=1.0   # 슬라이드를 그리는 주 라이브러리 (네이티브 도형·글자)
+fonttools>=4.50    # Pretendard advance width 로 줄 수를 실측한다 (metrics.py)
+brotli             # fonttools 가 woff2 를 열 때 쓴다
+#
+# ★ 이 셋도 pip 로 안 된다.
+#     PowerPoint            pptx → PNG 를 COM 으로 시킨다 (services/deck/slideimg.py).
+#                           다른 렌더러로 뽑으면 강의에서 열릴 화면과 줄바꿈이 갈린다.
+#     Pretendard            없으면 맑은 고딕으로 재고 "일찍 줄바꿈" 쪽으로 떨어진다.
+#     playwright chromium   도식 SVG 를 PNG 로 굽는다 (위 캡처용과 같은 브라우저).
+pywin32; platform_system == "Windows"

@@ -150,10 +150,14 @@ body{{ font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Malgun Gothic",
   max-width:100%; max-height:var(--fig-max); height:auto;
 }}
 
-/* ── 해설 면 2단 ── 그림 옆에 해설을 둔다(2026-08-12 지시: "옆에 그림이 뜨고 …
-   해설은 한바닥에 모아서"). 세로로 쌓으면 그림 481px + 해설이 한 장을 넘겨 쪼개지고,
-   그러면 해설이 두 바닥으로 갈린다. 옆에 두면 **한 바닥에 모인다.**
-   ★ 그림이 없는 문항은 이 줄을 쓰지 않는다 — 한 단으로 그대로 흐른다. */
+/* ── 해설 면 2단 ── ★★ **더 쓰지 않는다**(2026-08-20). 아래 규칙은 남겨 두었지만
+   `render.answer_slide` 이 `.ans-row` 를 만들지 않는다.
+
+   왜 버렸는가. 「그림 옆에 해설」 2단은 **한 조각**이라 쪼갤 수 없었다. 그림이
+   둘이거나 해설이 길면 한 장에 밀어 넣다가 **겹쳐 그려졌다** — 그림 두 개가
+   포개지고 글자가 그 위에 올라앉았다(실측 m01 「RIGHT OUTER JOIN」·「중심 엔터티」).
+   지시도 그랬다: 「1단을 넣으셔도 될거 같아요」.
+   1단은 겹칠 자리가 없고, 그림·해설이 각자 조각이라 넘치면 다음 장으로 흐른다. */
 .slide .ans-row{{
   display:flex; align-items:flex-start; gap:calc(16px * var(--ss));
 }}
@@ -162,6 +166,11 @@ body{{ font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Malgun Gothic",
   display:flex; flex-direction:column; gap:calc(8px * var(--ss)); }}
 /* 2단 안에서는 그림이 자기 칸 폭을 다 쓴다 — `order:-1` 은 여기서 의미가 없다. */
 .slide .ans-row figure.diagram{{ margin:0; }}
+/* ★★ 문제 면의 **지문 그림**은 흐름 안에 둔다. `order:-1` 은 그림을 카드 첫
+   자리로 올리는데(해설 면에서는 그것이 맞다), 문제 면에서는 번호·난도 머리보다
+   위로 올라가 버렸다(2026-08-20 실측 5번: ERD 가 「5번 중」 위에 떴다).
+   지문 그림은 지문이 있던 자리에 있어야 한다. */
+.slide figure.diagram.inflow{{ order:0; margin:calc(6px * var(--ss)) 0 0; }}
 .slide .ans-row figure.diagram svg,
 .slide .ans-row img.fig{{ width:100%; max-width:100%; max-height:none; }}
 
@@ -170,13 +179,35 @@ body{{ font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Malgun Gothic",
   font-size:calc(15px * var(--ts)); font-weight:700; line-height:1.5;
   color:var(--c-ink, #1e2637); margin:0;
 }}
+/* ★ 지문의 **겉 박스를 없앴다**(2026-08-20 지시: 「그냥 다 흐르게 두어요..
+   박스에 박스를 넣어서 문제같은데」). 표와 코드는 자기 테두리를 갖는데 그것들을
+   또 회색 박스로 감싸니 박스 안 박스가 됐고, 감싼 박스가 쪼갤 수 없는 한 덩이로
+   보여 넘침이 더 심하게 드러났다. 이제 지문은 배경 없이 흐른다. */
 .slide .passage{{
   font-size:calc(13.5px * var(--ts)); line-height:1.6;
   color:var(--c-body, #46536b);
-  padding:calc(12px * var(--ss)) calc(14px * var(--ss));
-  background:var(--c-soft, #f6f8fc); border-radius:calc(10px * var(--ss));
-  border:1px solid var(--c-line, #e3e8f0);
+  padding:0; background:none; border:0; border-radius:0;
+  margin:calc(8px * var(--ss)) 0 0;
 }}
+.slide .passage:first-child{{ margin-top:0; }}
+/* ★ 지문 조각이 잇달으면 **좁게** 붙인다. 조각마다 8px 을 주면 표 두 개와
+   이름표가 각각 떨어져 지문이 흩어져 보인다 — 이름표와 표는 특히 붙어야 한다. */
+.slide .passage + .passage{{ margin-top:calc(4px * var(--ss)); }}
+
+/* ── 코드 박스 ── ★ SQL 이 글자로 흐르지 않게 박스로 그린다.
+   `md_paras` 가 코드펜스를 `<pre class="code">` 로 만든다(2026-08-20). 전에는
+   그 자리에 스타일이 없어 펜스가 글자로 찍히고 SQL 이 문단으로 새어 나갔다.
+   ★ 등폭 글꼴에 `pre-wrap` 이다 — SQL 은 줄바꿈과 들여쓰기가 내용이므로
+     `nowrap` 으로 두면 긴 줄이 화면을 넘고, `normal` 로 두면 줄이 뭉개진다. */
+.slide pre.code{{
+  font-family:"Consolas","D2Coding","Courier New",monospace;
+  font-size:calc(12.5px * var(--ts)); line-height:1.55;
+  color:var(--c-ink, #1e2637); background:#fff;
+  border:1px solid var(--c-line, #e3e8f0); border-radius:calc(8px * var(--ss));
+  padding:calc(10px * var(--ss)) calc(12px * var(--ss));
+  margin:calc(8px * var(--ss)) 0 0; white-space:pre-wrap; overflow-wrap:anywhere;
+}}
+.slide .passage pre.code:first-child{{ margin-top:0; }}
 
 /* ── 보기 ── ★ 4개가 반드시 다 보여야 한다.
    `.ch2` 는 2×2 로 접어 세로 564px 를 절반으로 만든다. 글자를 줄이지 않고 높이를

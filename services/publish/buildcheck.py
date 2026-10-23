@@ -184,7 +184,14 @@ def assertions(exp: dict) -> list[tuple]:
     ]
 
 
-def start() -> dict:
+def start(scope: str = "all") -> dict:
+    """발행 빌드를 시작한다.
+
+    ★ `scope="problems"` 는 **1차(문제집)** 다. 빌더는 그대로 돌고(영상이 없어도
+      돈다 — `build_check.py`: "없으면 영상 없음"), **어서션에서 영상 몫만 뺀다.**
+      빼는 것이 아니라 「2차에서 봅니다」로 표시한다 — 사라지면 사람이 2차에 무엇이
+      남았는지 모른다.
+    """
     require_pd()          # ★ 잡을 만들기 전에 끊는다
     env = env_info()
     if not env["cloned"]:
@@ -194,9 +201,12 @@ def start() -> dict:
             "axexam/scripts/ 가 저장소에 들어 있어야 합니다 "
             "(git subtree 로 합쳐져 있습니다).")
 
-    job = registry.create("build", f"발행 빌드 · pd={active_pd()}", [],
+    label = "문제집 (1차)" if scope == "problems" else "전체 (2차)"
+    job = registry.create("build", f"발행 빌드 · {label} · pd={active_pd()}", [],
                           steps=["build", "assert", "problems"])
-    job["build"] = {"command": command_text(), "pd": active_pd(), "book": paths.book_dir()}
+    job["scope"] = scope
+    job["build"] = {"command": command_text(), "pd": active_pd(),
+                    "book": paths.book_dir(), "scope": scope}
     registry.spawn(job, _work)
     return job
 
@@ -238,13 +248,22 @@ def _work(job: dict) -> None:
     for label, rx in assertions(expected()):
         ok = bool(rx.search(blob))
         asserts.append({"label": label, "ok": ok, "pattern": rx.pattern})
-    for label, bad_rx, msg in [
-        ("SVG 누락 없음", re.compile(r"\[warn\]\s*SVG 못 찾음"), "빌드가 SVG 를 못 찾았습니다."),
+    problems_only = job.get("scope") == "problems"
+    for label, bad_rx, msg, stage2 in [
+        ("SVG 누락 없음", re.compile(r"\[warn\]\s*SVG 못 찾음"),
+         "빌드가 SVG 를 못 찾았습니다.", False),
         ("유튜브 ID 누락 없음", re.compile(r"\[warn\]\s*유튜브 ID 미입력"),
-         "유튜브 ID 가 비어 있습니다 — 영상이 재생되지 않습니다."),
-        ("STALE 잔여 없음", re.compile(r"\[STALE\]"), "예전 빌드의 mp4 가 남아 있습니다."),
+         "유튜브 ID 가 비어 있습니다 — 영상이 재생되지 않습니다.", True),
+        ("STALE 잔여 없음", re.compile(r"\[STALE\]"),
+         "예전 빌드의 mp4 가 남아 있습니다.", True),
     ]:
         hit = bool(bad_rx.search(blob))
+        if stage2 and problems_only:
+            # ★ 1차에서는 **판정하지 않는다.** 지우지도 않는다 — 2차에 남은 일이다.
+            asserts.append({"label": label, "ok": True, "skipped": True,
+                            "pattern": bad_rx.pattern,
+                            "detail": ("2차(영상)에서 봅니다" if hit else "")})
+            continue
         asserts.append({"label": label, "ok": not hit, "pattern": bad_rx.pattern,
                         "detail": msg if hit else ""})
     job["asserts"] = asserts
@@ -252,7 +271,8 @@ def _work(job: dict) -> None:
     registry.item(job, "assert", status="error" if failed else "done",
                   error=("어서션 실패: " + ", ".join(failed)) if failed else None)
     for a in asserts:
-        registry.log(job, f"[assert] {'OK  ' if a['ok'] else 'FAIL'} {a['label']}"
+        mark = "SKIP" if a.get("skipped") else ("OK  " if a["ok"] else "FAIL")
+        registry.log(job, f"[assert] {mark} {a['label']}"
                           + (f" — {a.get('detail')}" if a.get("detail") else ""), force=True)
 
     # ── problems.json 검증 + 임포트 드라이런 ──
@@ -387,18 +407,24 @@ def validate_problems_json(path: str | None = None) -> dict:
         warnings.append(f"problems.json 이 {size / 1048576:.1f} MB 입니다 — "
                         "서버의 post_max_size 를 넘으면 요청이 통째로 버려집니다.")
 
+    # ★ 그림은 **품목별 폴더** 아래다 — `06/pd/<pd>/figs/`. 옛 평면 자리(`06/figs`)를
+    #   보던 탓에 169개가 다 있는데도 "없는 그림 169건" 이라고 경고했다(2026-08-25).
+    figs_dir = paths.pd_figs_dir()
     fig_missing = []
     for p in problems:
         for f in (p.get("figures_json") or []):
-            if not os.path.isfile(os.path.join(paths.out_dir(), "figs", f)):
+            if not os.path.isfile(os.path.join(figs_dir, f)):
                 fig_missing.append(f)
     if fig_missing:
-        warnings.append(f"06/figs 에 없는 그림 {len(fig_missing)}건: "
+        warnings.append(f"{paths.rel(figs_dir)} 에 없는 그림 {len(fig_missing)}건: "
                         f"{', '.join(fig_missing[:5])} — 웹에서 조용히 안 보입니다.")
 
+    # ★ 기대값을 **문장에 박지 않는다.** 240문항·3회차는 빅분기 시절 숫자라, SQLD
+    #   1,000문항 빌드에서도 "신규 240" 이라고 말했다(2026-08-25). 사람이 임포트
+    #   리포트와 대조하는 값이므로 틀리면 있으나 마나다. 폴더값으로 낸다.
     warnings.append("서버에 드라이런이 없어 신규/갱신 분류는 임포트 화면의 리포트로만 "
-                    "확인할 수 있습니다. 기대값: 신규 240 · 갱신 0 · 건너뜀 0 · "
-                    "실패 0 · 회차 3행.")
+                    f"확인할 수 있습니다. 기대값: 신규 {len(problems)} · 갱신 0 · "
+                    f"건너뜀 0 · 실패 0 · 회차 {len(rounds_)}행.")
 
     return {
         "ok": not errors,

@@ -68,6 +68,36 @@ $PD_RE = '/^[a-z0-9\-]{1,20}$/';
 $msg = '';
 $err = '';
 
+/* ── pd_config ────────────────────────────────────────────────────────────
+ * 주관처(`group`·`group_sort`)가 사는 자리다. 상단 메뉴가 이 값으로 열을 묶고,
+ * 비어 있으면 `api/products.php` 가 '기타'(99)로 떨어뜨린다.
+ *
+ * ★ 읽고 쓰는 것을 이 두 함수로만 한다. 일괄 등록과 [고치기] 가 **같은 칸**을
+ *   건드리는데 한쪽만 방식이 다르면, 한쪽으로 넣은 값이 다른 쪽 저장에 조용히
+ *   지워진다. 특히 `thumb`·`icon`·`pass` 는 이 화면이 만들지 않는 키라서
+ *   통째로 덮어쓰면 되돌릴 근거가 없다 — 반드시 읽어서 group 만 얹는다.
+ */
+function pd_cfg_read($raw)
+{
+    if ($raw === '' || $raw === null) return array();
+    $tmp = json_decode((string)$raw, true);
+    return is_array($tmp) ? $tmp : array();
+}
+
+/** 기존 설정에 주관처만 얹어 JSON 으로. 주관처가 빈 문자열이면 **지운다** —
+ *  칸을 비우는 것이 '기타로 보내기' 다. 지울 길이 없으면 잘못 넣었을 때 막힌다. */
+function pd_cfg_write($cfg, $group, $gsort)
+{
+    if ($group === '') {
+        unset($cfg['group'], $cfg['group_sort']);
+    } else {
+        $cfg['group'] = $group;
+        $cfg['group_sort'] = (int)$gsort;
+    }
+    /* JSON_UNESCAPED_UNICODE — 없으면 한글이 부풀어 사람이 읽을 수 없다. */
+    return $cfg ? json_encode($cfg, JSON_UNESCAPED_UNICODE) : '';
+}
+
 /* ── 처리 ──────────────────────────────────────────────────────────────── */
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $act   = isset($_POST['act']) ? $_POST['act'] : '';
@@ -268,19 +298,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                (exam_qna_form.php 의 같은 자리 주석 참조). */
             $name = trim(stripslashes((string)$_POST['pd_name']));
             $sort = (int)$_POST['pd_sort'];
+            /* 주관처 — 일괄 등록의 4·5번째 칸과 **같은 값**이다. 여기서도 고칠 수
+               있어야 탭 5칸 상자를 열지 않고 한 품목만 바로잡을 수 있다. */
+            $grp  = isset($_POST['pd_group']) ? trim(stripslashes((string)$_POST['pd_group'])) : '';
+            $gs   = isset($_POST['pd_gsort']) ? (int)$_POST['pd_gsort'] : 99;
             if ($name === '') {
                 $err = '품목 이름이 비어 있습니다.';
             } else {
+                /* 기존 설정을 읽어 group 만 얹는다 — thumb·icon·pass 를 잃지 않는다. */
+                $o0   = sql_fetch("select pd_config from ex_product where pd_id = '$pdq'");
+                $cfgj = pd_cfg_write(pd_cfg_read($o0 ? $o0['pd_config'] : ''), $grp, $gs);
                 sql_query("insert into ex_product
                              (pd_id, pd_name, pd_open, tier, model_id, provider,
-                              cost_units, cost_cap, pd_sort)
+                              cost_units, cost_cap, pd_sort, pd_config)
                            values
                              ('$pdq', '" . sql_escape_string($name) . "', 1, 'T1',
-                              'deepseek-v4-flash', 'openai_compat', 10, 3.0000, $sort)
+                              'deepseek-v4-flash', 'openai_compat', 10, 3.0000, $sort,
+                              '" . sql_escape_string($cfgj) . "')
                            on duplicate key update
-                             pd_name = values(pd_name),
-                             pd_sort = values(pd_sort)");
-                $msg = "저장했습니다 — $pd_id · $name · 정렬 $sort";
+                             pd_name   = values(pd_name),
+                             pd_sort   = values(pd_sort),
+                             pd_config = values(pd_config)");
+                $msg = "저장했습니다 — $pd_id · $name · 정렬 $sort · 주관처 "
+                     . ($grp === '' ? '없음(기타 열로 갑니다)' : "$grp($gs)");
             }
         } elseif ($act === 'hide' || $act === 'show') {
             $to = ($act === 'show') ? 1 : 0;
@@ -328,7 +368,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 /* ── 목록 — 문항·회차·구독 수를 함께 센다. 무엇을 지우는지 알고 눌러야 한다. ── */
 $rows = array();
-$res = sql_query("select pd_id, pd_name, pd_open, pd_sort from ex_product
+$res = sql_query("select pd_id, pd_name, pd_open, pd_sort, pd_config from ex_product
                    order by pd_open desc, pd_sort, pd_id");
 while ($r = sql_fetch_array($res)) {
     $pdq = sql_escape_string($r['pd_id']);
@@ -372,6 +412,17 @@ if (isset($_GET['pledit'])) {
     }
 }
 
+/* 이미 쓰이는 주관처 — 고치기 폼의 후보(datalist). 표를 만들지 않는 규칙은
+   api/products.php 와 같다: 값은 pd_config 에만 있고, 화면은 그것을 모아 보여준다. */
+$groups_used = array();
+foreach ($rows as $r0) {
+    $c0 = pd_cfg_read($r0['pd_config']);
+    if (!empty($c0['group']) && !in_array($c0['group'], $groups_used, true)) {
+        $groups_used[] = $c0['group'];
+    }
+}
+sort($groups_used);
+
 /* 수정 대상 — 목록의 [고치기] 가 넘긴다. 없으면 새 등록 폼이다. */
 $edit = null;
 if (isset($_GET['edit'])) {
@@ -382,6 +433,13 @@ if (isset($_GET['edit'])) {
 $f_id   = $edit ? $edit['pd_id']   : 'bigdata';
 $f_name = $edit ? $edit['pd_name'] : '빅데이터분석기사 필기';
 $f_sort = $edit ? (int)$edit['pd_sort'] : 20;
+
+/* 주관처 — `pd_config` 안에 산다(일괄 등록의 4·5번째 칸과 **같은 자리**다).
+   비어 있으면 api/products.php 가 '기타'(99)로 떨어뜨린다. 그 값을 여기 그대로
+   기본값으로 보여 준다 — 화면에 안 보이면 왜 '기타' 열에 있는지 알 수 없다. */
+$f_cfg  = $edit ? pd_cfg_read($edit['pd_config']) : array();
+$f_grp  = isset($f_cfg['group'])      ? (string)$f_cfg['group'] : '';
+$f_gs   = isset($f_cfg['group_sort']) ? (int)$f_cfg['group_sort'] : 99;
 ?><!DOCTYPE html>
 <html lang="ko"><head><meta charset="utf-8">
 <title>품목·수강과정 관리 (1회용)</title>
@@ -407,7 +465,7 @@ $f_sort = $edit ? (int)$edit['pd_sort'] : 20;
  a{color:#cd240e}
 </style></head><body>
 
-<h1>품목·수강과정 관리 <span class="m">(ex_product + ex_plan · 1회용)</span></h1>
+<h1>품목·수강과정 관리 <span class="m">(ex_product + ex_plan)</span></h1>
 <p class="m">
   임포트는 <code>ex_product</code> 행이 없으면 중단되고, 신청서는 <code>ex_plan</code> 행이
   없으면 비어 있습니다. 카페24에 phpMyAdmin 이 없어 이 화면으로 둘을 대신합니다.
@@ -419,15 +477,22 @@ $f_sort = $edit ? (int)$edit['pd_sort'] : 20;
 <h3>지금 등록된 품목</h3>
 <table>
   <tr><th>pd_id</th><th>이름</th><th>문항</th><th>회차</th><th>과정</th><th>구독</th>
-      <th>응시</th><th>공개</th><th>정렬</th><th>동작</th></tr>
+      <th>응시</th><th>공개</th><th>정렬</th><th>주관처</th><th>동작</th></tr>
 <?php if (!$rows): ?>
   <tr><td colspan="10" class="m">없습니다. 아래에서 등록하세요.</td></tr>
 <?php endif; ?>
 <?php foreach ($rows as $r):
     $open = ((int)$r['pd_open'] === 1); ?>
   <tr class="<?php echo $open ? '' : 'off' ?>">
-    <td><code><?php echo htmlspecialchars($r['pd_id']) ?></code></td>
-    <td><?php echo htmlspecialchars($r['pd_name']) ?></td>
+    <?php /* pd_id 와 이름을 눌러 그 품목의 파일 반입으로 간다 — 품목을 등록한
+             다음에 하는 일이 곧 그것이고, 표에서 바로 넘어갈 수 있어야 한다.
+             동작 열의 [파일 반입] 버튼과 같은 곳이다(익숙한 쪽을 쓰면 된다). */ ?>
+    <td><a href="exam_deploy.php?pd=<?php echo urlencode($r['pd_id']) ?>"
+           title="이 품목의 파일 반입으로"><code><?php
+        echo htmlspecialchars($r['pd_id']) ?></code></a></td>
+    <td><a href="exam_deploy.php?pd=<?php echo urlencode($r['pd_id']) ?>"
+           title="이 품목의 파일 반입으로"><?php
+        echo htmlspecialchars($r['pd_name']) ?></a></td>
     <td class="c"><?php echo number_format($r['n_prob']) ?></td>
     <td class="c"><?php echo $r['n_round'] ?></td>
     <td class="c"><?php if ($r['n_plan']): echo $r['n_plan'];
@@ -436,8 +501,19 @@ $f_sort = $edit ? (int)$edit['pd_sort'] : 20;
     <td class="c"><?php echo number_format($r['n_try']) ?></td>
     <td class="c"><?php echo $open ? '공개' : '숨김' ?></td>
     <td class="c"><?php echo (int)$r['pd_sort'] ?></td>
+    <?php /* ★ 주관처를 표에 낸다. 안 보이면 "왜 이 품목만 「기타」 열에 있나" 를
+             화면에서 알 수 없어 DB 를 열어야 했다(실제로 sqld-2627 이 그랬다). */
+    $g = pd_cfg_read($r['pd_config']); ?>
+    <td class="c"><?php if (!empty($g['group'])) {
+        echo htmlspecialchars($g['group']) . ' <span class="m">('
+           . (isset($g['group_sort']) ? (int)$g['group_sort'] : 99) . ')</span>';
+      } else { ?><b style="color:#6b1d4a">기타</b><?php } ?></td>
     <td style="white-space:nowrap">
       <a href="?edit=<?php echo urlencode($r['pd_id']) ?>"><button type="button">고치기</button></a>
+      <?php /* 그 품목의 정적 파일 반입 화면으로. 품목을 등록한 다음에 하는 일이
+               곧 이것이라, 표에서 바로 넘어갈 수 있어야 한다. */ ?>
+      <a href="exam_deploy.php?pd=<?php echo urlencode($r['pd_id']) ?>"><button
+         type="button" title="이 품목의 정적 파일(problems.js·videos.js·figs/ …)을 올립니다">파일 반입</button></a>
       <form method="post" class="inline">
         <input type="hidden" name="pd_id" value="<?php echo htmlspecialchars($r['pd_id']) ?>">
         <input type="hidden" name="act" value="<?php echo $open ? 'hide' : 'show' ?>">
@@ -465,6 +541,8 @@ $f_sort = $edit ? (int)$edit['pd_sort'] : 20;
 </table>
 
 <p class="m">
+  <b>품목 코드나 이름을 누르면</b> 그 품목의 <b>파일 반입</b>(정적 파일 올리기) 화면으로
+  갑니다 — 동작 열의 [파일 반입] 과 같은 곳입니다.<br>
   <b>문항</b>이 0 이면 랜딩 카드가 '준비 중' 으로 뜹니다(<code>products.php</code> 가 그렇게
   판정합니다). <b>구독</b>은 <code>ex_entitlement</code> 행 수 — 그 품목을 수강 중인 회원 수입니다.<br>
   <b>응시</b>는 회원이 그 품목 문항을 푼 기록 수입니다 — <b>삭제 가능 여부의 유일한 기준</b>입니다.
@@ -482,8 +560,24 @@ $f_sort = $edit ? (int)$edit['pd_sort'] : 20;
          <?php echo $edit ? 'readonly style="background:#f4f4f0"' : '' ?>>
   <label>품목 이름</label>
   <input name="pd_name" value="<?php echo htmlspecialchars($f_name) ?>" required>
-  <label>정렬 순서 <span class="m">— 작은 값이 앞. 같으면 pd_id 순</span></label>
+  <label>정렬 순서 <span class="m">— 작은 값이 앞. 같으면 pd_id 순. 랜딩 카드·목록 순서입니다</span></label>
   <input name="pd_sort" value="<?php echo $f_sort ?>">
+  <?php /* 주관처 — 일괄 등록의 4·5번째 칸과 같은 값이다. 여기 없으면 한 품목만
+           고치려고 탭 5칸 상자를 열어야 했고, 그러면 다른 17줄까지 함께 덮어썼다. */ ?>
+  <label>주관처 <span class="m">— 상단 메뉴가 <b>열</b>로 묶는 이름.
+    비우면 「기타」 열로 갑니다</span></label>
+  <input name="pd_group" value="<?php echo htmlspecialchars($f_grp) ?>"
+         list="pdGroups" placeholder="예: 한국데이터산업진흥원">
+  <datalist id="pdGroups">
+    <?php /* 이미 쓰이는 주관처를 그대로 후보로 낸다 — 손으로 다시 치면 한 글자만
+             달라도 열이 둘로 갈린다(「대한상공회의소」·「대한상공회의소 」). */
+    foreach ($groups_used as $gu): ?>
+      <option value="<?php echo htmlspecialchars($gu) ?>"></option>
+    <?php endforeach; ?>
+  </datalist>
+  <label>주관처 정렬 <span class="m">— 그 <b>열</b>이 메뉴에서 왼쪽부터 몇 번째인가.
+    정렬 순서와는 다른 축입니다</span></label>
+  <input name="pd_gsort" value="<?php echo $f_gs ?>">
   <button type="submit" class="p"><?php echo $edit ? '저장' : '등록' ?></button>
   <?php if ($edit): ?>
     &nbsp; <a href="seed_pd.php">새 등록으로 돌아가기</a>

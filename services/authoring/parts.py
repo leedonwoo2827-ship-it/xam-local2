@@ -212,11 +212,44 @@ def active() -> Optional[Dict[str, Any]]:
     return _CACHE["spec"]
 
 
+def invalidate() -> None:
+    """시험정보 캐시를 버린다. **`exams/<pd>.json` 을 고친 쪽이 부른다.**
+
+    ★ 캐시 키가 `_book.json` 의 mtime 이라, 시험정보 파일만 고치면 키가 그대로다 —
+      앱이 옛 규격으로 계속 돈다. 발음 사전을 화면에서 고쳤는데 대본이 안 바뀌는
+      일이 실제로 있었다(2026-08-26).
+    """
+    _CACHE["key"] = None
+    _CACHE["spec"] = None
+
+
 def subjects_map() -> Dict[int, str]:
     """과목번호 → 과목명. 옛 `schema.SUBJECTS` 를 대신한다."""
     return {s["no"]: s["name"] for s in _subjects(active() or {})}
 
 
+def theory_units() -> tuple:
+    """요약노트 단위 — `(키, 과목번호, (1, 1), 문항범위)`. **과목당 하나.**
+
+    ★ 편 나누기를 걷어냈다(2026-08-20). 슬라이드 원고를 만드는 일은
+      `summaryhtml2videoscripthtml` 이 맡고, 그 앱은 **해설요약 HTML 한 개**를
+      받아 원문의 `h2`/`h3` 를 목차로 쓴다. 우리가 판을 세거나 분량을 맞출 이유가
+      없어졌다 — 그 앱의 말대로 「목표가 짧으면 개념을 버리고, 길면 물을 붓는다」.
+
+    ★ 짝의 모양(`(1, 1)`·범위)은 남긴다. 부르는 자리가 그 모양을 이미 쓴다.
+    """
+    out = []
+    acc = 0
+    for s_ in ((active() or {}).get("subjects") or []):
+        cnt = int(s_.get("count") or 0)
+        if cnt <= 0:
+            continue
+        lo, hi = acc + 1, acc + cnt
+        acc += cnt
+        key = str(s_.get("key") or "").strip()
+        if key:
+            out.append((key, int(s_.get("no") or 0), (1, 1), (lo, hi)))
+    return tuple(out)
 def subject_keys() -> tuple:
     """(요약노트 키, 과목번호) 짝 — 시험정보의 `subjects[].key` 에서.
 

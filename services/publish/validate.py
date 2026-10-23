@@ -11,7 +11,7 @@ import json
 import os
 import xml.etree.ElementTree as ET
 
-from core.constants import AXEXAM_DIR, PD_CODE
+from core.constants import AXBUILD_DIR, AXEXAM_DIR, PD_CODE
 from services.book import index as bindex, lesson, md, paths, rounds, shape, verify
 from services.render import bundles as rbundles
 
@@ -403,12 +403,26 @@ def check_summaries() -> list[dict]:
     return out
 
 
+def _active_pd() -> str:
+    """지금 작업 폴더의 품목 코드. 없으면 빈 문자열(상수로 되돌리지 않는다)."""
+    try:
+        from services.publish import buildcheck
+        return buildcheck.active_pd()
+    except Exception:                                        # noqa: BLE001
+        return ""
+
+
 def check_server() -> list[dict]:
     """서버 전제 — 우리가 확인할 수 있는 것만. 나머지는 체크리스트로 넘긴다."""
     out: list[dict] = []
+    # ★ 품목은 **활성 폴더**에서 읽는다. `core.constants.PD_CODE` 는 .env 기본값이라
+    #   SQLD 폴더로 작업해도 「pd=bigdata」 로 통과한다 — 형식 검사가 다른 품목의
+    #   코드를 보고 OK 를 내는 셈이다(2026-08-26).
+    pd = _active_pd()
     out.append(_chk("server", "p.pd_format", "error",
-                    f"품목 코드 형식 (pd={PD_CODE})", bool(_PD_RE.match(PD_CODE)),
-                    "소문자·숫자·하이픈 20자 이내. 언더바는 안 됩니다."))
+                    f"품목 코드 형식 (pd={pd or '없음'})", bool(pd and _PD_RE.match(pd)),
+                    "소문자·숫자·하이픈 20자 이내. 언더바는 안 됩니다. "
+                    "비어 있으면 작업 폴더의 _book.json 에 pd 가 없는 것입니다."))
 
     keys, dup = [], []
     seen = set()
@@ -428,9 +442,21 @@ def check_server() -> list[dict]:
     out.append(_chk("server", "p.pr_key_unique", "error", "pr_key 중복 없음",
                     not dup, ", ".join(dup[:6]))),
 
-    out.append(_chk("server", "p.axexam", "error", "axexam 저장소 클론됨",
-                    os.path.isfile(os.path.join(AXEXAM_DIR, "scripts", "build_check.py")),
-                    f"{AXEXAM_DIR}\\scripts\\build_check.py 가 없습니다."))
+    # ★ **빌더를 본다. 참고용 클론이 아니다.**
+    #   전에는 `AXEXAM_DIR`(`_ref/axexam`)의 build_check.py 를 error 로 봤는데,
+    #   그 폴더는 웹 소스를 들여다볼 때만 쓰는 자리다 — `core/constants.py` 가
+    #   "발행 빌드에는 **필요하지 않다**" 라고 못박아 두었고, 빌더는 2026-08-04 에
+    #   subtree 로 저장소 안(`AXBUILD_DIR`)에 들어왔다. 그래서 멀줦한 폴더에서
+    #   발행이 「axexam 저장소 클론됨」 error 로 막혔다(2026-08-25 실측).
+    builder = os.path.join(AXBUILD_DIR, "build_check.py")
+    out.append(_chk("server", "p.axbuild", "error", "발행 빌더 있음",
+                    os.path.isfile(builder),
+                    f"{builder} 가 없습니다 — axexam subtree 가 빠졌습니다."))
+    out.append(_chk("server", "p.axexam", "warn", "axexam 웹 소스 클론(선택)",
+                    os.path.isfile(os.path.join(AXEXAM_DIR, "scripts",
+                                                "build_check.py")),
+                    f"{AXEXAM_DIR} 에 없습니다 — 발행에는 필요 없고, PHP·web/ 원본을 "
+                    "들여다볼 때만 씁니다."))
 
     # 디스크 여유 — 06/ 산출물은 작지만(mp4 를 안 담는다) 그래도 확인한다.
     try:
@@ -452,17 +478,53 @@ GROUP_LABELS = {
 }
 
 
-def run() -> dict:
+# ★ **발행은 2단계다** (2026-08-25 운영 결정).
+#
+#     1차 «문제집»  문항이 준비되면 먼저 나간다. 영상·요약노트를 기다리지 않는다.
+#     2차 «영상»    슬라이드 → 렌더 → 유튜브 업로드가 끝난 뒤 마저 나간다.
+#
+#   전에는 게이트가 하나여서, 영상이 한 편이라도 없으면 **문항까지 못 나갔다.**
+#   임포트는 DELETE 를 하지 않으므로(`problem.php`) 1차를 먼저 올려도 2차가 덮어쓴다.
+#   빌더도 영상 없이 도는 것을 이미 전제한다(`build_check.py`: "없으면 영상 없음").
+#
+#   범위마다 **무엇을 보는가**만 다르다. 검사 자체는 하나뿐이다 — 범위별로 다른
+#   검사를 쓰면 1차에서 통과한 것이 2차에서 다른 이유로 막힌다.
+SCOPES = {
+    "problems": ("문제집 (1차)", ("questions", "server")),
+    "all": ("전체 (2차 — 영상까지)", ("questions", "videos", "youtube",
+                                     "summaries", "server")),
+}
+DEFAULT_SCOPE = "all"
+
+
+def scope_groups(scope: str) -> tuple:
+    return SCOPES.get(scope, SCOPES[DEFAULT_SCOPE])[1]
+
+
+def run(scope: str = DEFAULT_SCOPE) -> dict:
     if not paths.exists():
         return {"ok": False, "error":
                 f"이 작업 폴더에는 아직 문항이 없습니다: {paths.book_dir()}"
                 " — _rounds/ 와 02/ 가 있는 폴더로 전환하세요."}
+
+    if scope not in SCOPES:
+        scope = DEFAULT_SCOPE
+    want = scope_groups(scope)
 
     checks = (check_questions() + check_videos() + check_youtube()
               + check_summaries() + check_server())
     groups = []
     for gid, label in GROUP_LABELS.items():
         rows = [c for c in checks if c["group"] == gid]
+        # ★ 범위 밖 그룹은 **지우지 않고 세지만 않는다.** 화면이 "2차에 무엇이
+        #   남았는지" 를 같이 보여줘야 사람이 다음을 안다.
+        if gid not in want:
+            groups.append({
+                "key": gid, "label": label, "checks": rows,
+                "errors": 0, "warnings": 0, "out_of_scope": True,
+                "pending": sum(1 for c in rows if not c["ok"]),
+            })
+            continue
         groups.append({
             "key": gid, "label": label, "checks": rows,
             "errors": sum(1 for c in rows if c["level"] == "error" and not c["ok"]),
@@ -473,6 +535,11 @@ def run() -> dict:
     items = bindex.cached_items()
     return {
         "ok": errors == 0,
+        "scope": scope,
+        "scope_label": SCOPES[scope][0],
+        "scopes": [{"key": k, "label": v[0]} for k, v in SCOPES.items()],
+        "pending_next": sum(g.get("pending", 0) for g in groups
+                            if g.get("out_of_scope")),
         "errors": errors,
         "warnings": warnings,
         "groups": groups,
@@ -484,5 +551,5 @@ def run() -> dict:
             "subjects": len({i["subject_no"] for i in items}),
             "rounds": len({i["round"] for i in items}),
         },
-        "pd": PD_CODE,
+        "pd": _active_pd() or PD_CODE,
     }

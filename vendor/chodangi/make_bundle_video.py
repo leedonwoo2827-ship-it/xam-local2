@@ -95,6 +95,14 @@ def _build_records(series: dict, cid: str) -> list[dict]:
             rec["seconds"] = int(s.get("countdown_seconds") or s.get("gap_seconds") or
                                  (5 if kind == "countdown" else 2))
             rec["narration_text"] = ""
+        elif not narration and s.get("hold_seconds"):
+            # ★ xam-local: 낭독을 한 장에 모은 문항의 **나머지 장**이다.
+            #   `hold_seconds` 만큼 그 슬라이드를 보여 주고 소리는 내지 않는다.
+            #   이 가지가 없으면 아래 폴백이 `"…"` 를 읽으려 하고, 장은
+            #   실제 문자 길이만큼만 머무러 한 눈에 지나간다.
+            rec["silent"] = True
+            rec["seconds"] = max(1, int(round(float(s["hold_seconds"]))))
+            rec["narration_text"] = ""
         else:
             rec["narration_text"] = narration or rec["heading"] or "…"
             rec["narration_seconds"] = _secs(rec["narration_text"])
@@ -173,6 +181,24 @@ def _count_deck_slides(deck: Path) -> int:
         return 0
 
 
+def _count_pages_manifest(b05: Path) -> int:
+    """source/pages.json 의 장 수. **강의덱(pptx)을 쓰면 이쪽이 진실이다.**
+
+    ★ 왜 필요한가 (xam-local 이 고친 곳). 슬라이드가 pptx 에서 나오면 장 나눔이
+      deck.html 과 다르다 — 변환기가 원본의 과분할을 되붙여 다시 쪼개기 때문이다
+      (SQLD 01회: 145장 → 112장). 그 상태에서 deck.html 을 세면 정상인데도
+      1:1 이 깨졌다고 멈춘다. pages.json 이 있으면 그것을 본다.
+      없으면 지금까지처럼 deck.html 을 센다(옛 번들이 그대로 돈다).
+    """
+    p = b05 / "source" / "pages.json"
+    if not p.is_file():
+        return 0
+    try:
+        return int(json.loads(p.read_text(encoding="utf-8")).get("slides") or 0)
+    except (OSError, ValueError):
+        return 0
+
+
 def _reuse_capture_images(b05: Path, scratch: Path, cap_recs: list[dict]) -> int:
     """05/<회차>/images/slide_NN.png(0-based si) → scratch/images/<image_filename>.
 
@@ -201,6 +227,14 @@ def _reuse_capture_images(b05: Path, scratch: Path, cap_recs: list[dict]) -> int
     for src, dst in plan:
         shutil.copy2(src, dst)
     return len(plan)
+
+
+def _render_jobs() -> int:
+    """장면 인코딩을 몇 개까지 동시에. 환경변수 `XAM_RENDER_JOBS` 로 덮을 수 있다."""
+    env = os.environ.get("XAM_RENDER_JOBS", "").strip()
+    if env.isdigit() and int(env) > 0:
+        return int(env)
+    return max(1, min(8, (os.cpu_count() or 4) - 1))
 
 
 def build(book: Path, round_code: str, do_audio: bool, keep_scratch: bool,
@@ -245,12 +279,14 @@ def build(book: Path, round_code: str, do_audio: bool, keep_scratch: bool,
     if reused:
         # 캡처를 건너뛰면 deck_slides != n_cap 검증이 사라진다.
         # 브라우저 없이 같은 안전장치를 걸려고 deck.html 의 .slide 를 정적으로 센다.
-        deck_slides = _count_deck_slides(deck)
+        n_pages = _count_pages_manifest(b05)
+        deck_slides = n_pages or _count_deck_slides(deck)
+        src = "pages.json" if n_pages else "deck .slide"
         print(f"[make] 이미지 재사용: {reused}/{n_cap}  "
-              f"(deck .slide={deck_slides or '?'}, 캡처 생략)")
+              f"({src}={deck_slides or '?'}, 캡처 생략)")
         if reused != n_cap or (deck_slides and deck_slides != n_cap):
             raise SystemExit(
-                f"[error] 재사용 이미지({reused})·deck 슬라이드({deck_slides}) ≠ 캡처 씬({n_cap})"
+                f"[error] 재사용 이미지({reused})·{src}({deck_slides}) ≠ 캡처 씬({n_cap})"
                 f" — 슬라이드/씬 1:1 이 깨졌습니다.\n"
                 f"        이대로 만들면 이미지와 음성이 어긋난 영상이 나옵니다.\n"
                 f"        images: {b05 / 'images'}\n"
@@ -258,12 +294,25 @@ def build(book: Path, round_code: str, do_audio: bool, keep_scratch: bool,
                 f"        script: {series_path}\n"
                 f"        --reuse-images 없이 다시 렌더(캡처)하거나, #2 에서 05 번들을 재생성하세요.")
         if not deck_slides:
-            print("[warn] deck.html 의 .slide 를 세지 못해 슬라이드/씬 정렬 검증을 생략했습니다.")
+            print("[warn] pages.json 도 deck.html 도 세지 못해 슬라이드/씬 정렬 "
+                  "검증을 생략했습니다.")
     else:
         # Chromium 을 띄우고 슬라이드를 찍는 동안 1~2분 조용하다. 시작을 알려 둔다.
         print(f"[make] deck 캡처 시작 — 슬라이드 {n_cap}장 (Chromium)", flush=True)
         saved, deck_slides, overflow = deck_capture.capture_deck(deck, scratch / "images", cap_files)
         print(f"[make] deck 캡처: {len(saved)}/{n_cap}  (deck .slide={deck_slides})")
+        # ★ pages.json 이 있으면 이 번들은 **강의덱(pptx)** 을 쓰는 번들이다. deck.html
+        #   캡처로는 절대 수가 맞지 않는다(변환기가 다시 쪼갠다). 캡처를 탓하지 말고
+        #   무엇을 눌러야 하는지 말한다 — xam-local 이 더한 안내다.
+        if _count_pages_manifest(b05) and deck_slides != n_cap:
+            raise SystemExit(
+                f"[error] 이 번들은 강의덱(pptx)을 씁니다 — deck.html 캡처로는 맞지 "
+                f"않습니다(캡처 {deck_slides} != 씬 {n_cap}).\n"
+                f"        앱의 「슬라이드」 화면에서 4단계 [그림파일 뽑기] 를 먼저 "
+                f"누르세요.\n"
+                f"        그러면 05/{round_code}/images/ 가 채워지고 렌더가 그것을 "
+                f"씁니다.\n"
+                f"        pptx : {b05}")
         if deck_slides != n_cap:
             # 어긋나면 캡처가 앞에서부터 잘려 이미지↔음성 인덱스가 통째로 밀린다 → 중단.
             raise SystemExit(
@@ -340,7 +389,12 @@ def build(book: Path, round_code: str, do_audio: bool, keep_scratch: bool,
                          # ★ 명시한다. mp4maker 기본값도 0.6 이지만, 자막을 그 값에
                          #   맞춰 만들어 놓고 합성만 딴 값을 쓰면 조용히 다시 어긋난다.
                          "--crossfade", str(CROSSFADE_SEC),
-                         "--kenburns", "off", "--no-subs", "--no-soft-sub"],
+                         "--kenburns", "off", "--no-subs", "--no-soft-sub",
+                         # ★ 명시한다. mp4maker 기본값은 `CPU-1` 이라 이 PC 에서는 31개가
+                         #   동시에 돌았고, 메모리를 다 써서 x264 가 죽었다(2026-08-25).
+                         #   장면 하나는 몇 초짜리라 31병렬로 얻는 것도 없다 — 그보다
+                         #   렌더 중에도 PC 를 쓸 수 있는 편이 낫다.
+                         "--jobs", str(_render_jobs())],
                         cwd=str(ROOT), env=env).returncode
     if rc != 0:
         raise SystemExit(f"[error] mp4maker 실패 (종료코드 {rc})")

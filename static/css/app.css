@@ -1826,7 +1826,7 @@ table.data tr.on b { color: var(--brand); }
 #panel-body .qz-mark { font-size: 9px; padding: 0 4px; line-height: 1.5; }
 
 /* ── 작업 폴더 패널 ───────────────────────────────────────────────────────── */
-.bk-list { display: grid; gap: 9px; align-content: start; }
+.bk-list { display: grid; gap: 7px; align-content: start; }
 /* 연결 카드 — 폴더 카드(.bk)와 같은 바탕이라 같은 목록의 일부로 읽힌다. */
 .bk-conn-card {
   background: var(--linen); border-radius: var(--r-lg); padding: 14px 16px;
@@ -1834,8 +1834,8 @@ table.data tr.on b { color: var(--brand); }
 }
 .bk-conn-card .kvs, .bk-conn-card .field-hint { width: 100%; margin: 0; }
 .bk {
-  display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; gap: 13px;
-  align-items: center; padding: 12px 14px; border-radius: var(--r-lg);
+  display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; gap: 12px;
+  align-items: center; padding: 9px 13px; border-radius: var(--r-lg);
   background: var(--linen); box-shadow: inset 0 0 0 1px transparent;
   transition: box-shadow .14s, background .14s;
 }
@@ -1847,15 +1847,24 @@ table.data tr.on b { color: var(--brand); }
 .bk-path {
   font-size: var(--t-2xs); color: var(--text-3);
   font-family: ui-monospace, Consolas, monospace;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 2px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 1px;
 }
-.bk-nums { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 7px; }
-.bk-rounds { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 5px; }
+.bk-nums { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 5px; }
+.bk-rounds { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
+/* 카드 안의 안내·오류 줄은 목록에서 한 줄로 눌러 둔다 — 카드 높이를 정하는 게
+   판독 폴더 경로 같은 부차적인 줄이면 안 된다. 전문은 title 로 뜬다. */
+.bk-mid > .field-hint { margin-top: 3px; line-height: 1.35; }
 .bk-round {
   font-size: var(--t-2xs); color: var(--text-2); padding: 1px 7px;
   border-radius: var(--r-pill); background: var(--bone);
 }
-.bk-acts { display: flex; flex-direction: column; gap: 5px; align-items: stretch; }
+/* ★ 세로로 쌓으면 버튼 5개가 카드 높이를 정한다 — 카드 하나가 145px 가까이 되어
+   폴더가 서넛만 돼도 목록이 스크롤 밖으로 밀렸다. 2열로 접으면 3줄이 된다. */
+.bk-acts {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px; align-items: stretch;
+}
+.bk-acts .btn { justify-content: center; padding-left: 9px; padding-right: 9px; }
 .bk-add {
   display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 13px; align-items: center;
   padding: 12px 14px; border-radius: var(--r-lg); cursor: pointer;
@@ -1891,11 +1900,18 @@ table.data tr.on b { color: var(--brand); }
 .modal-form { display: flex; flex-direction: column; gap: 14px; }
 .modal-form .field { display: flex; flex-direction: column; gap: 4px; }
 .field-label { font-size: var(--t-xs); font-weight: 600; color: var(--text-2); }
-.modal-form input[type="text"] {
+.modal-form input[type="text"], .modal-form textarea {
   background: var(--white); border: 1px solid var(--hairline); border-radius: var(--r-sm);
   padding: 8px 10px; font-size: var(--t-base); color: var(--text);
   transition: border-color .12s var(--ease), box-shadow .12s var(--ease);
 }
+/* 여러 줄 칸은 JSON·대본처럼 «형태가 있는 글»을 받는다 — 고정폭이라야 어디가
+   깨졌는지 눈에 띈다. 세로만 늘린다(가로로 늘면 모달이 깨진다). */
+.modal-form textarea {
+  font-family: ui-monospace, Consolas, monospace; font-size: var(--t-2xs);
+  line-height: 1.5; resize: vertical; min-height: 120px; max-height: 46vh;
+}
+.modal-form textarea:focus,
 .modal-form input[type="text"]:focus {
   outline: none; border-color: var(--verm-500);
   box-shadow: 0 0 0 3px rgb(var(--brand-rgb) / .12);
@@ -2073,6 +2089,8 @@ table.tbl th { color: var(--text-2); font-weight: 600; background: var(--soft, #
 }
 .sl-sel { padding: 5px 9px; }
 table.data td.warn { color: var(--warn); font-weight: 600; }
+/* ★ 장수를 한 장 줄일 수 있는 문항의 채움 칸 — 눈으로 볼 자리를 표시한다. */
+table.data td.slack { color: var(--err); font-weight: 700; background: var(--err-bg); border-radius: 6px; }
 table.data td.bad  { color: var(--err);  font-weight: 600; }
 table.data td.ok   { color: var(--ok); }
 table.data tr.bad  { background: var(--err-bg); }

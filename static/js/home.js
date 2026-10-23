@@ -77,8 +77,8 @@ async function renderFirstRun(ctx, state) {
     const sug = el("div", "hm-suggest");
     const top = el("div", "hm-suggest-head");
     top.appendChild(el("span", "muted", ".env 의 기본값"));
-    const stage = { empty: "빈 폴더", scan: "01/ 기출까지", edit: "02/ 문항까지",
-                    video: "05/ 영상까지" }[scan.stage] || scan.stage;
+    const stage = { empty: "빈 폴더", raw: "00/ 원본 PDF", scan: "01/ 기출까지",
+                    edit: "02/ 문항까지", video: "05/ 영상까지" }[scan.stage] || scan.stage;
     top.appendChild(el("span", "badge", stage));
     sug.appendChild(top);
     sug.appendChild(el("pre", "pb-cmd", scan.path));
@@ -135,7 +135,7 @@ async function pickFolder(ctx) {
     });
     if (r.cancelled || !r.picked) return;
     if (!(r.scan || {}).usable) {
-      toast("이 폴더에는 작업할 것이 없습니다 (01/ 또는 _rounds/ 가 필요합니다).", "err");
+      toast("빈 폴더입니다. 새 문제집이면 그 안에 00 폴더를 만들고 원본 PDF 를 넣은 뒤 다시 고르세요.", "err");
       return;
     }
     await confirmFolder(ctx, r.picked);

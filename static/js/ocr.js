@@ -165,8 +165,15 @@ function renderHead() {
   if (!d.exists) {
     box.appendChild(el("div", "empty",
       d.error || "OCR 판독 폴더를 찾을 수 없습니다."));
+    // ★ 새 문제집이면 이 폴더는 **아직 없는 게 정상**이다. 좌측 [＋ OCR] 의
+    //   [PDF 렌더] 가 이 폴더를 만든다(그 라우트만 판독 폴더를 요구하지 않는다).
+    //   예전 문구는 "지정하거나 .env 를 채우세요" 뿐이라, 처음 쓰는 사람은 아직
+    //   존재하지도 않는 폴더를 고르라는 말로 읽고 거기서 멈춘다.
     box.appendChild(el("div", "field-hint",
-      "좌하단 작업 폴더 패널에서 지정하거나 .env 의 XAM_OCR 을 채우세요."));
+      "<b>새 문제집이면 정상입니다</b> — 좌측 <b>[＋ OCR]</b> 의 [PDF 렌더] 가 "
+      + "이 폴더를 만듭니다. 00/ 에 원본 PDF 를 넣어 두었는지만 확인하세요.<br>"
+      + "이미 판독해 둔 폴더가 따로 있으면 좌하단 작업 폴더 패널에서 지정하거나 "
+      + ".env 의 XAM_OCR 을 채우세요."));
     return;
   }
 
@@ -210,7 +217,7 @@ function renderDash(ctx) {
   const pages = (S.overview && S.overview.pages) || [];
   if (!pages.length) {
     dash.appendChild(el("div", "empty",
-      "렌더된 스캔 페이지가 없습니다. 상단 [PDF 렌더] 를 누르세요."));
+      "렌더된 스캔 페이지가 없습니다. 좌측 [＋ OCR] 에서 [PDF 렌더] 를 누르세요."));
     return;
   }
 

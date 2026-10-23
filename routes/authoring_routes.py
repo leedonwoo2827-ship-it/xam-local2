@@ -119,9 +119,20 @@ def setup_authoring_routes() -> APIRouter:
         """가져오기. ★ 검증을 통과하지 않으면 쓰지 않는다."""
         doc = body.get("doc") if isinstance(body.get("doc"), dict) else body
         try:
-            return examspec.save(exam_id, doc)
+            r = examspec.save(exam_id, doc)
         except (OSError, ValueError) as e:
             raise HTTPException(400, str(e))
+        # ★ 캐시를 버린다. `parts.active()` 의 캐시 키는 `_book.json` 의 mtime 이라,
+        #   시험정보 파일만 새로 만들면 **키가 그대로**다 — 서버가 「이 폴더엔
+        #   시험정보가 없다」를 계속 들고 있는다(`parts.invalidate` 머리말이 바로
+        #   이 호출을 요구한다).
+        # ★ 그냥 「옛 규격으로 돈다」로 끝나지 않는다. 실측 2026-09-08:
+        #     active() = None  →  draft._pd() 가 .env 의 PD_CODE(bigdata)로 떨어짐
+        #                      →  스테이징을 data/authoring/bigdata/ 에서 읽음
+        #                      →  ADsP 화면이 빅분기 9회차·36파트를 「이미 합격」으로
+        #                         세고, [실행] 이 그 위에 이어 쓰려 했다.
+        examparts.invalidate()
+        return r
 
     @router.post("/exams/{exam_id}/confirm")
     async def exam_confirm(exam_id: str, body: Dict[str, Any] = Body(default={})):
@@ -153,6 +164,7 @@ def setup_authoring_routes() -> APIRouter:
             r = examspec.save(exam_id, d)
         except (OSError, ValueError) as e:
             raise HTTPException(400, str(e))
+        examparts.invalidate()          # 위 exam_put 의 주석 참조
         r["confirmed"] = on
         r["checked_at"] = rev.get("checked_at") or ""
         return r
@@ -191,21 +203,33 @@ def setup_authoring_routes() -> APIRouter:
             #   SQLD 폴더를 열어 놓고 빅분기 규격이 나온다 — 진행 칩이 `1~20 / 21~40 /
             #   41~60` 으로 떴다(2026-08-20 실측). 폴더가 진실이다.
             d = examparts.active()
+        # ★ 여기서 되돌림값을 쓰지 않는다 (2026-09-08).
+        #
+        #   전에는 `or 80` · `or 20` 이었다. 빅분기 규격이다. 이 화면은 「읽기 화면은
+        #   되돌림값으로 견딘다」 는 규칙의 예외다 — **바로 옆에 [실행] 이 있고**,
+        #   그 버튼이 몇 시간과 수십 달러를 쓴다. 그럴듯한 숫자를 보여 주면 사람은
+        #   그것을 근거로 누른다(실측: ADsP 폴더에서 「80문항 · 4파트」가 떴다).
+        #
+        #   못 찾으면 **비워서 준다.** 화면이 「시험정보가 없습니다」를 그리고
+        #   실행을 막는다. 숫자가 없는 것이 틀린 숫자보다 낫다.
         p["exam"] = (d or {}).get("id") or ""
-        p["round_size"] = ((d or {}).get("round") or {}).get("size") or 80
-        p["part_size"] = ((d or {}).get("round") or {}).get("part_size") or 20
+        p["exam_missing"] = d is None
+        p["round_size"] = ((d or {}).get("round") or {}).get("size") or None
+        p["part_size"] = ((d or {}).get("round") or {}).get("part_size") or None
         # ★ 과목 수는 **시험정보에서** 나온다. 빅분기 80/20 = 4과목, SQLD 50/25 = 2과목.
         #   화면이 `part_count` 를 읽는데 서버가 그 키를 준 적이 없어 늘 4 로 떨어지고
         #   있었다 — 빅분기라 우연히 맞았을 뿐이다(2026-08-10).
         # ★ 파트는 **과목에서** 만든다 — 나눗셈이 아니다(`services/authoring/parts.py`).
         #   전에는 회차÷상한 이었고, SQLD 는 그 값이 2 인데 실제 집필은 4파트를
         #   돌려 없는 문항 61~80 을 부르려 했다(2026-08-19 실측).
-        _ps = examparts.parts_of(d)
-        p["part_count"] = len(_ps) or 1
+        # 시험정보가 없으면 파트도 지어내지 않는다 — `parts_of(None)` 은 빅분기
+        # 규격(1~80번 4파트)을 만들어 낸다. 그건 읽기 화면용 되돌림값이다.
+        _ps = examparts.parts_of(d) if d else []
+        p["part_count"] = len(_ps) or None
         p["part_labels"] = [examparts.label(d, x["index"]) for x in _ps]
         # 예상 소모량을 여기서 다시 잡는다. `plan_rounds` 는 시험정보를 모르고
         # 기본 4과목으로 계산한다 — 과목 수가 다른 시험이면 그 값이 틀린다.
-        p["est"] = cost.estimate(p["n_rounds"], part_count=p["part_count"])
+        p["est"] = cost.estimate(p["n_rounds"], part_count=p["part_count"] or 0)
         p["est_cost_usd"] = p["est"]["usd"]
         p["est_minutes"] = p["est"]["minutes"]
         p["est_note"] = p["est"]["note"]
@@ -396,7 +420,9 @@ def setup_authoring_routes() -> APIRouter:
             for idx, (rc, p, md) in enumerate(todo):
                 key = f"{rc}-p{p}"
                 if j.get("cancel_requested"):
-                    registry.item(j, key, status="skipped", error="취소됨")
+                    # ★ `skipped` 가 아니다 — 그 말은 「할 일이 없어 건너뜀」이고
+                    #   진행률에 들어간다. 이건 **안 한** 것이다(registry 머리말).
+                    registry.item(j, key, status="canceled", error="중단됨")
                     continue
                 nums = draft.part_numbers(p)
                 registry.update(j, current=key)
@@ -440,8 +466,8 @@ def setup_authoring_routes() -> APIRouter:
                                f"같은 회차로 다시 [실행] 하면 **끝난 과목은 건너뛰고 "
                                f"남은 것부터** 이어서 갑니다.", force=True)
                         for rc2, p2, _ in todo[idx + 1:]:
-                            registry.item(j, f"{rc2}-p{p2}", status="skipped",
-                                          error="앞선 과목이 연속 실패해 건너뜀")
+                            registry.item(j, f"{rc2}-p{p2}", status="canceled",
+                                          error="앞선 과목이 연속 실패해 포기")
                         registry.log(j, f"합계 ${total_cost:.3f}", force=True)
                         registry.finish(j, "error",
                                         error=f"모델 호출 연속 실패 — {why}",

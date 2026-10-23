@@ -94,22 +94,58 @@ def md_table(s: str) -> Optional[str]:
     return f"<table><thead><tr>{th}</tr></thead><tbody>{trs}</tbody></table>"
 
 
-def md_paras(s: str) -> str:
-    """빈 줄로 문단을 나눈다. 집필 규약이 '문단으로 분리해 쓴다' 이므로 그것을 그대로 쓴다.
+def _walk(src: str, emit) -> None:
+    """마크다운 지문 → 블록. 만들 때마다 `emit(html)` 을 부른다.
 
-    ★ 문단이 파이프 표면 표로 그린다 — 위 `md_table()` 머리말 참조.
-    ★ 문단 **안**의 한 줄 개행은 `<br>` 로 살린다. `br_jamo()` 가 넣은 줄바꿈이
-      여기서 사라지면 아무 일도 일어나지 않는다.
+    ★★ 코드펜스를 **먼저** 떼어 낸다. 이 함수가 그것을 몰라 SQL 이 글자로 흘렀다 —
+      화면에 펜스가 그대로 찍히고 본문은 문단으로 쪼개져 표 아래로 새어 나갔다
+      (2026-08-20 실측 · SQLD 14·19번). SQLD 는 거의 모든 문항이 SQL 이라 치명적이다.
+      빅분기는 SQL 이 없어 드러나지 않았을 뿐이다.
+    ★ 펜스 안은 글자 그대로다(escape). 인라인 마크다운을 적용하면 `*`·`_` 가
+      들어간 SQL 이 깨진다.
     """
-    parts = [p.strip() for p in re.split(r"\n\s*\n", str(s or "")) if p.strip()]
-    out = []
-    for p in parts:
-        if tbl := md_table(p):
-            out.append(tbl)
+    holes: List[str] = []
+
+    def _keep(m):
+        body = html.escape(m.group(2).strip("\n"))
+        holes.append('<pre class="code">' + body + '</pre>')
+        return "\n\n\x00" + str(len(holes) - 1) + "\x00\n\n"
+
+    src = re.sub(r"```([A-Za-z0-9_+-]*)\n([\s\S]*?)```", _keep, str(src or ""))
+
+    for part in re.split(r"\n\s*\n", src):
+        part = part.strip()
+        if not part:
+            continue
+        m = re.fullmatch(r"\x00(\d+)\x00", part)
+        if m:
+            emit(holes[int(m.group(1))])
+        elif tbl := md_table(part):
+            emit(tbl)
         else:
-            out.append("<p>" + "<br>".join(
-                md_inline(ln) for ln in p.split("\n") if ln.strip()) + "</p>")
+            emit('<p>' + '<br>'.join(
+                md_inline(ln) for ln in part.split("\n") if ln.strip()) + '</p>')
+
+
+def md_paras(s: str) -> str:
+    """빈 줄로 문단을 나눈다. 조각 만들기는 `_walk` 가 한다 — `md_blocks` 와 같은 값이다."""
+    out: List[str] = []
+    _walk(str(s or ""), out.append)
     return "".join(out)
+
+
+def md_blocks(s: str) -> List[str]:
+    """`md_paras` 와 **같은 조각**을 목록으로 돌려준다.
+
+    ★ 왜 따로 두는가. 지문을 장 사이로 흘리려면 조각이 필요한데, `md_paras` 가
+      이미 조각을 만들어 `join` 으로 붙인다. 그 결과 문자열을 정규식으로 다시
+      쪼개려 했더니 되돌리지 못했다(2026-08-20: 5조각이 1조각으로 돌아왔다).
+      **만든 자리에서 그대로 내주는 것**이 맞다 — 두 함수가 같은 값을 보므로
+      화면과 분할이 갈릴 수 없다.
+    """
+    out: List[str] = []
+    _walk(str(s or ""), out.append)
+    return out
 
 
 def strip_images(s: str) -> str:
@@ -125,7 +161,11 @@ def strip_images(s: str) -> str:
 #
 # ★ 문장 첫머리의 `ㄱ.` 은 건드리지 않는다(이미 줄 시작이다). 그리고 자모 뒤에
 #   **마침표나 가운뎃점이 붙은 것만** 잡는다 — "그" 로 시작하는 낱말과 섞이지 않게.
-_JAMO_ITEM = re.compile(r"(?<=\S)\s+(?=[ㄱ-ㅎ]\s*[.·)]\s)")
+# ★ 같은 줄 안의 공백만 잡는다. `\s+` 였더니 **빈 줄까지** 먹어서
+#   문단 경계가 사라졌다 — 표 문단과 `ㄱㄴㄷㄹ` 문단이 한 문단이 되고, `md_table`
+#   이 `ㄱ. …` 을 표 행으로 삼켰다(2026-08-20 실측 SQLD 10번: ㄱ 이 표 셀 안에
+#   들어가고 ㄴㄷㄹ 은 사라졌다).
+_JAMO_ITEM = re.compile(r"(?<=\S)[ \t]+(?=[ㄱ-ㅎ]\s*[.·)]\s)")
 
 
 def br_jamo(s: str) -> str:
@@ -251,8 +291,12 @@ def _paged(pieces: List[paginate.Piece], *, first_i: int, total: int, title: str
     """
     pages = paginate.pack(pieces)
     dense = ""
-    # ★ 상한을 넘으면 글자를 조여 다시 담는다(위 `DENSE_GAIN` 머리말).
-    if cap and len(pages) > cap:
+    # ★ 조여 다시 담는 조건을 **넓혔다**(2026-08-20). 전에는 상한(`cap`) 을 넘을
+    #   때만 조였는데, 문제 면 상한이 5장이 되면서 4장까지는 안 조이게 됐다.
+    #   그 결과 장마다 아래가 크게 비었다 — 표 하나만 있는 장, 보기만 있는 장.
+    #   **장수가 줄어들면** 조인 판을 쓴다. 줄지 않으면 원래대로 둔다(글자를
+    #   괜히 작게 만들지 않는다).
+    if len(pages) > 1:
         tight = paginate.pack(pieces,
                               paginate.BUDGET * DENSE_GAIN,
                               paginate.BUDGET_CONT * DENSE_GAIN)
@@ -277,19 +321,98 @@ def _paged(pieces: List[paginate.Piece], *, first_i: int, total: int, title: str
     return out
 
 
+def _wrap_passage(blk: str) -> str:
+    return f'<div class="passage">{blk}</div>'
+
+
+def _splitter_for(blk: str, wrap=_wrap_passage):
+    """이 블록을 쪼개는 함수. 표는 행으로, 코드는 줄로. 그 밖은 None.
+
+    ★ `wrap` 을 함께 들고 다닌다. 쪼갠 조각도 `.passage` 감싸개를 써야 한다 —
+      안 감싸면 그 쪽만 글자 크기·색이 달라진다.
+    """
+    if "<table" in blk:
+        return lambda room, b=blk: _split_table(b, room, wrap)
+    if "<pre" in blk:
+        return lambda room, b=blk: _split_pre(b, room, wrap)
+    return None
+
+
+def _split_table(blk: str, room: float, wrap=_wrap_passage):
+    """표를 행으로 쪼갠다. **머리(`<thead>`)는 두 쪽 모두에** 붙인다.
+
+    ★ 머리를 안 붙이면 뒤쪽이 열 이름 없는 숫자 덩이가 된다 — 그건 표가 아니다.
+    """
+    m = re.search(r"<tbody>([\s\S]*?)</tbody>", blk)
+    if not m:
+        return None
+    rows = re.findall(r"<tr>[\s\S]*?</tr>", m.group(1))
+    if len(rows) < 4:                      # 3행 이하는 쪼개도 이득이 없다
+        return None
+    per = paginate.h_table(1)
+    fit = int(max(0.0, room - paginate.h_table(1) - paginate.PASSAGE_PAD) // per)
+    if fit < 2 or fit >= len(rows) - 1:    # 한 행만 남기거나 다 담기면 뜻이 없다
+        return None
+
+    def _mk(rs):
+        body = "<tbody>" + "".join(rs) + "</tbody>"
+        return blk[:m.start()] + body + blk[m.end():]
+
+    a, b = _mk(rows[:fit]), _mk(rows[fit:])
+    return (paginate.Piece(wrap(a), _block_h(a)),
+            paginate.Piece(wrap(b), _block_h(b),
+                           splitter=_splitter_for(b, wrap)))
+
+
+def _split_pre(blk: str, room: float, wrap=_wrap_passage):
+    """코드 박스를 줄로 쪼갠다."""
+    m = re.search(r"(<pre[^>]*>)([\s\S]*?)(</pre>)", blk)
+    if not m:
+        return None
+    lines = m.group(2).split("\n")
+    if len(lines) < 6:
+        return None
+    per = paginate.h_table(1)
+    fit = int(max(0.0, room - paginate.PASSAGE_PAD) // per)
+    if fit < 3 or fit >= len(lines) - 2:
+        return None
+    o, c = m.group(1), m.group(3)
+    a = blk[:m.start()] + o + "\n".join(lines[:fit]) + c + blk[m.end():]
+    b = blk[:m.start()] + o + "\n".join(lines[fit:]) + c + blk[m.end():]
+    return (paginate.Piece(wrap(a), _block_h(a)),
+            paginate.Piece(wrap(b), _block_h(b),
+                           splitter=_splitter_for(b, wrap)))
+
+
+def _block_h(blk: str) -> float:
+    """블록 하나의 높이. 표는 **행 수**로, 그 밖은 글자 수로 잰다."""
+    if "<table" in blk:
+        return paginate.h_table(blk.count("<tr>")) + paginate.PASSAGE_PAD
+    if "<pre" in blk:
+        # 코드는 줄 수로 잰다 — 글자 수로 재면 짧은 줄이 많은 SQL 이 낮게 나온다.
+        n = blk.count(chr(10)) + 1
+        return paginate.h_table(n) + paginate.PASSAGE_PAD
+    return paginate.h_passage(blk)
+
+
 def problem_slide(p: Dict[str, Any], *, i: int, total: int, title: str,
-                  subject: str, asset_dir: str) -> List[str]:
+                  subject: str, asset_dir: str,
+                  inline_dir: Optional[str] = None) -> List[str]:
     """문제 면 — 발문 + (지문) + 보기 4개. 정답을 아직 안 밝힌다.
 
     ★ **여러 장을 돌려준다.** 안전선을 넘으면 쪼갠다(`_paged`).
     """
-    # ★★ 문제 면에는 **그림을 넣지 않는다.** 실측으로 확정: `_rounds` 26/26 문항의
-    #   그림 참조가 `explanation` 안에만 있고 `question`/`passage` 에는 0건이다.
-    #   이유는 **정답 노출 방지**다 — 도식이 발문 옆에 있으면 답을 암시한다.
-    #   (앞선 집필 대화에서 사용자가 명시적으로 정정한 규약이다: *"SVG는 문제/지문이
-    #   아니라 해설(explanation)에만"*.)
-    #   덕분에 문제 면의 세로 예산이 넉넉해진다 — 발문 + 보기 4개만 담는다.
-    passage = strip_images(p.get("passage") or "")
+    # ★★ 지문의 그림을 **살린다**(2026-08-20). 전에는 `strip_images` 로 떼어 냈다 —
+    #   「문제 면에는 그림을 넣지 않는다(정답 노출 방지)」 가 옛 규약이었다.
+    #
+    #   규약이 바뀌었다: **지문의 그림은 답을 가리고, 해설의 그림은 온전하게.**
+    #   그림이 문제의 조건인 문항이 있다 — ERD 를 보고 관계를 묻는 문항은 그림을
+    #   빼면 문항이 성립하지 않는다. 실측(SQLD m01 5번): 지문에 ERD 가 들어 있는데
+    #   슬raid 가 그것을 지워 「[학원 강좌 모델]」 한 줄만 남았다.
+    #
+    #   답을 가리는 일은 **집필**이 한다(`authoring/spec.py` 의 두 판 규약).
+    #   렌더러는 집필이 지문에 둔 것을 그대로 보여 준다.
+    passage = str(p.get("passage") or "").strip()
     chs = list(p.get("choices") or [])
     two_col = len(chs) == 4
 
@@ -299,11 +422,37 @@ def problem_slide(p: Dict[str, Any], *, i: int, total: int, title: str,
     if passage:
         # ★ `ㄱ. ㄴ. ㄷ. ㄹ.` 앞에서 줄을 바꾼다(`br_jamo` 머리말).
         inner = md_paras(br_jamo(passage))
-        ph = f'<div class="passage">{inner}</div>'
-        # 표는 행 수로 잰다 — 글자 수로 재면 표가 실제보다 낮게 나온다.
-        h = (paginate.h_table(inner.count("<tr>")) + paginate.PASSAGE_PAD
-             if "<table>" in inner else paginate.h_passage(inner))
-        pieces.append(paginate.Piece(ph, h))
+        # ★★ 지문을 **블록마다 조각으로** 쪼갠다 — 한 덩이로 두면 넘친 만큼 잘린다.
+        #
+        #   실측(2026-08-20 · SQLD m01-1): 표가 둘이거나 표+SQL 인 지문이 문제 면
+        #   2장에 안 담기는데, 지문이 `Piece` 하나라 `pack` 이 나눌 수 없어 넘친
+        #   부분이 **그냥 사라졌다** — 14번은 SQL 이 통째로 안 보이고 ```sql 만
+        #   글자로 남았고, 12·16번은 둘째 표가 잘렸다.
+        #
+        #   조각으로 나누면 `pack` 이 남는 자리만큼 담고 나머지를 다음 장으로 흘린다.
+        #   지우지 않고 **이어 보이게** 하는 것이 목표다(2026-08-20 지시).
+        blks = md_blocks(br_jamo(passage))
+        for bi, blk in enumerate(blks):
+            # ★ 표·코드 **바로 앞의 짧은 문단**은 이름표다(「[SALES]」). `sticky` 로
+            #   두면 다음 조각과 같은 장에 간다 — 이름표만 남고 표가 넘어가는 일을 막는다.
+            nxt = blks[bi + 1] if bi + 1 < len(blks) else ""
+            lab = (blk.startswith("<p")
+                   and len(re.sub(r"<[^>]+>", "", blk)) <= 40
+                   and nxt.startswith(("<table", "<pre")))
+            pieces.append(paginate.Piece(
+                f'<div class="passage">{blk}</div>', _block_h(blk),
+                with_next=lab, splitter=_splitter_for(blk)))
+    # ★★ 지문이 가리킨 그림을 **여기** 그린다(`passage_assets`). 해설 그림과 다른
+    #   것이다 — 어디에 있었는지가 집필의 판단이고, 렌더러는 그것을 지킨다.
+    pa = list(p.get("passage_assets") or [])
+    if pa:
+        fig = _figure(pa, asset_dir, inline_dir)
+        if fig:
+            # ★ `inflow` — 흐름 안에 둔다. 안 붙이면 `order:-1` 이 그림을 카드 맨 위로
+            #   올려 번호·난도 머리보다 위에 뜬다(실측 5번).
+            fig = fig.replace('class="diagram"', 'class="diagram inflow"', 1)
+            pieces.append(paginate.Piece(fig, paginate.h_figure()))
+
     if chs:
         pieces.append(paginate.Piece(
             _choices(chs, p.get("answer_index"), reveal=False),
@@ -314,11 +463,21 @@ def problem_slide(p: Dict[str, Any], *, i: int, total: int, title: str,
     #   당긴다. 4개가 아니면(3개·5개) 한 단으로 세로로 쌓는다.
     cls = " ch4" if two_col else ""
     head = _head(p.get("number"), subject, p.get("difficulty") or "", total)
-    # ★ 문제는 최대 **2바닥**(2026-08-12 지시). 넘으면 글자를 조인다.
+    # ★ 문제 면 장수 상한을 **풀었다**(2026-08-20 지시: "문제페이지가 더 나와도
+    #   됩니다. 2페이지보다 더" · "54321 할때까지 균일하게 넘어가면 되").
+    #
+    #   2장으로 묶어 두니 표가 둘이거나 표+SQL 인 지문이 담기지 않고 **넘친 만큼
+    #   잘렸다** — 둘째 표가 사라지고 SQL 이 안 보였다(실측 SQLD 12·14·16·19번).
+    #   장수가 늘어도 시간은 어긋나지 않는다: 첫 장만 낭독하고 이어지는 장은
+    #   `CONT_SECONDS`(4초)씩 고르게 넘어가며, **마지막 장 위에** 5→1 카운트다운이
+    #   얹힌다(`bake.build_script`). 그래서 「54321 할 때까지 균일하게」 가 성립한다.
+    #
+    #   그래도 상한을 아주 없애지는 않는다 — 5장을 넘기면 문항 하나가 화면을
+    #   너무 오래 먹으므로, 그때는 글자를 조여 담아 본다(`DENSE_GAIN`).
     # ★ 문제 면은 **하단 페이지 번호를 쓰지 않는다**(2026-08-12 지시).
     return [s.replace('class="slide content', f'class="slide content{cls}', 1)
             for s in _paged(pieces, first_i=i, total=total, title=title,
-                            head=head, cap=2, want_foot=False)]
+                            head=head, cap=5, want_foot=False)]
 
 
 def answer_slide(p: Dict[str, Any], *, i: int, total: int, title: str,
@@ -349,23 +508,22 @@ def answer_slide(p: Dict[str, Any], *, i: int, total: int, title: str,
     pieces: List[paginate.Piece] = []
     pieces.append(paginate.Piece(badge, paginate.h_badge(), sticky=True))
 
-    fig = _figure(list(p.get("assets") or []), asset_dir, inline_dir)
-    blocks = _expl_blocks(p.get("explanation"))
-
-    if fig:
-        # ★ 그림이 있으면 **그림 옆에 해설**을 2단으로 묶어 한 조각으로 만든다
-        #   (2026-08-12 지시: "옆에 그림이 뜨고 … 해설은 한바닥에 모아서").
-        #   세로로 쌓으면 그림 481px + 해설이 한 장을 넘겨 해설이 두 바닥으로 갈린다.
-        #   높이는 **둘 중 큰 쪽**이다 — 나란히 있으므로 합이 아니다. 그리고 해설이
-        #   절반 폭으로 좁아져 줄 수가 늘어나므로 그만큼 키운다.
-        txt = "".join(b.html for b in blocks)
-        h_txt = sum(b.h for b in blocks) * 1.9        # 폭 44% → 줄 수 약 1.9배
-        html = (f'<div class="ans-row"><div class="ans-fig">{fig}</div>'
-                f'<div class="ans-txt">{txt}</div></div>')
-        pieces.append(paginate.Piece(html, max(paginate.h_figure(), h_txt)))
-    else:
-        # 그림이 없으면 한 단으로 흐른다. 길면 문단 단위로 쪼갠다.
-        pieces.extend(blocks)
+    # ★★ **1단으로 흐른다**(2026-08-20 지시: 「1단을 넣으셔도 될거 같아요」).
+    #
+    #   전에는 그림이 있으면 「그림 옆에 해설」 2단을 **한 조각**으로 묶었다.
+    #   그 조각은 쪼갤 수 없어서, 그림이 둘이거나 해설이 길면 한 장에 밀어 넣다가
+    #   **겹쳐 그려졌다** — 그림 두 개가 포개지고 글자가 그 위에 올라앉았다
+    #   (2026-08-20 실측 m01-5 RIGHT OUTER JOIN 문항).
+    #
+    #   1단은 겹칠 자리가 없다. 그림도 해설도 각자 조각이라 넘치면 다음 장으로
+    #   흐른다. 문제 면과 같은 규칙이 되어 판단할 것이 하나 줄었다.
+    for name in (list(p.get("assets") or []) or []):
+        one = _figure([name], asset_dir, inline_dir)
+        if one:
+            # ★ `inflow` — 카드 첫 자리로 끌어올리지 않는다. 배지 다음이 그림 자리다.
+            one = one.replace('class="diagram"', 'class="diagram inflow"', 1)
+            pieces.append(paginate.Piece(one, paginate.h_figure()))
+    pieces.extend(_expl_blocks(p.get("explanation")))
 
     head = _head(p.get("number"), subject, p.get("difficulty") or "", total)
     # ★ 해설은 **1바닥**이다(2026-08-12 지시, 여러 번). 넘으면 글자를 조인다.
@@ -460,8 +618,9 @@ def build_pages(lesson: Dict[str, Any], *, asset_dir: str = "assets",
             for face, fn in (("problem", problem_slide), ("answer", answer_slide)):
                 kw = dict(i=i, total=total, title=title, subject=subject,
                           asset_dir=asset_dir)
-                if face == "answer":
-                    kw["inline_dir"] = inline_dir
+                # ★ 문제 면도 그림을 그린다(지문이 가리킨 것) — `inline_dir` 이 필요하다.
+                #   전에는 해설에만 넘겼고, 그래서 문제 면 그림이 `file://` 에서 안 떴다.
+                kw["inline_dir"] = inline_dir
                 got = fn(p, **kw)
                 for k, s in enumerate(got):
                     out.append((s, {"kind": face, "number": no,

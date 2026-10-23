@@ -188,8 +188,13 @@ export function formModal({ title, body = "", fields = [], ok = "저장", cancel
     fields.forEach((f) => {
       const row = el("label", "field");
       row.appendChild(el("span", "field-label", f.label));
-      const inp = el("input");
-      inp.type = "text";
+      // ★ 여러 줄을 받아야 하는 칸이 있다 — 「과정 정의」가 JSON 전문을 통째로
+      //   붙여넣게 한다. 한 줄 input 이면 붙여넣기는 되지만 **보이지 않아서**
+      //   맞게 들어갔는지 확인할 방법이 없다(2026-09-07).
+      const multi = f.type === "textarea";
+      const inp = el(multi ? "textarea" : "input");
+      if (multi) inp.rows = f.rows || 12;
+      else inp.type = "text";
       inp.value = f.value == null ? "" : String(f.value);
       if (f.placeholder) inp.placeholder = f.placeholder;
       inputs[f.name] = inp;
