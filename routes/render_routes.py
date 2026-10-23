@@ -107,7 +107,7 @@ def setup_render_routes() -> APIRouter:
     # 발음 고침의 **1차 자리**다. 한 줄 넣으면 전 품목에 걸리고 자막은 원문을 지킨다.
     # 씬마다 손으로 고치는 것보다 싸므로, 되풀이되는 용어는 여기로 올린다.
     @router.get("/api/render/lexicon")
-    async def get_lexicon(round: str = ""):
+    async def get_lexicon(round: str = "", notes: int = 0):
         """두 사전을 **같이** 준다 — 품목 사전과 공용 사전.
 
         ★ 전에는 공용 하나만 냈다. `DENSE_RANK` 를 고치려고 이 박스를 열면 없어서
@@ -116,7 +116,7 @@ def setup_render_routes() -> APIRouter:
         d = lexicon.read()
         d["product"] = lexicon.read_product()
         # 사전에 없어서 낱자로 읽히는 약어 — 빈 화면을 주지 않으려고 후보를 같이 낸다
-        d["candidates"] = lexicon.candidates(round)
+        d["candidates"] = lexicon.candidates(round, notes=bool(notes))
         return d
 
     @router.post("/api/render/lexicon")

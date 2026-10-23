@@ -98,3 +98,23 @@
 .ls-read { font-size: var(--t-sm); color: var(--text-2); }
 .ls-acts { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .ls-fixrow { font-size: var(--t-xs); color: #6f6112; }
+
+/* 발음 사전 */
+.dc-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+@container xam-content (max-width: 900px) { .dc-grid { grid-template-columns: minmax(0, 1fr); } }
+.dc-h { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+.dc-list, .dc-table { display: flex; flex-direction: column; gap: 6px; max-height: calc(100vh - 230px); overflow-y: auto; }
+.dc-row { background: var(--white); border-radius: var(--r); padding: 8px 10px; display: flex; flex-direction: column; gap: 3px; }
+.dc-term { display: flex; align-items: baseline; gap: 8px; }
+.dc-n { font-size: var(--t-2xs); color: var(--brand); font-weight: 700; }
+.dc-now, .dc-where { font-size: var(--t-2xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dc-add { display: flex; gap: 6px; align-items: center; margin: 4px 0; }
+.dc-add input, .dc-trow input, .dc-filter { font: inherit; font-size: var(--t-sm); border: 0; border-radius: var(--r-sm); padding: 5px 8px; background: var(--white); box-shadow: inset 0 0 0 1px var(--hairline); min-width: 0; flex: 1 1 auto; }
+.dc-add select { font: inherit; font-size: var(--t-xs); }
+.dc-filter { width: 100%; margin-bottom: 4px; }
+.dc-tabs { display: flex; gap: 4px; margin-left: auto; }
+.dc-tab { border: 0; cursor: pointer; font: inherit; font-size: var(--t-xs); padding: 4px 10px; border-radius: var(--r-pill); background: var(--linen); color: var(--text-2); }
+.dc-tab.on { background: var(--brand-wash); color: var(--brand); font-weight: 700; }
+.dc-path { font-size: var(--t-2xs); margin-bottom: 6px; word-break: break-all; }
+.dc-trow { display: grid; grid-template-columns: 150px minmax(0, 1fr) auto auto; gap: 6px; align-items: center; }
+.dc-k { font-size: var(--t-sm); overflow: hidden; text-overflow: ellipsis; }

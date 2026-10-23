@@ -221,12 +221,27 @@ def remove_product(key: str) -> dict:
     return {"key": k, "was": was, "removed": True, "count": len(rules), "scope": "product"}
 
 
-def candidates(prefix: str = "") -> list[dict]:
+def merged_rules() -> dict:
+    """공용 + 품목 — 품목이 이긴다. 강의 노트의 ② 낭독대본이 이것으로 발음을 바꾼다
+    (발음대본을 이 앱에서 끝내려면 사전이 data-read 글자에 **들어가야** 한다 — 하류
+    렌더러는 그 글을 그대로 읽는다)."""
+    out = dict(read().get("rules") or {})
+    out.update(read_product().get("rules") or {})
+    return out
+
+
+# 강의 노트는 대소문자가 섞인 영문도 많다(Quick-Win · EdTech · Long Term View).
+_LATIN_RE = re.compile(r"(?<![A-Za-z])[A-Za-z][A-Za-z0-9&+.-]*[A-Za-z0-9](?![A-Za-z])")
+
+
+def candidates(prefix: str = "", notes: bool = False) -> list[dict]:
     """낭독문에 있는데 **사전에 없는** 대문자 약어. 빈도가 큰 것부터.
 
     `prefix` 로 회차를 좁힌다(`m01` → 1회 8번들).
+    ★ v2: 품목 사전에 있는 것도 뺀다(전에는 공용만 봤다). `notes` 면 요약반·종합반
+      강의 노트의 자막도 훑는다 — 대소문자 섞인 영문까지.
     """
-    rules = read()["rules"]
+    rules = merged_rules()
     hits: collections.Counter[str] = collections.Counter()
     where: dict[str, str] = {}
     pat = os.path.join(paths.book_dir(), "05", (prefix or "") + "*",
@@ -248,5 +263,22 @@ def candidates(prefix: str = "") -> list[dict]:
                 hits[w] += 1
                 where.setdefault(w, f"{bundle} 씬{s.get('scene')} … "
                                     + t[max(0, m.start() - 20):m.start() + len(w) + 12])
-    return [{"term": w, "count": n, "now": spelled(w), "where": where[w]}
-            for w, n in hits.most_common()]
+    if notes:
+        for kind, folder in (("summary", "03-2"), ("full", "03-3")):
+            for jp in sorted(glob.glob(os.path.join(paths.book_dir(), folder, "*.json"))):
+                try:
+                    doc = json.load(open(jp, encoding="utf-8"))
+                except (OSError, ValueError):
+                    continue
+                for sec in doc.get("sections") or []:
+                    for sl in sec.get("slides") or []:
+                        t = sl.get("say") or ""
+                        for m in _LATIN_RE.finditer(t):
+                            w = m.group(0).strip(".-")
+                            if len(w) < 2 or w in rules or w.lower() in ("vs", "etc"):
+                                continue
+                            hits[w] += 1
+                            where.setdefault(w, f"{'요약반' if kind == 'summary' else '종합반'} {sl.get('id')} … "
+                                                + t[max(0, m.start() - 20):m.start() + len(w) + 12])
+    return [{"term": w, "count": n, "now": spelled(w.upper()) if w.isupper() else "(그대로 읽힘)",
+             "where": where[w]} for w, n in hits.most_common()]

@@ -237,8 +237,31 @@ def scenario(d: Demo, kind_key: str):
     d.point(".lc-factor", click=False, pause=0.3, hl=True)
     d.cap("이후 미노출 종합본 HTML 을 만들고, 문제편을 제외한 초단기서의 핵심요약 HTML 까지 만듭니다.", 4.0)
 
-    # 8. 오른쪽 — 작업 현황
-    d.step("8 · 작업 현황 (오른쪽)")
+    # 8. 해설영상 — 문항 슬라이드를 쪼갠 뒤 자막대본·발음대본
+    d.step("8 · 해설영상 — 슬라이드 쪼갠 뒤 대본")
+    d.point('a[data-nav="sl"]', pause=2.5)
+    d.cap("해설영상은 문항 슬라이드를 먼저 쪼갭니다 — 굽기, PPTX, 장수 확정, 그림파일 순서입니다.", 3.0)
+    d.p.mouse.wheel(0, 700)
+    d.wait(1.0)
+    d.cap("장수를 확정하면 장마다 자막대본과 발음대본이 다시 나뉩니다. 문항이 여러 장이면 낭독을 장마다 나눠 읽습니다.", 3.0)
+    d.go("#/video/m01-1", 3.0)
+    d.point(".vd-scene:nth-child(3)", pause=2.0)
+    d.point(".vd-2col", click=False, pause=0.3, hl=True)
+    d.cap("영상 화면에서 씬마다 자막과 발음을 나란히 고치고, 그 씬만 다시 합성해 들어 봅니다.", 3.0)
+    d.point("button:has-text('이 씬 재합성')", click=False, pause=0.3, hl=True)
+    d.cap("발음대본은 이 앱에서 다 완료하는 것이 목표입니다. 다른 도구는 받은 발음대본을 그대로 읽습니다.", 3.0)
+
+    # 9. 발음 사전 — 넣기 · 적용 · 재굽기
+    d.step("9 · 발음 사전")
+    d.point('a[data-nav="dc"]', pause=2.5)
+    d.cap("흩어져 있던 발음 사전 300여 개를 이 앱 하나에 모았습니다.", 2.5)
+    d.point(".dc-miss", click=False, pause=0.3, hl=True)
+    d.cap("왼쪽은 문항 낭독과 강의 노트에 나오는데 아직 사전에 없는 말입니다. 많이 나온 순서입니다.", 3.0)
+    d.point(".dc-flow", click=False, pause=0.3, hl=True)
+    d.cap("사전에 넣고, 원고에 적용하고, 소리를 다시 굽는 것까지 여기서 끝냅니다.", 3.0)
+
+    # 10. 오른쪽 — 작업 현황
+    d.step("10 · 작업 현황 (오른쪽)")
     d.go(f"#/lecture/summary/{key}", 2.5)
     d.point(".st-board", click=False, pause=0.3, hl=True)
     d.cap("오른쪽은 평소 작업 현황입니다 — 지금 하는 일, 고친 뒤 반영할 것, 다음에 할 일. CLI 렌더도 잡아 보여 줍니다.", 4.5)
@@ -247,7 +270,7 @@ def scenario(d: Demo, kind_key: str):
     d.point("#ch-mode", pause=1.0)
 
     # 9. 06/ 빌드
-    d.step("9 · 06/ 빌드")
+    d.step("11 · 06/ 빌드")
     d.point('a[data-nav="p"]', pause=2.5)
     d.p.mouse.wheel(0, 900)
     d.wait(1.0)

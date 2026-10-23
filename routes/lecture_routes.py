@@ -19,7 +19,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 
 from services.jobs import registry
-from services.lecture import common, listen, notes, outline, stages
+from services.lecture import common, dictapply, listen, notes, outline, stages
 
 KIND_JOB = "lecture"
 
@@ -241,6 +241,38 @@ def setup_lecture_routes() -> APIRouter:
             raise HTTPException(status_code=404, detail="아직 빌드하지 않았습니다.")
         os.startfile(p)                                      # noqa: S606
         return {"ok": True, "path": p}
+
+    # ── 발음 사전 → 적용 → 재굽기 ──────────────────────────────────────────
+    @router.post("/api/lecture/dict/apply")
+    async def dict_apply(request: Request):
+        """사전에 넣은 말(terms, 비우면 사전 전체)을 강의 노트 낭독에 넣고 문항 씬을 찾는다."""
+        b = await _body(request)
+        try:
+            return dictapply.apply([str(t) for t in (b.get("terms") or [])] or None)
+        except Exception as e:                               # noqa: BLE001
+            raise _bad(e) from e
+
+    @router.post("/api/lecture/dict/rebake")
+    async def dict_rebake(request: Request):
+        """적용 결과(plan)대로 미리듣기·문항 씬 음성을 다시 굽는다(잡)."""
+        plan = await _body(request)
+        _busy()
+        loop = asyncio.get_running_loop()
+        n = sum(len(x.get("ids") or []) for x in plan.get("notes") or []) + len(plan.get("scenes") or [])
+        job = registry.create(KIND_JOB, f"발음 사전 재굽기 · {n}개", ["rebake"])
+
+        def work(j):
+            try:
+                r = dictapply.rebake(plan, loop, log=lambda s, j=j: registry.log(j, s),
+                                     cancelled=lambda j=j: bool(j.get("cancel_requested")))
+                registry.item(j, "rebake", status="done", output=f"{r['slides']}장 · {r['scenes']}씬")
+                registry.finish(j, "done", result=r)
+            except Exception as e:                           # noqa: BLE001
+                registry.item(j, "rebake", status="error", error=str(e))
+                registry.finish(j, "error", error=str(e))
+
+        registry.spawn(job, work)
+        return registry.view(job)
 
     # ── 듣기 검수 ──────────────────────────────────────────────────────────
     @router.get("/api/lecture/{kind}/{key}/audio/{sid}")

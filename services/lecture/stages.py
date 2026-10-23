@@ -45,9 +45,16 @@ def _exam_label() -> str:
 
 
 def _terms() -> Dict[str, str]:
-    from services.authoring import parts
-    d = (parts.active() or {}).get("speech_dict") or {}
-    return d if isinstance(d, dict) else {}
+    """이 앱의 발음 사전 하나 — vendor/chodangi/config/pronunciation_map.yaml (backplate 것 합쳐 300여 개).
+    ★ 사전 여러 개를 거치지 않는다(사용자 지시 2026-10-24: 여기에 300여 개를 두는 것이 목표).
+    ★ 발음대본은 이 앱에서 끝낸다 — 사전이 data-read 글자에 직접 들어가야 하류가 그대로 읽는다."""
+    try:
+        from services.render import lexicon
+        return dict(lexicon.read().get("rules") or {})
+    except Exception:                                        # noqa: BLE001
+        from services.authoring import parts
+        d = (parts.active() or {}).get("speech_dict") or {}
+        return d if isinstance(d, dict) else {}
 
 
 def _author(log: Log, model: str = "", effort: Optional[str] = None):

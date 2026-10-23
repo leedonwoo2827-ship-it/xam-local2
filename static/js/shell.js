@@ -55,6 +55,8 @@ const routes = [
   { re: /^\/lecture\/(full)$/,   nav: "lf", layer: "base",  load: () => import("./lecture.js") },
   { re: /^\/lecture\/(full)\/([^/]+)$/, nav: "lf", layer: "base", load: () => import("./lecture.js") },
   { re: /^\/listen\/(summary|full)\/([^/]+)$/, nav: "", layer: "base", load: () => import("./listen.js") },
+  // v2 — 발음 사전(backplate 것을 가져옴). 낭독대본·영상 합성에 걸린다
+  { re: /^\/dict$/,             nav: "dc", layer: "base",  load: () => import("./dict.js") },
 
   // 부유 패널(위층) — 고르는 곳
   { re: /^\/books$/,     nav: "",   layer: "panel", group: "books",     load: () => import("./books.js") },
