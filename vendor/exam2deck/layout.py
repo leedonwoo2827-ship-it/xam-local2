@@ -1078,7 +1078,10 @@ def _topic_pages(t: Topic, st: Style) -> List[Packed]:
 def pages_for_topic(t: Topic, subject_no: int = 0,
                     scale: float = DEFAULT_SCALE) -> List[Page]:
     """토픽 하나 → 슬라이드들. 배율은 문제 덱과 같이 **고정**이다."""
-    st, pages = _fit(lambda x: _topic_pages(t, x), scale)
+    # ★ xam-local v2(2026-10-24): `_fit` 이 build(st, 예산배율) 로 부르게 바뀐 뒤(page_want)
+    #   이론 쪽만 인자 하나짜리로 남아 TypeError 로 죽었다 — xam-lo 는 문제 덱만 써서 몰랐다.
+    #   이론 토픽은 예산을 조이지 않으므로 둘째 인자는 받고 버린다.
+    st, pages = _fit(lambda x, _bs=1.0: _topic_pages(t, x), scale)
     n = len(pages)
     out: List[Page] = []
     for k, pg in enumerate(pages):
