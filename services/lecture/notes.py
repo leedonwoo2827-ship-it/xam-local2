@@ -203,8 +203,28 @@ def edit_slide(doc: Dict[str, Any], sid: str, fields: Dict[str, Any]) -> Dict[st
         if k in fields and fields[k] is not None and fields[k] != sl.get(k):
             sl[k] = str(fields[k])
             touched.append(k)
+    if "say" in touched and "read" not in touched:
+        # 자막이 바뀌면 그 장의 낭독은 다시 봐야 한다 — 상태판이 「② 낭독 다시」 로 띄운다.
+        sl["read_done"] = False
     sl["edited_at"] = _now()
     return {"slide": sl, "touched": touched}
+
+
+def content_hash(doc: Dict[str, Any]) -> str:
+    """빌드 뒤에 원고가 바뀌었는지 — 장 내용과 여는 말만 본다(단계 기록은 빼고)."""
+    return h(json.dumps([doc.get("h1"), doc.get("sections")], ensure_ascii=False, sort_keys=True))
+
+
+def source_now(doc: Dict[str, Any]) -> str:
+    """이 노트를 만든 원천의 **지금** 해시 — 만들 때의 source_hash 와 다르면 원천이 바뀐 것."""
+    if doc["kind"] == "summary":
+        try:
+            with open(paths.summary_html(doc["key"]), encoding="utf-8") as f:
+                return h(f.read())
+        except OSError:
+            return ""
+    base = load("summary", doc["key"])
+    return h(json.dumps(base["sections"], ensure_ascii=False)) if base else ""
 
 
 # ── 원고 HTML ───────────────────────────────────────────────────────────────

@@ -206,3 +206,27 @@ body[data-chat="collapsed"] .panel-layer { right: var(--chat-w-collapsed); }
 .rail .side-nav li.is-theory a.active { background: rgb(233 199 127 / .16); color: #f5dca6; }
 /* 이론 묶음은 안쪽으로 들여 쓴다 — 문항 흐름 아래에 딸린 갈래로 읽히게. 접힌 레일에서는 뺀다. */
 body:not([data-rail="collapsed"]) .rail .side-nav li.is-theory a { margin-left: 16px; }
+
+/* v2 — 작업 현황판(오른쪽 칸 기본). 지금 하는 일 · 고친 뒤 반영할 것 · 다음에 할 일 */
+.ch-modebtn { flex: none; border: 0; cursor: pointer; font: inherit; font-size: var(--t-2xs); font-weight: 700;
+  padding: 5px 10px; border-radius: var(--r-pill); background: var(--linen); color: var(--text-2); }
+.ch-modebtn:hover { background: var(--brand-wash); color: var(--brand); }
+.side-chat.is-status #ch-titlebtn { pointer-events: none; }
+.side-chat.is-status #ch-titlebtn svg, .side-chat.is-status #ch-new { display: none; }
+.side-chat.is-status .ch-foot-note { display: none; }
+.st-board { display: flex; flex-direction: column; gap: 16px; }
+.st-sec { display: flex; flex-direction: column; gap: 4px; }
+.st-h { font-size: var(--t-2xs); font-weight: 700; color: var(--text-3); letter-spacing: .04em; margin-bottom: 2px; }
+.st-empty { font-size: var(--t-xs); color: var(--text-3); padding: 4px 2px; }
+.st-row { display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; border-radius: var(--r);
+  background: var(--linen); color: var(--text); text-decoration: none; font-size: var(--t-sm); line-height: 1.45; }
+a.st-row:hover { background: var(--brand-wash); }
+.st-row .ch-dot { margin-top: 6px; }
+.st-t { flex: 1 1 auto; min-width: 0; }
+.st-d { display: block; flex-basis: 100%; font-size: var(--t-2xs); color: var(--text-3); font-family: ui-monospace, Consolas, monospace;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.st-job { flex-wrap: wrap; }
+.st-arrow { color: var(--text-3); flex: none; }
+.st-here { background: var(--brand-wash); box-shadow: inset 2px 0 0 var(--brand); }
+.st-reflect .st-row { background: #f8edc4; }
+.st-reflect .st-arrow { color: #6f6112; }

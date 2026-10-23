@@ -72,6 +72,12 @@ def setup_chat_routes() -> APIRouter:
             raise HTTPException(status_code=404, detail="대화를 찾지 못했습니다.")
         return s
 
+    @router.get("/status")
+    async def status(route: str = ""):
+        """오른쪽 칸 기본 화면 — 지금 하는 일 · 다음에 할 일. 모델을 부르지 않는다."""
+        from services.chat import status as st
+        return st.compute(route)
+
     @router.get("/sessions")
     async def sessions():
         """대화 목록 (최근 것부터)."""

@@ -395,7 +395,8 @@ def build(doc: Dict[str, Any], *, log: Log) -> Dict[str, Any]:
     shutil.copyfile(html, os.path.join(out, os.path.basename(html)))
     atomic_write_text(os.path.join(out, "RENDER.txt"), _render_txt(doc, html))
     kit = _longform_kit(doc, html) if kind == "full" else ""
-    N.set_stage(doc, "build", "done", note=f"PPTX {len(rep.get('files', []))}개 · {rep.get('size_kb', 0)}KB")
+    N.set_stage(doc, "build", "done", note=f"PPTX {len(rep.get('files', []))}개 · {rep.get('size_kb', 0)}KB",
+                hash=N.content_hash(doc))
     N.save(doc)
     log(f"PPTX {len(rep.get('files', []))}개 → {out}")
     if kit:

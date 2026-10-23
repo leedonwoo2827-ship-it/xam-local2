@@ -6,6 +6,11 @@
  * ★ 부유 패널이 열려도 이 컬럼은 inert 가 아니다(panel.js setBaseInert 가 .rail ·
  *   .content 만 잠근다). 목록 창을 띄워 둔 채 "이거 왜 노랗지?" 를 물을 수 있어야 한다.
  *
+ * ★ 기본 화면은 채팅이 아니라 **작업 현황판**이다(사용자 지시 2026-10-24) — 지금 하는 일 ·
+ *   고친 뒤 반영할 것 · 다음에 할 일. 모델을 부르지 않는다(/api/chat/status). 시장조사처럼
+ *   진짜 대화가 필요할 때만 [대화] 를 누르거나 입력창에 쓰면 채팅으로 바뀐다. 실전에서는
+ *   렌더를 CLI 로 돌리기도 해서, 현황판은 render_all.bat 도 잡아 보여 준다.
+ *
  * 서버와는 커서 폴링(0.7초)으로 만난다 — 잡 모델과 같은 방식. 이벤트 종류는
  * services/chat/session.py 머리말에 있다.
  */
@@ -17,9 +22,11 @@ import { iconHtml, hydrateIcons } from "./icons.js";
 const POLL_MS = 700;
 const KEY_SID = "xam.chat.sid";
 const KEY_FOLD = "xam.chat";
+const KEY_MODE = "xam.chat.mode";
+const STATUS_MS = 8000;
 
 const S = { sid: "", cursor: 0, busy: false, timer: 0, curText: null, curRaw: "",
-            tools: new Map(), root: null, log: null, input: null };
+            tools: new Map(), root: null, log: null, input: null, mode: "status", stTimer: 0 };
 
 /* ── 화면 맥락 — 지금 무엇을 보고 있는지를 메시지에 붙인다 ── */
 function screenContext() {
@@ -251,6 +258,7 @@ async function newSession() {
 async function send() {
   const text = S.input.value.trim();
   if (!text || S.busy) return;
+  if (S.mode === "status") await enterChat();
   if (!S.sid) await newSession();
   const empty = S.log.querySelector(".ch-empty");
   if (empty) empty.remove();
@@ -315,13 +323,14 @@ export async function mountChat(root) {
       <button class="ch-iconbtn" id="ch-fold" type="button" title="채팅 접기 (Ctrl+J)">${iconHtml("panelRight", 16)}</button>
       <button class="ch-titlebtn" id="ch-titlebtn" type="button" title="대화 목록">
         <span id="ch-title">새 대화</span>${iconHtml("chevronDown", 14)}</button>
+      <button class="ch-modebtn" id="ch-mode" type="button" title="작업 현황 ↔ 대화">대화</button>
       <button class="ch-iconbtn" id="ch-new" type="button" title="새 대화">${iconHtml("plus", 16)}</button>
       <div class="ch-list" id="ch-list" hidden></div>
     </div>
     <div class="ch-log" id="ch-log" aria-live="polite"></div>
     <div class="ch-foot">
       <div class="ch-box">
-        <textarea id="ch-input" rows="1" placeholder="Claude 에게 요청 — Enter 보내기 · Shift+Enter 줄바꿈"></textarea>
+        <textarea id="ch-input" rows="1" placeholder="필요할 때만 — 시장조사·질문·실행 요청 (Enter)"></textarea>
         <div class="ch-bar">
           <span class="ch-ctxchip" id="ch-ctxchip" title="메시지에 함께 붙는 지금 화면"></span>
           <button class="ch-send" id="ch-send" type="button" title="보내기">${iconHtml("send", 15)}</button>
@@ -341,7 +350,8 @@ export async function mountChat(root) {
   });
   $("#ch-send", root).addEventListener("click", send);
   $("#ch-stop", root).addEventListener("click", stop);
-  $("#ch-new", root).addEventListener("click", newSession);
+  $("#ch-new", root).addEventListener("click", async () => { await enterChat(true); });
+  $("#ch-mode", root).addEventListener("click", () => (S.mode === "status" ? enterChat() : showStatus()));
   $("#ch-titlebtn", root).addEventListener("click", showList);
   $("#ch-fold", root).addEventListener("click", () => toggleChat(true));
   $("#ch-rail", root).addEventListener("click", () => toggleChat(false));
@@ -352,7 +362,7 @@ export async function mountChat(root) {
   document.addEventListener("keydown", (e) => {
     if ((e.ctrlKey || e.metaKey) && (e.key === "j" || e.key === "J")) { e.preventDefault(); toggleChat(); }
   });
-  window.addEventListener("hashchange", updateCtxChip);
+  window.addEventListener("hashchange", () => { updateCtxChip(); if (S.mode === "status") renderStatus(); });
   document.addEventListener("selectionchange", () => {
     clearTimeout(S.selT); S.selT = setTimeout(updateCtxChip, 250);
   });
@@ -362,6 +372,20 @@ export async function mountChat(root) {
   document.body.dataset.chat = fold === "collapsed" ? "collapsed" : "open";
   updateCtxChip();
 
+  let mode = "";
+  try { mode = localStorage.getItem(KEY_MODE) || ""; } catch (_) {}
+  if (mode === "chat") await enterChat();
+  else showStatus();
+}
+
+/* ── 모드 전환 ── */
+async function enterChat(fresh = false) {
+  S.mode = "chat";
+  try { localStorage.setItem(KEY_MODE, "chat"); } catch (_) {}
+  clearTimeout(S.stTimer);
+  S.root.classList.remove("is-status");
+  $("#ch-mode").textContent = "현황";
+  if (fresh) { await newSession(); return; }
   let sid = "";
   try { sid = localStorage.getItem(KEY_SID) || ""; } catch (_) {}
   if (sid) {
@@ -372,5 +396,57 @@ export async function mountChat(root) {
     } catch (_) { /* 지워진 대화 — 빈 화면으로 */ }
   }
   S.sid = "";
+  S.log.innerHTML = "";
   emptyHint();
+}
+
+function showStatus() {
+  S.mode = "status";
+  try { localStorage.setItem(KEY_MODE, "status"); } catch (_) {}
+  clearTimeout(S.timer);
+  S.root.classList.add("is-status");
+  $("#ch-mode").textContent = "대화";
+  $("#ch-title").textContent = "작업 현황";
+  S.log.innerHTML = "";
+  renderStatus();
+}
+
+/* ── 작업 현황판 — 지금 하는 일 · 반영할 것 · 다음에 할 일 ── */
+async function renderStatus() {
+  clearTimeout(S.stTimer);
+  if (S.mode !== "status") return;
+  let d;
+  try { d = await api(`/api/chat/status?route=${encodeURIComponent(location.hash || "#/home")}`); }
+  catch (_) { S.stTimer = setTimeout(renderStatus, STATUS_MS); return; }
+  if (S.mode !== "status") return;
+  const box = el("div", "st-board");
+  const sec = (title, cls, rows, empty) => {
+    const s = el("div", `st-sec ${cls}`);
+    s.appendChild(el("div", "st-h", title));
+    if (!rows.length) s.appendChild(el("div", "st-empty", empty));
+    rows.forEach((r) => s.appendChild(r));
+    box.appendChild(s);
+  };
+  sec("지금 하는 일", "st-now", (d.now || []).map((j) => {
+    const r = el(j.id ? "a" : "div", "st-row st-job");
+    if (j.id) r.href = `#/job/${encodeURIComponent(j.id)}`;
+    const pct = j.total ? ` · ${j.done}/${j.total}` : "";
+    r.innerHTML = `<span class="ch-dot"></span><span class="st-t">${escapeHtml(j.label || "")}${pct}</span>`
+      + (j.detail || j.current ? `<span class="st-d">${escapeHtml(j.detail || j.current || "")}</span>` : "");
+    return r;
+  }), "돌고 있는 작업이 없습니다.");
+  if ((d.reflect || []).length) {
+    sec("고친 뒤 반영할 것", "st-reflect", d.reflect.map((n) => link(n)), "");
+  }
+  sec("다음에 할 일", "st-next", (d.next || []).map((n) => link(n)), "지금 할 일이 없습니다.");
+  S.log.innerHTML = "";
+  S.log.appendChild(box);
+  S.stTimer = setTimeout(renderStatus, (d.now || []).length ? 3000 : STATUS_MS);
+}
+
+function link(n) {
+  const a = el("a", "st-row" + (n.here ? " st-here" : ""));
+  a.href = n.route || "#/home";
+  a.innerHTML = `<span class="st-arrow">→</span><span class="st-t">${escapeHtml(n.text)}</span>`;
+  return a;
 }
