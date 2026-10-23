@@ -415,7 +415,8 @@ def _render_txt(doc, html) -> str:
         how = (f"종합반(종합반 강의 L) — lecture-composer 의 jobs/<잡>/input/ 에\n"
                f"  _longform-kit/<품목>/ 의 notes · rounds · scripts 를 그대로 복사한 뒤 s1 plan 부터.\n")
     return ("XAM LOCAL v2 — 렌더 키트 (영상은 다른 PC 에서 굽는다)\n\n" + how +
-            "\n같이 든 것\n  *.pptx          html2deck 강의 슬라이드(대단원마다 한 파일)\n"
+            "\n같이 든 것 (덱은 영상과 따로인 별도 산물이다 — 요약반이면 요약덱)\n"
+            "  *.pptx          html2deck 강의 슬라이드(대단원마다 한 파일)\n"
             "  narration.json  덱 페이지 → 장 id · 자막 · 낭독 대응표\n")
 
 

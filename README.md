@@ -79,6 +79,10 @@ OCR 검수 · 구조화 MD로 정리 · 과정 정의 · 문항 집필 · 문항
 | 요약반 | `03-2/<n>summary-<과목>_원고.html` + `04-2/lecture/summary/<과목>/` (html2deck PPTX 대단원별 · `narration.json` · `RENDER.txt`) | 다른 PC 에서 이미지화 → **hyper-close-frame**(HyperFrames)로 렌더링 → 요약 영상(M) |
 | 종합반 | `03-3/<n>summary-<과목>_원고x<N>.html` + 위와 같은 덱 + `_longform-kit/<품목>/{notes,rounds,scripts}` | lecture-composer `jobs/<잡>/input/` → 종합반 강의(L) |
 
+★ **덱과 영상은 따로다.** html2deck PPTX(요약반이면 **요약덱**, 종합반이면 종합반 덱)는 그 자체로
+별도 산물이고, 영상은 원고 HTML 에서 따로 만든다(요약 영상 = 이미지화 → hyper-close-frame,
+종합반 강의 = lecture-composer). 덱을 캡처해 영상을 만드는 것이 아니다.
+
 ### 듣기 검수 (여러 사람)
 
 - 소리는 **영상과 같은 엔진·목소리**(vendor/chodangi 의 voicewright)로 서버가 굽는다 → `_audio/<과목>/<id>.<hash>.mp3`.
