@@ -217,7 +217,7 @@ def scenario(d: Demo, kind_key: str):
     d.cap("▶ 를 누르면 영상과 같은 엔진·목소리로 그 장을 바로 들어 봅니다.", 2.5)
     d.p.mouse.wheel(0, -2000)
     d.point("button:has-text('노트 빌드')", click=False, pause=0.3, hl=True)
-    d.cap("메뉴마다 그 노트의 [노트 빌드] — 원고 HTML · 강의 PPTX · 장별 자막·낭독 목록. 영상은 다른 PC 에서 굽습니다.", 4.0)
+    d.cap("메뉴마다 그 노트의 [노트 빌드] — 원고 HTML · 강의 PPTX · 장별 자막·낭독 목록. 영상은 다른 PC 에서 이미지화 작업을 한 후 하이퍼프레임을 활용해 렌더링을 합니다.", 4.5)
 
     # 6. 듣기 검수
     d.step("6 · 듣기 검수 — 여러 사람")

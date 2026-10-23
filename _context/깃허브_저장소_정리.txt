@@ -25,6 +25,7 @@ shorts-gongbang4             261009-쇼츠공방4                            용
 matraix-errata-engine (비공개) 261008-산물MatrAlx검수엔진               검수단 x 정오표 (검수)
 summaryhtml2videoscripthtml  (로컬 없음)                                 요약 HTML -> 1배 원고 HTML (data-say/data-read/data-fig 규약의 기준)
 axexam (비공개)              260729-new (xam-local axexam/ subtree)      그누보드5 문제은행 사이트 (출구)
+hyper-close-frame            260831-hyper-close-frame                    주제/문서 -> 내레이션 16:9 MP4 (HeyGen HyperFrames). 요약반 원고의 이미지화 영상 렌더 (M)
 haeseolbook                  (로컬 없음)                                 기출원문+해설영상 필기 이북 PWA, 허브 신규 아이템 예정
 
 [2. 간접 관련 (전신, 엔진, 부품)]
@@ -40,7 +41,7 @@ voicewright, mp4maker (260430-tts, 260602-34setp-merge/_src)  chodangi 내부 �
 exambook-html2deck-old, haeseolbook-archive (비공개)  보관본
 it-workbook-study, exam-workbook-builder, qbook-editor, gemma-chodangimunjejib-maker, pdf-ocr-local  5~7월 문제집 파이프라인 전신
 galley-errata-agent (261021-TS속독), jev-revision-agent  교재 정오·개정 에이전트 (허브 밖)
-munjero, pressplay, sqld-shorts-studio, avatar-lecture, longform-studio(비공개), hyper-close-frame(260831)  실험작·자매작
+munjero, pressplay, sqld-shorts-studio, avatar-lecture, longform-studio(비공개)  실험작·자매작
 
 [3. 무관 (약 85개)]
 aim-*, odyssey-*, genoffice-*, caind-*, koica-reg-mcp, bid-pilot, gov-support-*, pptx*, md2pptx*, hwpx*,
@@ -49,7 +50,7 @@ scriptforge, storylens-27, sceneweaver-capcut, flowgenie, mediaforge, aside-thre
 [원전 -> 산물 대응 (과정별_파이프라인_구조도)]
 증폭 문항+해설   -> e-test(Q), 비공개은행(Q), 책 수록문제(B), 문제풀이영상(V)   : xam-local
 과목별 요약 HTML -> 요약노트(S)                                                : xam-local (이론 요약 노트)
-HTML 1배 원고    -> 요약영상(M)                                                : xam-local v2 요약반 강의 노트 -> backplate-studio
+HTML 1배 원고    -> 요약영상(M)                                                : xam-local v2 요약반 강의 노트 -> 다른 PC 이미지화 -> hyper-close-frame(HyperFrames)
 쇼츠 원고        -> 용어쇼츠(T)                                                : shorts-gongbang4
 HTML 3배 원고    -> 종합반강의(L), 교재 종합본(B)                               : xam-local v2 종합반 강의 노트 -> lecture-composer
 교재 요약본(B)   -> 담당 도구 미확인 (종합반 노트 이후 '초단기서 핵심요약 HTML' 로 이어질 예정)

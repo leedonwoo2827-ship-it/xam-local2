@@ -352,7 +352,8 @@ def deck_dir(kind: str, key: str) -> str:
 def build(doc: Dict[str, Any], *, log: Log) -> Dict[str, Any]:
     """원고 HTML → html2deck PPTX(대단원마다) + 장별 자막·낭독 목록 + 안내문.
 
-    ★ mp4 는 만들지 않는다. 요약반 원고는 backplate-studio 가, 종합반 원고는
+    ★ mp4 는 만들지 않는다. 요약반 원고는 다른 PC 에서 이미지화한 뒤 hyper-close-frame
+      (HyperFrames)으로 렌더링하고, 종합반 원고는
       lecture-composer 가 영상으로 굽는다(다른 PC). PPTX 는 html2deck 의 두 번째 갈래로
       강의 슬라이드가 필요할 때 쓴다.
     """
@@ -407,7 +408,8 @@ def build(doc: Dict[str, Any], *, log: Log) -> Dict[str, Any]:
 def _render_txt(doc, html) -> str:
     name = os.path.basename(html)
     if doc["kind"] == "summary":
-        how = (f"요약반(요약 영상 M) — backplate-studio 에 원고 HTML 을 넣는다.\n"
+        how = (f"요약반(요약 영상 M) — 다른 PC 에서 장마다 이미지화한 뒤 hyper-close-frame(HyperFrames)으로\n"
+               f"  렌더링한다. https://github.com/leedonwoo2827-ship-it/hyper-close-frame\n"
                f"  입력: {name}  (h3 = 한 장 · data-say 자막 · data-read 낭독)\n")
     else:
         how = (f"종합반(종합반 강의 L) — lecture-composer 의 jobs/<잡>/input/ 에\n"

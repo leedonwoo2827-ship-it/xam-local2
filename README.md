@@ -76,7 +76,7 @@ OCR 검수 · 구조화 MD로 정리 · 과정 정의 · 문항 집필 · 문항
 | 노트 | 빌드 결과 | 받는 곳 |
 |---|---|---|
 | 해설 구조화 | `03/_outline/<과목>.json · .md` | 이론 요약 노트 집필 |
-| 요약반 | `03-2/<n>summary-<과목>_원고.html` + `04-2/lecture/summary/<과목>/` (html2deck PPTX 대단원별 · `narration.json` · `RENDER.txt`) | backplate-studio → 요약 영상(M) |
+| 요약반 | `03-2/<n>summary-<과목>_원고.html` + `04-2/lecture/summary/<과목>/` (html2deck PPTX 대단원별 · `narration.json` · `RENDER.txt`) | 다른 PC 에서 이미지화 → **hyper-close-frame**(HyperFrames)로 렌더링 → 요약 영상(M) |
 | 종합반 | `03-3/<n>summary-<과목>_원고x<N>.html` + 위와 같은 덱 + `_longform-kit/<품목>/{notes,rounds,scripts}` | lecture-composer `jobs/<잡>/input/` → 종합반 강의(L) |
 
 ### 듣기 검수 (여러 사람)

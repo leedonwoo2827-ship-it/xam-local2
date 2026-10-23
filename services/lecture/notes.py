@@ -15,7 +15,7 @@
     slide.base  종합반의 늘린 장이 어느 장에서 나왔는지(q1-01-03-b → q1-01-03)
 
 원고 HTML 규약은 lecture-composer 의 「원고 HTML 속성」 표를 그대로 따른다
-(h1 data-say/read/outro, h3 data-id/say/read). 그래야 그 엔진과 backplate 가 손대지
+(h1 data-say/read/outro, h3 data-id/say/read). 그래야 그 엔진과 하류 렌더러(hyper-close-frame 등)가 손대지
 않고 받는다.
 
 ★ 계층 규약: FastAPI 를 import 하지 않는다.
