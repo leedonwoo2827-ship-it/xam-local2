@@ -189,3 +189,18 @@ body[data-chat="collapsed"] .panel-layer { right: var(--chat-w-collapsed); }
   body[data-chat="collapsed"] .ch-rail span { display: none; }
   body .panel-layer { right: 0; }
 }
+
+/* v2 — 이론 묶음 위아래의 선만 길고 진하게. 문항 흐름 사이에 끼어 있던 이론 노트들이
+   한 묶음이라는 것이 훑어서 보이게 한다(사용자 지시 2026-10-24). */
+.rail .side-nav-sep.is-strong {
+  height: 2px; margin: 12px -4px;
+  background: rgb(var(--bone-rgb) / .38);
+  border-radius: 2px;
+}
+
+/* v2 — 이론 묶음만 다른 색(모래빛 금색). 문항 흐름(흰 글씨)과 한눈에 갈린다. */
+.rail .side-nav li.is-theory a { color: #e9c77f; }
+.rail .side-nav li.is-theory a [data-icon] { color: #c9a45c; }
+.rail .side-nav li.is-theory a .nav-dest { color: #b39765; }
+.rail .side-nav li.is-theory a:hover { background: rgb(233 199 127 / .10); color: #f5dca6; }
+.rail .side-nav li.is-theory a.active { background: rgb(233 199 127 / .16); color: #f5dca6; }

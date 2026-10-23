@@ -61,10 +61,8 @@
       <li><a href="#/exams" data-nav="ed" title="과정 정의 — 시험정보 JSON">
         <span data-icon="bulb"></span><span>과정 정의 <em class="nav-dest">시험정보</em></span></a></li>
 
-      <!-- ★ 여기가 경계다 — 위는 기출(01/), 아래는 자사 산물(_rounds·02~06).
-           아래 화면들은 도구 #2 가 02/ 를 만든 뒤에야 열린다. 그 차이가 커서
-           같은 목록에 붙여 두면 "왜 저건 안 열리나" 를 매번 다시 겪는다. -->
-      <li class="side-nav-sep" aria-hidden="true"></li>
+      <!-- ★ v2(2026-10-24): 과정 정의–문항 집필 사이의 선을 뺐다. 기출 → 과정 → 문항이
+           한 흐름이고, 끊어야 할 곳은 **문항 흐름과 이론 흐름 사이**다(사용자 지시). -->
 
       <!-- ★ 집필 — 여기가 도구 #2(클로드 데스크탑)를 대신한다. 이 앱에서 유일하게
            모델을 부르는 화면이고, **집필자 각자의 Claude Code 구독**으로 나간다
@@ -75,11 +73,6 @@
 
       <li><a href="#/questions" data-nav="q" title="문항 교정">
         <span data-icon="file"></span><span>문항 교정</span></a></li>
-      <!-- ★ 라벨이 "검수" 에서 "제작" 으로 바뀌었다(2026-08-12). 이 화면이 이제
-           `03/` 요약노트를 **만드는** 곳이기도 하다 — [이론 집필] 버튼이 붙었다.
-           검수만 하는 곳으로 읽히면 사람이 만들 방법을 찾아 딴 데를 뒤진다. -->
-      <li><a href="#/summary" data-nav="s" title="이론 요약 노트 제작·검수">
-        <span data-icon="bulb"></span><span>이론 요약 노트 <em class="nav-dest">제작</em></span></a></li>
 
       <!-- ★ **발행이 2단계라 목록도 두 묶음이다** (2026-08-25 운영 결정).
            위 묶음이 «문제집», 아래 묶음이 «해설영상» 이고, 각 묶음의 **끝이 발행**이다.
@@ -93,7 +86,25 @@
       <li><a href="#/publish/problems" data-nav="p" title="06/ 빌드 — 문제집 (업로드는 IP 허브)">
         <span data-icon="package"></span><span>06/ 빌드 <em class="nav-dest">문제집 · 검토용</em></span></a></li>
 
-      <li class="side-nav-sep" aria-hidden="true"></li>
+      <li class="side-nav-sep is-strong" aria-hidden="true"></li>
+      <!-- ★ v2 — **이론 묶음.** 문항 흐름(집필→교정→문항 슬라이드→영상) 한가운데 끼어
+           있던 이론 요약 노트를 여기로 뺐다. 위의 슬라이드·영상은 **문항** 것이다.
+             해설 모아 노트 구조화 → 이론 요약 노트(03/) → 요약반 강의 노트(03-2/)
+             → 종합반 강의 노트(03-3/)
+           강의 노트 둘은 원고(자막·낭독·SVG)와 여러 사람의 듣기 검수까지 하고,
+           mp4 는 다른 PC 가 굽는다(렌더 키트). -->
+      <li class="is-theory"><a href="#/outline" data-nav="ol" title="해설을 모아 과목→항목→상세로 구조화">
+        <span data-icon="grid"></span><span>해설 모아 노트 구조화 <em class="nav-dest">→03/_outline</em></span></a></li>
+      <!-- ★ 라벨이 "검수" 에서 "제작" 으로 바뀌었다(2026-08-12). 이 화면이 이제
+           `03/` 요약노트를 **만드는** 곳이기도 하다 — [이론 집필] 버튼이 붙었다.
+           검수만 하는 곳으로 읽히면 사람이 만들 방법을 찾아 딴 데를 뒤진다. -->
+      <li class="is-theory"><a href="#/summary" data-nav="s" title="이론 요약 노트 제작·검수">
+        <span data-icon="bulb"></span><span>이론 요약 노트 <em class="nav-dest">제작</em></span></a></li>
+      <li class="is-theory"><a href="#/lecture/summary" data-nav="ls" title="요약반 강의 노트 — 자막·낭독·SVG·듣기 검수">
+        <span data-icon="play"></span><span>요약반 강의 노트 <em class="nav-dest">1배 원고</em></span></a></li>
+      <li class="is-theory"><a href="#/lecture/full" data-nav="lf" title="종합반 강의 노트 — n배 원고·듣기 검수">
+        <span data-icon="film"></span><span>종합반 강의 노트 <em class="nav-dest">n배 원고</em></span></a></li>
+      <li class="side-nav-sep is-strong" aria-hidden="true"></li>
 
       <!-- ★ 여기부터가 «해설영상» 묶음이다 — 슬라이드 → 영상 → 인쇄본 → 발행.
            슬라이드가 영상 앞인 이유: 분할·넘침을 먼저 잡아야 영상을 다시 굽지 않는다.
@@ -116,7 +127,7 @@
              목적지 표시를 「제작」에서 「PPTX」로 바꿨다. -->
       <li><a href="#/slides" data-nav="sl"
              title="슬라이드 제작 — 굽기 → PPTX → 장수 확정 → 그림파일">
-        <span data-icon="grid"></span><span>슬라이드 제작 <em class="nav-dest">PPTX·그림</em></span></a></li>
+        <span data-icon="grid"></span><span>문항 슬라이드 제작 <em class="nav-dest">PPTX·그림</em></span></a></li>
 
       <li><a href="#/video" data-nav="v" title="영상 제작·검수">
         <span data-icon="film"></span><span>영상 제작·검수</span></a></li>
@@ -127,6 +138,7 @@
 
       <li><a href="#/publish/video" data-nav="p2" title="06/ 빌드 — 해설영상 링크까지 (업로드는 IP 허브)">
         <span data-icon="package"></span><span>06/ 빌드 <em class="nav-dest">해설영상 · 검토용</em></span></a></li>
+
     </ul>
 
     <div class="side-section">

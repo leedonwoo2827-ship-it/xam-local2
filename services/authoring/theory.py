@@ -401,6 +401,14 @@ def theory_prompt(*, subject_no: int, rounds: List[str], key: str = "") -> str:
     #   `source_view()` 가 만든다 — 회차 파일 20개를 훑던 것이 이 한 줄로 줄었다.
     src = (f"  · _rounds/{key}.json   ← 이 편의 문항만 모아 둔 파일 (여기만 읽는다)"
            if key else "  · (없음)")
+    # ★ v2 — 구조화 노트가 있으면 목차를 그것으로 정한다(해설 모아 노트 구조화 단계).
+    try:
+        from services.lecture import outline as _O
+        if key and os.path.isfile(_O.outline_path(key)):
+            src += ("\n" f"  · _outline/{key}.json  ← 사람이 검토한 노트 구조. **h2·h3 목차와 순서를 "
+                     f"이것대로** 쓰고, 각 소단원의 points·traps 를 빠짐없이 담는다")
+    except Exception:                                        # noqa: BLE001
+        pass
 
     # ★★ **분량 목표를 걸지 않는다**(2026-08-20). 어제 넣었던 「목표 판 수」·「편 범위」·
     #   「판마다 그림」 을 다 걷어냈다.
@@ -1095,6 +1103,16 @@ def source_view(book_dir: str) -> str:
             _json.dump({"unit": key, "question_range": [lo, hi],
                         "n": len(rows), "items": rows},
                        f, ensure_ascii=False, indent=1)
+        # ★ v2 — [해설 모아 노트 구조화] 결과가 있으면 함께 넘긴다. 사람이 검토한
+        #   목차(대단원·소단원·출처)를 요약노트가 그대로 따르게 하려는 것이다.
+        try:
+            from services.lecture import outline as _O
+            if os.path.isfile(_O.outline_path(key)):
+                os.makedirs(os.path.join(view, "_outline"), exist_ok=True)
+                import shutil as _sh
+                _sh.copyfile(_O.outline_path(key), os.path.join(view, "_outline", f"{key}.json"))
+        except Exception:                                    # noqa: BLE001
+            pass
     return view
 
 
