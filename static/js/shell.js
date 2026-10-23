@@ -124,6 +124,10 @@ async function mountBase(rt, path, args, params) {
     basePath = path;
     const ctx = { args, params, path, navigate };
     await mod.mount(view, ctx);
+    // ★ mount 가 오래 걸린 사이(발행 사전점검 6초) 다른 화면으로 옮겼으면 여기서 멈춘다.
+    //   안 멈추면 늦게 끝난 옛 화면이 **새 화면에** 자기 제목 줄을 끼워 넣는다 —
+    //   종합반 노트 위에 「06/ 빌드 — 해설영상」 이 붙은 것을 v2 에서 실측했다(2026-10-24).
+    if (token !== baseToken) return;
     // 제목·부제·액션 줄은 셸이 만든다. 패널에서든 바탕에서든 같은 계약이라
     // 화면을 다른 레이어로 옮겨도 모듈을 고칠 필요가 없다.
     if (mod.meta) applyBaseHead(mod, ctx);
