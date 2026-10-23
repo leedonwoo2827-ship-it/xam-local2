@@ -27,3 +27,7 @@ _docs/
 
 # 원자적 쓰기가 남기는 사본. 내용은 원본이 진실이다.
 *.bak
+
+# 참고 영상·시안 이미지(대용량). 글 자료(_context/*.html·*.txt·*.md)는 저장소에 둔다.
+_context/*.mp4
+_context/*.png

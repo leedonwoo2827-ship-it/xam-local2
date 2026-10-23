@@ -1,0 +1,65 @@
+IP 허브 관련 GitHub 저장소 정리 (조사일 2026-10-24, 계정 leedonwoo2827-ship-it, 전체 132개)
+URL 형식: https://github.com/leedonwoo2827-ship-it/<저장소명>
+
+[허브가 수집하는 도구 6종 - local-moodle hub/sources.py]
+도구키      감지 규칙                              산물코드
+xamlo       _book.json 또는 _rounds/                Q 문항, S 요약(03), D 덱(04-2, _deck-export), V 문제풀이영상(05/*/draft)
+longform    curriculum.json + manuscripts/|job.json L 종합반강의, B 교재(out/textbook)
+backplate   project.json + 11_완성/                 M 요약영상
+shorts4     job.json + */02_terms/terms.json        T 용어쇼츠
+cards       html 파일만 있음                         C 카드 (_assets\이론요약html2svghtml)
+review      progress.json + 05_정오표/               검수 결과만 붙임
+
+[1. 허브 파이프라인 직접 관련]
+저장소                       로컬 폴더                                   역할 / 산물
+ip-ops-hub (비공개)          261014-local-moodle                         IP 허브 자체 (FastAPI :8800, D:\00data)
+exam-ocr-tool                (xam-local services/ocr 에 흡수)            도구#1 OCR 검수, 기출PDF -> 01/*.md
+exambook-forge               260724-munje-sumary                         도구#2 Claude 스킬, 01 -> 02 문항, 03 요약, 04, 05 번들 (Q,S)
+chodangi-mp4-forge           260724-chodangi-mp4 (xam-local vendor 내장) 도구#3 문제풀이 mp4 렌더 (V)
+xam-local                    260803-xam-lo -> 261024-xam-local2 (v2 브랜치)  도구#4 문제은행 콘솔, 06/ 빌드 (Q,V,D) + v2 이론 묶음·듣기 검수
+exambook-html2deck           260821-exambookhtml2slide (vendor/exam2deck 내장, vendor 쪽이 더 최신) 문제/요약 HTML -> 강의 PPTX (D)
+lecture-composer             261001-longform-full-auto                   롱폼 강의 편성 엔진, 3배 원고 -> 종합반 강의 mp4 + 교재 (L,B)
+backplate-studio             261013-backplate_showcase-master-onlycodex  1배 원고 HTML -> 배경판 16:9 요약영상 (M)
+shorts-gongbang4             261009-쇼츠공방4                            용어 1개 = 쇼츠 1편, YouTube Studio 업로드 (T)
+matraix-errata-engine (비공개) 261008-산물MatrAlx검수엔진               검수단 x 정오표 (검수)
+summaryhtml2videoscripthtml  (로컬 없음)                                 요약 HTML -> 1배 원고 HTML (data-say/data-read/data-fig 규약의 기준)
+axexam (비공개)              260729-new (xam-local axexam/ subtree)      그누보드5 문제은행 사이트 (출구)
+haeseolbook                  (로컬 없음)                                 기출원문+해설영상 필기 이북 PWA, 허브 신규 아이템 예정
+
+[2. 간접 관련 (전신, 엔진, 부품)]
+compy-ui-mujejip (260721-compiui-short)       exambook-forge 04 JSON 의 원래 렌더러
+motion-mp4-playwright (260805-이론및매뉴얼-필기동영상)  framecast, 원고 JSON -> 모션 mp4
+aside-shorts / termbook-studio (260909-뉴에이전트) / shorts-studio-astra (260908, 260909)  쇼츠공방4 전신·부품
+backplate_showcase (260918-html-plus-backtimg-text-2mp4)  backplate-studio 전신
+summary-showcase, book2summaryhtml (로컬 없음)  summaryhtml2videoscripthtml 의 자매·하류 앱
+matraix-errata (공개)                          검수엔진 공개 사본으로 보임
+supertonic3-tts (260910-무료TTS앱-슈퍼토닉3)   영상 도구 공용 TTS
+omnivoice-cli (261019-OmniVoice-코랩)          목소리 복제 TTS
+voicewright, mp4maker (260430-tts, 260602-34setp-merge/_src)  chodangi 내부 부품
+exambook-html2deck-old, haeseolbook-archive (비공개)  보관본
+it-workbook-study, exam-workbook-builder, qbook-editor, gemma-chodangimunjejib-maker, pdf-ocr-local  5~7월 문제집 파이프라인 전신
+galley-errata-agent (261021-TS속독), jev-revision-agent  교재 정오·개정 에이전트 (허브 밖)
+munjero, pressplay, sqld-shorts-studio, avatar-lecture, longform-studio(비공개), hyper-close-frame(260831)  실험작·자매작
+
+[3. 무관 (약 85개)]
+aim-*, odyssey-*, genoffice-*, caind-*, koica-reg-mcp, bid-pilot, gov-support-*, pptx*, md2pptx*, hwpx*,
+scriptforge, storylens-27, sceneweaver-capcut, flowgenie, mediaforge, aside-threads, aside-blog, cardnews-mcp-server 등
+
+[원전 -> 산물 대응 (과정별_파이프라인_구조도)]
+증폭 문항+해설   -> e-test(Q), 비공개은행(Q), 책 수록문제(B), 문제풀이영상(V)   : xam-local
+과목별 요약 HTML -> 요약노트(S)                                                : xam-local (이론 요약 노트)
+HTML 1배 원고    -> 요약영상(M)                                                : xam-local v2 요약반 강의 노트 -> backplate-studio
+쇼츠 원고        -> 용어쇼츠(T)                                                : shorts-gongbang4
+HTML 3배 원고    -> 종합반강의(L), 교재 종합본(B)                               : xam-local v2 종합반 강의 노트 -> lecture-composer
+교재 요약본(B)   -> 담당 도구 미확인 (종합반 노트 이후 '초단기서 핵심요약 HTML' 로 이어질 예정)
+
+[빈칸 / 확인 필요]
+- handonskill (261017-handonskill-게임화-sqld실기): GitHub 저장소 없음 (로컬 git 만, remote 없음)
+- 1배 원고 원본 폴더(summary2vs-out-*) 이 PC 에 없음, 허브는 longform _assets 의 복사본만 수집
+  -> v2 부터는 xam-local 의 03-2/ · 03-3/ 가 1배·n배 원고의 원본이 된다 (허브 수집 규칙 추가 필요)
+- 교재 요약본(B) 담당 도구·허브 수집 규칙 없음
+- haeseolbook: README 는 허브 아이템이라 하나 sources.py 에 감지 규칙 없음
+- 허브 README/config 는 7개 시험, 구조도는 9개 과정 (불일치)
+- remote 없는 로컬 git: 260810-MatrAIx-검토분석엔진, 260901-mp4hey
+- 기존 정리 문서: D:\00work\261022-내깃허브분석\업무정리_결과물중심.md, 업무정리_전체표.xlsx
+- 계보 문서: D:\00work\260825-new-nh\docs\local\34-PRODUCTION-CHAIN.md
