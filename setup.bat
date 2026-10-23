@@ -44,7 +44,8 @@ echo       ok: venv\Scripts\python.exe
 echo.
 echo [3/4] installing packages...
 venv\Scripts\python -m pip install --upgrade pip >> "%LOG%" 2>&1
-venv\Scripts\python -m pip install -r requirements.txt >> "%LOG%" 2>&1
+REM constraints.txt pins the versions this app was verified with (fastapi 0.141 etc).
+venv\Scripts\python -m pip install -r requirements.txt -c constraints.txt >> "%LOG%" 2>&1
 if errorlevel 1 goto :pipfail
 echo       ok
 

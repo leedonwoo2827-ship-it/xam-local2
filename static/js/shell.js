@@ -13,6 +13,7 @@ import { $, $$, el, toast } from "./util.js";
 import { getBook, getJobs, getVersion } from "./store.js";
 import { hydrateIcons } from "./icons.js";
 import { openPanel, closePanel, isOpen as panelOpen, setCloseHandler, setActions } from "./panel.js";
+import { mountChat } from "./chat.js";
 
 const view = $("#view");
 
@@ -335,6 +336,7 @@ window.addEventListener("hashchange", render);
  *   패널은 "고르는 곳" 이므로 사람이 열어야 뜬다. */
 if (!location.hash) location.hash = "#/home";
 render();
+mountChat($("#chat"));
 renderBrandStatus();
 renderRecent();
 renderShareBanner();

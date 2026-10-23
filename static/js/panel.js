@@ -97,10 +97,12 @@ function bindOnce() {
  * tabindex 없이 포커스를 주기 때문에 "마지막 요소"를 코드로 맞출 수가 없다.
  * inert 는 그 안의 모든 것을 포커스·클릭 대상에서 빼므로 Tab 이 자연히 패널 안에서만 돈다. */
 function setBaseInert(on) {
-  const app = document.querySelector(".app");
-  if (!app) return;
-  if (on) app.setAttribute("inert", "");
-  else app.removeAttribute("inert");
+  // ★ v2: `.app` 전체가 아니라 레일·바탕만 잠근다. 우측 채팅(.chat)은 패널이 떠 있어도
+  //   써야 한다 — 목록 창을 띄워 둔 채 그 목록에 대해 묻는 것이 채팅의 주된 쓰임이다.
+  for (const node of document.querySelectorAll(".app > .rail, .app > .content")) {
+    if (on) node.setAttribute("inert", "");
+    else node.removeAttribute("inert");
+  }
 }
 
 export function isOpen() { return !!layer && !layer.hidden; }

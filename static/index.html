@@ -11,6 +11,7 @@
 <link rel="stylesheet" href="/static/css/app.css" />
 <!-- OCR 검수 화면 전용. app.css 의 토큰을 쓰고 규칙만 분리해 둔다. -->
 <link rel="stylesheet" href="/static/css/ocr.css" />
+<link rel="stylesheet" href="/static/css/chat.css" />
 <!-- ★ 상태 3색 규칙 — 전역 정책. 화면별 CSS 를 덮어야 하므로 **항상 마지막**. -->
 <link rel="stylesheet" href="/static/css/state.css" />
 </head>
@@ -149,6 +150,10 @@
   </nav>
 
   <main class="content" id="view" tabindex="-1"></main>
+
+  <!-- ★ v2 — 우측 채팅 컬럼. 라우트가 아니라 셸의 일부다(chat.js 가 부팅 때 한 번 마운트).
+       부유 패널이 떠도 inert 로 잠기지 않는다 — panel.js setBaseInert 참고. -->
+  <aside class="side-chat" id="chat" aria-label="Claude 채팅"></aside>
 </div>
 
 <!-- ══ Layer 1 — 부유 패널 (사전점검 · 잡 · HTML 미리보기). panel.js 가 만든다. ══ -->

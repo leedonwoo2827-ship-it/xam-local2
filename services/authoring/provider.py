@@ -50,13 +50,27 @@ def find_cli() -> Optional[Path]:
         p = Path(env).expanduser()
         if p.exists():
             return p
-    if w := shutil.which("claude"):
+    # ★ PATH 의 npm 래퍼(`claude.cmd`)는 고르지 않는다. SDK 0.2.134 가 .bat/.cmd 실행을
+    #   거부한다("Refusing to execute batch script … cmd.exe 인자 주입"). v2 이관 때
+    #   이 PC 의 PATH 에 npm 판이 먼저 잡혀 채팅이 첫 마디에서 죽었다(2026-10-24).
+    if (w := shutil.which("claude")) and Path(w).suffix.lower() not in (".cmd", ".bat"):
         return Path(w)
+    native = Path.home() / ".local" / "bin" / "claude.exe"
+    if native.exists():
+        return native
     for pat in ("anthropic.claude-code-*/resources/native-binary/claude.exe",
                 "anthropic.claude-code-*/resources/native-binary/claude"):
         hits = sorted((Path.home() / ".vscode" / "extensions").glob(pat))
         if hits:
             return hits[-1]      # 확장 버전이 올라가면 경로가 바뀐다 → 최신 선택
+    # 마지막: SDK 휠에 들어 있는 claude.exe (Windows x64 휠). 로그인은 같은 ~/.claude 를 쓴다.
+    try:
+        import claude_agent_sdk
+        b = Path(claude_agent_sdk.__file__).parent / "_bundled" / "claude.exe"
+        if b.exists():
+            return b
+    except Exception:                                            # noqa: BLE001
+        pass
     return None
 
 

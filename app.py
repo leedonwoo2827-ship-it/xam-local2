@@ -114,7 +114,19 @@ _ROUTERS = (
     ("routes.render_routes", "setup_job_routes", "잡 조회"),
     ("routes.publish_routes", "setup_publish_routes", "발행"),
     ("routes.summary_routes", "setup_summary_routes", "요약노트"),
+    # v2 — 우측 채팅 패널. claude-agent-sdk 가 없으면 이것만 빠진다.
+    ("routes.chat_routes", "setup_chat_routes", "채팅(구독 OAuth)"),
 )
+
+
+@app.on_event("shutdown")
+def _close_chats() -> None:
+    """채팅마다 붙잡아 둔 claude CLI 자식 프로세스를 닫는다 — 안 닫으면 고아로 남는다."""
+    try:
+        from services.chat import session as _chat
+        _chat.shutdown()
+    except Exception:                                            # noqa: BLE001
+        pass
 
 for _mod, _factory, _label in _ROUTERS:
     try:
