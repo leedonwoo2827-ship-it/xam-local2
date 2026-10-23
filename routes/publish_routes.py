@@ -1,4 +1,8 @@
-"""/api/publish — 사전점검 · 빌드 · problems.json 검증 · FTP 목록 · 체크리스트.
+"""/api/publish — 사전점검 · 빌드 · problems.json 검증 (06/ 까지).
+
+★ v2: 사이트 업로드(FTP 목록 · 업로드 폴더 · 서버 체크리스트)는 IP 허브
+  (261014-local-moodle 의 가져오기)가 맡는다. 이 앱은 06/ 를 만들고 검증해서
+  사람이 검토할 수 있게 두는 데까지다.
 
 발행은 '버튼 하나' 가 아니다. axexam 절차의 순서를 틀릴 수 없게 만드는 것이 이
 화면의 일이다. 임포트는 브라우저 단계라서 우리가 대신 누를 수 없다.
@@ -11,47 +15,12 @@ import os
 
 from fastapi import APIRouter, HTTPException, Request
 
-from core.constants import PD_CODE, PUBLISH_DIR, SITE_BASE, SITE_PATH
-from core.atomic_io import atomic_write_json
+from core.constants import PUBLISH_DIR, SITE_BASE, SITE_PATH
 from services.book import paths
 from services.jobs import registry
-from services.publish import buildcheck, ftplist, validate
+from services.publish import buildcheck, validate
 
 logger = logging.getLogger(__name__)
-
-_STATE = os.path.join(PUBLISH_DIR, "checklist.json")
-
-
-def _state_key(scope: str) -> str:
-    """기록을 담을 칸 이름 — `<품목>|<단계>`.
-
-    ★ 전에는 한 파일에 평평하게 담아서, **다른 품목의 체크가 그대로 보였다.**
-      SQLD 를 발행하려고 열었더니 8월 4일 빅분기 기록이 다 켜져 있었다
-      (2026-08-26). 발행 이력은 품목마다 다른 이야기다.
-    """
-    try:
-        from services.publish import buildcheck
-        pd = buildcheck.active_pd() or "?"
-    except Exception:                                        # noqa: BLE001
-        pd = "?"
-    return f"{pd}|{'problems' if scope == 'problems' else 'video'}"
-
-
-def _load_all() -> dict:
-    if os.path.isfile(_STATE):
-        try:
-            with open(_STATE, encoding="utf-8") as f:
-                return json.load(f) or {}
-        except Exception:
-            pass
-    return {}
-
-
-def _load_state(scope: str = "all") -> dict:
-    """이 품목·이 단계의 기록만. 옛 평평한 기록은 읽지 않는다(다른 품목 것이다)."""
-    d = _load_all().get(_state_key(scope))
-    return d if isinstance(d, dict) else {}
-
 
 def setup_publish_routes() -> APIRouter:
     router = APIRouter(prefix="/api/publish", tags=["publish"])
@@ -134,13 +103,6 @@ def setup_publish_routes() -> APIRouter:
     async def problems():
         """마지막으로 만들어진 problems.json 검증 (임포트 드라이런)."""
         return buildcheck.validate_problems_json()
-
-    @router.get("/ftplist")
-    async def get_ftplist(hash: int = 0):
-        r = ftplist.build(with_hash=bool(hash))
-        if not r["ok"]:
-            raise HTTPException(status_code=409, detail=r.get("error") or "06/ 가 없습니다.")
-        return r
 
     @router.post("/open")
     async def open_folder(request: Request):
@@ -265,87 +227,13 @@ def setup_publish_routes() -> APIRouter:
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
 
-    @router.get("/stage")
-    async def get_stage():
-        """업로드 폴더 상태 — 만들지 않고 본다."""
-        from services.publish import stage
-        return stage.summary()
-
-    @router.post("/stage")
-    async def make_stage(request: Request):
-        """`_upload/` 를 **서버와 똑같은 모양**으로 만든다.
-
-        올릴 것이 로컬 두 곳에서 서버 세 곳으로 가는데(06/ → /exam/,
-        web/exam → /exam/, web/adm → /adm/), 그 매핑을 사람이 하면 반드시 틀린다.
-        여기서 한 번 해 두면 폴더 하나를 /www/ 에 통째로 올리는 것으로 끝난다.
-        """
-        from services.publish import stage
-        try:
-            return stage.build()
-        except ValueError as e:
-            raise HTTPException(status_code=409, detail=str(e)) from e
-
-    @router.post("/stage/clear")
-    async def clear_stage():
-        """다 올린 뒤 지운다. 남겨 두면 다음에 무엇이 새것인지 헷갈린다."""
-        import shutil
-        from services.publish import stage
-        d = stage.stage_dir()
-        if os.path.isdir(d):
-            shutil.rmtree(d)
-        return {"ok": True, "dir": d}
-
-    @router.post("/stage/open")
-    async def open_stage():
-        from services.publish import stage
-        d = stage.stage_dir()
-        if not os.path.isdir(d):
-            raise HTTPException(status_code=404,
-                                detail="업로드 폴더가 없습니다 — [업로드 폴더 만들기] 를 먼저 누르세요.")
-        try:
-            os.startfile(d)           # noqa: S606
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e)) from e
-        return {"ok": True, "dir": d}
-
     @router.post("/gather-videos")
     async def do_gather_videos():
         """mp4 100편을 한 폴더로 모은다 — 2차의 첫 일(드라이브 업로드)의 손잡이."""
         try:
-            return ftplist.gather_videos()
+            from services.publish import ytmap
+            return ytmap.gather_videos()
         except Exception as e:                               # noqa: BLE001
             raise HTTPException(status_code=500, detail=str(e)) from e
-
-    @router.get("/checklist")
-    async def get_checklist(scope: str = "all"):
-        return {"pd": PD_CODE, "items": ftplist.server_checklist(scope),
-                "state": _load_state(scope), "scope": scope}
-
-    @router.put("/checklist")
-    async def put_checklist(request: Request):
-        """서버 단계 진행상태 기록.
-
-        서버에서 되읽을 수 없으므로(/exam/.htaccess 가 .json 을 403) 이 로컬
-        기록이 유일한 발행 이력이다.
-        """
-        body = await request.json()
-        scope = (body.get("scope") or "all").strip()
-        allst = _load_all()
-        slot = _state_key(scope)
-        state = allst.get(slot)
-        if not isinstance(state, dict):
-            state = {}
-        key = (body.get("key") or "").strip()
-        if not key:
-            raise HTTPException(status_code=400, detail="key 가 없습니다.")
-        state[key] = {
-            "done": bool(body.get("done")),
-            "note": (body.get("note") or "").strip(),
-            "at": __import__("datetime").datetime.now().isoformat(timespec="seconds"),
-        }
-        allst[slot] = state
-        os.makedirs(PUBLISH_DIR, exist_ok=True)
-        atomic_write_json(_STATE, allst, indent=2)
-        return {"ok": True, "state": state, "scope": scope}
 
     return router

@@ -48,9 +48,10 @@ ENGINE_DIR = os.path.join(BASE_DIR, "vendor", "chodangi")
 AXBUILD_DIR = os.path.join(BASE_DIR, "axexam", "scripts")
 
 # AXEXAM: 웹(그누보드5) 저장소. PHP·web/ 의 원본이다.
-#   ★ 발행 빌드에는 **필요하지 않다**(빌더가 위 AXBUILD_DIR 에 있다).
-#     웹 소스를 참고할 때만 쓴다. 이 PC 의 클론은 D:\00work\260729-new.
-AXEXAM_DIR = _env_path("XAM_AXEXAM", os.path.join(BASE_DIR, "_ref", "axexam"))
+#   v2 부터 기본값은 이 저장소 안 subtree(axexam/) 다 — 슬라이드 색
+#   (assets/present/tokens.css)도 여기서 읽는다. 외부 클론을 가리키지 않아야
+#   구버전 폴더나 260729-new 가 지워져도 이 앱이 혼자 돈다.
+AXEXAM_DIR = _env_path("XAM_AXEXAM", os.path.join(BASE_DIR, "axexam"))
 
 # ── 품목 ────────────────────────────────────────────────────────────────────
 # ★ build_check.py 의 --pd 기본값은 'sqld' 다. 우리가 이 값을 반드시 명시해야
@@ -61,7 +62,7 @@ PD_LABEL = (os.getenv("XAM_PD_LABEL") or "빅데이터분석기사 필기").stri
 SITE_BASE = (os.getenv("XAM_SITE") or "https://axexam.mycafe24.com").rstrip("/")
 SITE_PATH = "/" + (os.getenv("XAM_SITE_PATH") or "exam").strip("/") + "/"
 
-PORT = int(os.getenv("XAM_PORT") or "8870")
+PORT = int(os.getenv("XAM_PORT") or "8871")   # v2 — 구버전(8870)과 동시에 띄울 수 있게
 
 # ── 책의 형태 ────────────────────────────────────────────────────────────────
 # ★ 회차 수·문항 수·과목 수는 **상수가 아니다.** 폴더에서 센다:

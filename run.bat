@@ -13,7 +13,7 @@ REM there was no way to tell.
 REM ---------------------------------------------------------------------------
 setlocal
 cd /d "%~dp0"
-if not defined PORT set "PORT=8870"
+if not defined PORT set "PORT=8871"
 
 if not exist "venv\Scripts\python.exe" goto :noinstall
 

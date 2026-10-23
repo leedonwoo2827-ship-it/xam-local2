@@ -625,3 +625,45 @@ def sync(provider: str = "") -> dict:
     st["added_theory"] = t_added
     st["updated"] = sorted(set(touched))
     return st
+
+
+# ── 영상 한 폴더로 모으기 ──────────────────────────────────────────────────
+#
+# ★ 왜 필요한가(2026-08-26). 2차 발행의 첫 일이 「영상 100편을 올려 둔다」 인데,
+#   mp4 가 `05/<번들>/draft/` 로 100곳에 흩어져 있다. 탐색기 검색으로 긁어모으라고
+#   적어 두었지만, 검색 결과를 드래그하는 것은 실수하기 쉽고 세기도 어렵다.
+#
+# ★ **복사하지 않는다.** 100편이면 2GB 다. 같은 드라이브면 하드링크가 즉시 만들어지고
+#   자리를 먹지 않는다 — 원본과 같은 파일이라 드라이브에 올리는 데 아무 차이가 없다.
+#   드라이브가 다르거나 링크가 막히면 그때만 복사로 떨어진다.
+def gather_videos(*, dest: str = "") -> dict:
+    """모든 번들의 `*.static.mp4` 를 한 폴더로 모은다(하드링크, 안 되면 복사)."""
+    import shutil
+
+    book = paths.book_dir()
+    out = dest or os.path.join(book, "_videos")
+    os.makedirs(out, exist_ok=True)
+    linked = copied = missing = 0
+    rows = []
+    for b in paths.all_bundles():
+        src = paths.bundle_mp4(b)
+        if not os.path.isfile(src):
+            missing += 1
+            rows.append({"bundle": b, "how": "없음"})
+            continue
+        dst = os.path.join(out, f"{b}.static.mp4")
+        if os.path.isfile(dst) and os.path.getsize(dst) == os.path.getsize(src):
+            rows.append({"bundle": b, "how": "이미 있음"})
+            continue
+        if os.path.exists(dst):
+            os.remove(dst)
+        try:
+            os.link(src, dst)
+            linked += 1
+            rows.append({"bundle": b, "how": "링크"})
+        except OSError:
+            shutil.copy2(src, dst)
+            copied += 1
+            rows.append({"bundle": b, "how": "복사"})
+    return {"dir": out, "linked": linked, "copied": copied, "missing": missing,
+            "total": len(rows), "rows": rows}

@@ -14,6 +14,13 @@ echo XAM LOCAL setup %DATE% %TIME% > "%LOG%"
 echo.
 echo [1/4] looking for Python...
 set "PY="
+REM Prefer 3.12 / 3.13: onnxruntime and pywin32 wheels lag behind the newest Python.
+py -3.12 --version >nul 2>nul
+if not errorlevel 1 set "PY=py -3.12"
+if defined PY goto :havepy
+py -3.13 --version >nul 2>nul
+if not errorlevel 1 set "PY=py -3.13"
+if defined PY goto :havepy
 py -3 --version >nul 2>nul
 if not errorlevel 1 set "PY=py -3"
 if defined PY goto :havepy
@@ -56,8 +63,8 @@ goto :engine
 :bookok
 echo       BOOK ok
 
-REM The render engine and the publish builder now live INSIDE this repo.
-REM Nothing to clone. Only the two binaries below cannot be bundled.
+REM v2: the render engine, the deck converter and the 06/ builder all live
+REM INSIDE this repo. Nothing to clone. Only the binaries below cannot be bundled.
 :engine
 if exist "vendor\chodangi\make_bundle_video.py" goto :engok
 echo       ERROR: vendor\chodangi is missing - video render will not work
@@ -66,11 +73,21 @@ goto :builder
 echo       render engine ok (vendor\chodangi)
 
 :builder
-if exist "services\publish\axbuild\build_check.py" goto :bldok
-echo       ERROR: services\publish\axbuild is missing - publish build will not work
-goto :done4
+if exist "axexam\scripts\build_check.py" goto :bldok
+echo       ERROR: axexam\scripts is missing - 06/ build will not work
+goto :claude
 :bldok
-echo       publish builder ok (services\publish\axbuild)
+echo       06/ builder ok (axexam\scripts)
+
+:claude
+REM The chat panel and authoring both drive the logged-in claude CLI (no API key).
+venv\Scripts\python -c "import sys; from services.authoring.provider import find_cli; sys.exit(0 if find_cli() else 1)" >nul 2>nul
+if not errorlevel 1 goto :claudeok
+echo       WARNING: claude CLI not found - chat panel and authoring are disabled
+echo                install Claude Code, run  claude  once and log in
+goto :done4
+:claudeok
+echo       claude CLI ok
 
 :done4
 echo.

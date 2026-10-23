@@ -25,7 +25,7 @@ REM  PRIVATE networks only - never Public.
 REM ---------------------------------------------------------------------------
 setlocal
 cd /d "%~dp0"
-if not defined PORT set "PORT=8870"
+if not defined PORT set "PORT=8871"
 
 if not exist "venv\Scripts\python.exe" goto :noinstall
 

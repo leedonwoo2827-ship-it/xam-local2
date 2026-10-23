@@ -14,7 +14,7 @@ import { icon, hydrateIcons } from "./icons.js";
 import { donut, stackedBar } from "./charts.js";
 import { actionBtn } from "./panel.js";
 
-const P = { pre: null, env: null, problems: null, ftp: null, checklist: null,
+const P = { pre: null, env: null, problems: null,
             ytmap: null, polling: false };
 
 /* ★ 발행은 **2단계**다 (2026-08-25 운영 결정).
@@ -32,10 +32,10 @@ function scopeFromHash() {
 
 export const meta = {
   title: () => (scopeFromHash() === "problems"
-    ? "etest 발행 — 문제집 (1차)" : "해설영상 발행 (2차)"),
+    ? "06/ 빌드 — 문제집" : "06/ 빌드 — 해설영상"),
   subtitle: () => (scopeFromHash() === "problems"
-    ? "문항만 먼저 내보냅니다. 영상·요약노트는 2차에서 봅니다."
-    : "슬라이드·렌더·유튜브까지 끝난 뒤 — 영상 링크를 붙여 마저 내보냅니다."),
+    ? "문항만 먼저 빌드합니다. 업로드는 IP 허브가 06/ 를 가져가서 합니다."
+    : "영상 링크를 붙여 빌드합니다. 업로드는 IP 허브가 06/ 를 가져가서 합니다."),
   actions: () => [
     actionBtn("사전점검 다시", () => refresh(), { iconName: "refresh" }),
     actionBtn("06/ 폴더 열기", () => openOut(), { iconName: "folder" }),
@@ -59,8 +59,7 @@ export async function mount(root, ctx) {
     ...(video ? [["영상 매핑 — 링크를 여기 넣습니다", "pb-ytmap"]] : []),
     ["빌드 — axexam scripts/build_check.py", "pb-build"],
     ["problems.json 검증 (임포트 드라이런)", "pb-problems"],
-    ["웹 소스 올리기 — PHP·화면이 바뀔 때만", "pb-ftp"],
-    ["전체 순서 — 0.x 는 앱에서, 1번부터는 서버에서", "pb-server"],
+    ["업로드 — IP 허브가 이어 받습니다", "pb-hub"],
   ];
   const NO = "①②③④⑤⑥⑦";
   const page = el("div", "page");
@@ -98,10 +97,8 @@ async function refresh() {
       : []),
     one("/api/publish/problems", "problems", renderProblems,
         ["#pb-problems", "problems.json 확인 중…"]),
-    // 체크리스트도 발행 단계마다 다르다 — 1차에 「영상 올리기」 가 뜨면 안 된다.
-    one(`/api/publish/checklist?scope=${scopeFromHash()}`, "checklist", renderServer, null),
-    // 업로드 카드는 사전점검과 무관하다 — 먼저 뜬다.
-    Promise.resolve().then(() => renderStage()),
+    // 허브 안내 카드는 사전점검과 무관하다 — 먼저 뜬다.
+    Promise.resolve().then(() => renderHub()),
     // 가장 느린 것을 마지막에 둔다(순서는 무관하지만 읽는 사람에게 의도가 보인다).
     one(`/api/publish/preflight?scope=${scopeFromHash()}`, "pre", renderPre,
         ["#pb-pre", "점검 중…"]),
@@ -1073,171 +1070,6 @@ async function renderPartial(box) {
   box.appendChild(wrap);
 }
 
-/* ── ⑤ 업로드 — 폴더 하나로 끝낸다 ────────────────────────────
- *
- * ★ 왜 파일 목록이 아니라 폴더를 만드는가
- *
- *   올릴 것이 로컬 두 곳에서 서버 세 곳으로 간다:
- *     06/              → /www/exam/
- *     axexam/web/exam/ → /www/exam/   (같은 자리에 섞인다)
- *     axexam/web/adm/  → /www/adm/    (/exam/ 밖!)
- *   이 매핑을 머릿속으로 하면서 FileZilla 를 쓰면 반드시 틀리고, **틀려도 업로드는
- *   성공한 것처럼 보인다** — 웹에서 증상이 엉뚱한 얼굴로 나타날 뿐이다.
- *
- *   그래서 앱이 서버와 똑같은 모양의 폴더(`_upload/`)를 만든다. 왼쪽에 그 폴더,
- *   오른쪽에 /www/ 를 놓고 통째로 끌어놓으면 끝. 다 올리면 [지우기].
- */
-async function renderStage() {
-  const box = $("#pb-ftp");
-  // ★ 화면을 떠난 뒤 비동기 응답이 도착하면 box 가 null 이다.
-  //   가드가 없으면 "Cannot set properties of null" 이 콘솔을 덮는다.
-  if (!box) return;
-  box.innerHTML = "";
-  let st = null;
-  try { st = await api("/api/publish/stage"); } catch (e) { /* 아래에서 처리 */ }
-
-  /* ★ 이 카드는 **문제집 내용물의 자리가 아니다**(2026-08-26 지적).
-   *   문항·영상·요약노트·도식은 `06/_올릴것/` 에서 반입 화면(adm/exam_deploy.php)으로
-   *   간다. 여기는 그 반입 화면을 **담고 있는 웹 소스 자체**(adm/ theme/ extend/
-   *   index.php .htaccess)가 바뀌었을 때만 쓴다. 이름이 「업로드」 라 매번 눌러야
-   *   하는 자리로 읽혔다. */
-  const head = el("div", "field-hint");
-  head.innerHTML = "<b>문제집 내용물은 여기가 아닙니다</b> — 문항·영상·요약노트·도식은 "
-    + "<code>06/_올릴것/</code> 에서 <b>반입 화면</b>으로 갑니다.<br>"
-    + "이 폴더는 <b>웹 소스(adm · theme · extend · index.php · .htaccess)가 바뀌었을 때만</b> "
-    + "씁니다. 폴더 안이 이미 서버와 같은 모양이라, 통째로 <b>/www/</b> 에 올리면 됩니다.";
-  box.appendChild(head);
-
-  // ★ 빌드보다 낡았으면 크게 알린다. 파일 수만 보면 그럴듯해서 사람이 못 알아챈다 —
-  //   실제로 빌드 10:21 · 폴더 08:58 인 채로 "다 만들어졌다" 로 보였고,
-  //   그대로 올리면 새 videos.private.json 이 빠진다.
-  if (st?.exists && st.stale) {
-    const w = el("div", "qz-warn err");
-    w.appendChild(icon("alert", 15));
-    w.appendChild(el("span", null, (st.stale_text
-      || "빌드가 이 폴더보다 새롭습니다 — 다시 만드세요.")
-      + " (웹 소스를 올릴 때만 뜻이 있습니다 — 내용물만 바뀌었으면 그냥 두십시오.)"));
-    box.appendChild(w);
-  }
-
-  const acts = el("div", "qz-foot");
-  const mk = el("button", "btn primary",
-    st?.exists ? (st.stale ? "★ 업로드 폴더 다시 만들기 (빌드가 더 새롭습니다)"
-                           : "업로드 폴더 다시 만들기")
-               : "업로드 폴더 만들기");
-  mk.type = "button";
-  mk.addEventListener("click", async () => {
-    try {
-      const r = await api("/api/publish/stage", { method: "POST" });
-      toast(`${r.files}개 · ${(r.bytes / 1048576).toFixed(2)}MB — ${r.dir}`);
-      await renderStage();
-    } catch (e) { toast(e.message, "err"); }
-  });
-  acts.appendChild(mk);
-
-  if (st?.exists) {
-    const open = el("button", "btn", "폴더 열기");
-    open.type = "button";
-    open.addEventListener("click", async () => {
-      try { await api("/api/publish/stage/open", { method: "POST" }); }
-      catch (e) { toast(e.message, "err"); }
-    });
-    acts.appendChild(open);
-
-    const del = el("button", "btn", "다 올렸습니다 — 지우기");
-    del.type = "button";
-    del.addEventListener("click", async () => {
-      if (!(await confirmModal({
-        title: "업로드 폴더를 지울까요?",
-        body: "서버에 다 올렸다면 지워도 됩니다. 남겨 두면 다음에 무엇이 새것인지 "
-          + "헷갈립니다. 언제든 다시 만들 수 있습니다.",
-        ok: "지우기", cancel: "취소",
-      }))) return;
-      try {
-        await api("/api/publish/stage/clear", { method: "POST" });
-        toast("지웠습니다.");
-        await renderStage();
-      } catch (e) { toast(e.message, "err"); }
-    });
-    acts.appendChild(del);
-  }
-  box.appendChild(acts);
-
-  if (st?.exists) {
-    box.appendChild(el("div", "qz-label", "왼쪽 = 이 폴더"));
-    box.appendChild(el("pre", "pb-cmd", st.dir));
-    box.appendChild(el("div", "qz-label", "오른쪽 = 서버"));
-    box.appendChild(el("pre", "pb-cmd", "/www/"));
-    box.appendChild(el("div", "muted",
-      `${st.files}개 · ${(st.bytes / 1048576).toFixed(2)}MB · 최상위: ${(st.tops || []).join("  ")}`));
-  }
-
-  box.appendChild(el("div", "field-hint",
-    "올릴 때: 전송 유형 바이너리 · 문자셋 UTF-8 (요약노트 파일명이 한글입니다)."));
-  box.appendChild(el("div", "field-hint",
-    "★ problems.json 은 이 폴더에 넣지 않았습니다 — 관리자 화면(/adm/exam_import.php)에서 "
-    + "올리거나 붙여넣습니다. .htaccess 가 .json 을 403 으로 막아서 FTP 로는 읽히지 않습니다."));
-}
-
-/* ── ④ FTP ────────────────────────────────────────── */
-function renderFtp() {
-  const box = $("#pb-ftp");
-  // ★ 화면을 떠난 뒤 비동기 응답이 도착하면 box 가 null 이다.
-  //   가드가 없으면 "Cannot set properties of null" 이 콘솔을 덮는다.
-  if (!box) return;
-  box.innerHTML = "";
-  const d = P.ftp;
-  if (d.error) {
-    box.appendChild(el("div", "empty", d.error));
-    return;
-  }
-  box.appendChild(el("div", "muted",
-    `${d.out}  →  ${d.site}   ·   파일 ${d.totals.files}개 · ${fmtBytes(d.totals.bytes)}`));
-
-  const grouped = {};
-  d.upload.forEach((u) => {
-    const top = u.path.includes("/") ? u.path.split("/")[0] + "/" : u.path;
-    grouped[top] = grouped[top] || { n: 0, bytes: 0 };
-    grouped[top].n += 1;
-    grouped[top].bytes += u.bytes;
-  });
-  const tree = el("div", "pb-tree");
-  Object.entries(grouped).forEach(([k, v]) => {
-    const row = el("label");
-    row.appendChild(icon(k.endsWith("/") ? "folder" : "file", 14));
-    row.appendChild(el("span", null, k));
-    row.appendChild(el("span", "sz", `${v.n}개 · ${fmtBytes(v.bytes)}`));
-    tree.appendChild(row);
-  });
-  box.appendChild(el("div", "qz-label", "올릴 것"));
-  box.appendChild(tree);
-
-  if (d.skip.length) {
-    box.appendChild(el("div", "qz-label", "올리지 않을 것"));
-    const list = el("div", "pb-check");
-    d.skip.forEach((s) => {
-      const row = el("div", "item warn");
-      row.appendChild(icon("alert", 13));
-      const mid = el("div");
-      mid.appendChild(el("span", null, s.path + (s.count ? ` (${s.count}개)` : "")));
-      mid.appendChild(el("div", "muted", s.reason));
-      row.appendChild(mid);
-      row.appendChild(el("span", "muted", fmtBytes(s.bytes)));
-      list.appendChild(row);
-    });
-    box.appendChild(list);
-  }
-
-  const acts = el("div", "qz-foot");
-  const open = el("button", "btn primary", "06/ 폴더 열기");
-  open.type = "button";
-  open.addEventListener("click", openOut);
-  acts.appendChild(open);
-  acts.appendChild(el("span", "field-hint qz-foot-hint",
-    "전송 유형 바이너리 · 동시 전송 2개 이하 · 파일명 인코딩 UTF-8 강제"));
-  box.appendChild(acts);
-}
-
 async function openOut() {
   try {
     const r = await api("/api/publish/open", {
@@ -1250,118 +1082,29 @@ async function openOut() {
   }
 }
 
-/* ── ⑤ 서버 단계 ──────────────────────────────────── */
-/* `where` 문자열 안의 http(s) 주소를 눌러서 열 수 있는 링크로 바꾼다.
+/* ── ⑤ 업로드는 IP 허브에서 ─────────────────────────────
  *
- * 정규식으로 URL 조각을 떼어내되, **텍스트는 el() 로만 넣는다** — innerHTML 로 조립하면
- * 경로에 들어 있는 `&`·`<` 가 깨지거나 주입 통로가 된다.
- * URL 끝에 붙은 문장부호(`.` `,` `)`)는 주소가 아니라 글이므로 떼어 되돌린다.
+ * ★ v2 (2026-10-24): 사이트에 올리는 일(FTP · 업로드 폴더 · 서버 체크리스트)은
+ *   IP 허브(261014-local-moodle, :8800)의 [가져오기]가 맡는다. 허브는 이 책 폴더의
+ *   06/pd/<pd>/problems.json · problems.js 와 _rounds · 02 · 05 를 수집해서
+ *   검수 상태와 공개 단계를 붙여 내보낸다. 이 앱은 06/ 를 만들고 검증하는 데까지다.
  */
-const URL_RE = /https?:\/\/[^\s]+/g;
-
-function linkify(text, cls) {
-  const box = el("div", cls || "muted");
-  const s = String(text == null ? "" : text);
-  let last = 0;
-  s.replace(URL_RE, (m, at) => {
-    let url = m, tail = "";
-    const trim = url.match(/[.,)\]]+$/);
-    if (trim) { tail = trim[0]; url = url.slice(0, -tail.length); }
-    if (at > last) box.appendChild(document.createTextNode(s.slice(last, at)));
-    const a = el("a", "pb-link", url);
-    a.href = url;
-    a.target = "_blank";
-    // 로컬 앱에서 외부 사이트를 여는 링크다 — 참조 정보를 넘기지 않는다.
-    a.rel = "noopener noreferrer";
-    box.appendChild(a);
-    if (tail) box.appendChild(document.createTextNode(tail));
-    last = at + m.length;
-    return m;
-  });
-  if (last < s.length) box.appendChild(document.createTextNode(s.slice(last)));
-  return box;
-}
-
-function renderServer() {
-  const box = $("#pb-server");
-  // ★ 화면을 떠난 뒤 비동기 응답이 도착하면 box 가 null 이다.
-  //   가드가 없으면 "Cannot set properties of null" 이 콘솔을 덮는다.
+function renderHub() {
+  const box = $("#pb-hub");
   if (!box) return;
   box.innerHTML = "";
-  const d = P.checklist;
-  if (!d) { box.appendChild(el("div", "empty", "체크리스트를 불러올 수 없습니다.")); return; }
-
-  const note = el("div", "field-hint");
-  // ★ 이 카드는 인수인계 문서다 — 처음 보는 사람이 이것만 읽고 할 수 있어야 한다.
-  //   그래서 번호를 **실제 하는 순서**로 두고, 0.x(앱) 와 1~(서버) 를 갈라 둔다.
-  note.textContent = "묶음 순서대로 하시면 됩니다. 「문제집 세팅」은 보통 첫 발행에만 "
-    + "하고, 두 번째부터는 「업로드」만 반복합니다. "
-    + "임포트는 1회용 관리자 토큰을 쓰기 때문에 스크립트로 부를 수 없습니다. "
-    + "서버에서는 이력을 되읽을 수 없으므로(.htaccess 가 .json 을 403 으로 막습니다) "
-    + "여기 체크 기록이 유일한 발행 이력입니다.";
-  box.appendChild(note);
-
-  // ★ 묶음이 바뀌면 머리글을 끼운다 — 매번 하는 일과 처음 한 번만 하는 일이
-  //   한 줄로 이어져 있으면, 두 번째 발행에서 무엇을 건너뛸지 알 수 없다.
-  let section = null;
-  d.items.forEach((it, i) => {
-    if (it.section && it.section !== section) {
-      section = it.section;
-      box.appendChild(el("div", "pb-section", it.section_label || ""));
-    }
-    const st = (d.state || {})[it.key] || {};
-    const card = el("div", "pb-step " + (st.done ? "done" : ""));
-    const cb = el("input");
-    cb.type = "checkbox";
-    cb.checked = !!st.done;
-    cb.addEventListener("change", async () => {
-      try {
-        const r = await api("/api/publish/checklist", {
-          method: "PUT", headers: { "Content-Type": "application/json" },
-          // 기록은 품목·단계마다 따로 남는다 — 어느 발행의 기록인지 같이 보낸다.
-          body: JSON.stringify({ key: it.key, done: cb.checked,
-                                 scope: scopeFromHash() }),
-        });
-        d.state = r.state;
-        card.classList.toggle("done", cb.checked);
-        toast(cb.checked ? `완료로 기록했습니다 — ${it.label}` : "기록을 해제했습니다.");
-      } catch (e) { toast("기록 실패: " + e.message, "err"); }
-    });
-    card.appendChild(cb);
-    const mid = el("div");
-    // ★ 자동 번호를 붙이지 않는다. 라벨이 이미 번호를 들고 있다(0.1 … 1 … 7).
-    //   붙이면 "1. 0.1 앱을 띄우고…" 가 되어 어느 쪽이 순서인지 알 수 없다.
-    //   번호를 라벨에 둔 이유: 0.x(앱) 와 1~(서버) 를 갈라야 하고, [나중] 항목처럼
-    //   번호가 없는 것도 있다 — 위치로 매기는 번호로는 표현할 수 없다.
-    mid.appendChild(el("b", null, it.label));
-    // ★ `where` 는 대개 관리자 화면 주소다. 텍스트로만 두면 사람이 손으로 옮겨 적거나
-    //   주소창에 다시 타이핑한다 — 실제로 그 단계에서 멈췄다. 눌러서 열게 한다.
-    //   detail 은 링크로 만들지 않는다. 안에 파일 경로·SQL·★경고가 섞여 있어서
-    //   링크가 되면 읽는 순서가 흐트러진다.
-    mid.appendChild(linkify(it.where, "pb-where"));
-    mid.appendChild(el("div", "muted", it.detail));
-    /* ★ 긴 설명은 **접는다.** 단계마다 열 줄씩 적혀 있어 화면이 글로 덮였다 —
-     *   품목마다 매번 하는 일이라 좌표와 넣을 값만 있으면 되고, 왜 그런지는 처음
-     *   한 번만 읽으면 된다. 지우지는 않는다 — 지우면 다음 사람이 같은 함정에
-     *   다시 빠진다(2026-08-26 지시). */
-    if (it.more && it.more.trim()) {
-      const det = el("details", "pb-more");
-      det.appendChild(el("summary", null, "자세히"));
-      det.appendChild(el("div", "muted", it.more));
-      mid.appendChild(det);
-    }
-    if (it.sql) {
-      const btn = el("button", "btn sm", "SQL 보기");
-      btn.type = "button";
-      btn.addEventListener("click", () => confirmModal({
-        title: it.label,
-        body: `<pre class="pb-cmd">${escapeHtml(it.sql)}</pre>`,
-        ok: "닫기", cancel: "",
-      }));
-      mid.appendChild(btn);
-    }
-    if (st.at) mid.appendChild(el("div", "muted", `기록 ${st.at}`));
-    card.appendChild(mid);
-    box.appendChild(card);
-  });
+  box.appendChild(el("div", "muted",
+    "06/ 빌드와 problems.json 검증이 끝났으면 여기서 할 일은 끝입니다. "
+    + "사이트 업로드 · 서버 임포트 · 영상 공개는 IP 허브에서 [가져오기] 로 이어 갑니다."));
+  const acts = el("div", "qz-foot");
+  const open = el("button", "btn sm", "06/ 폴더 열기");
+  open.type = "button";
+  open.addEventListener("click", () => openOut());
+  acts.appendChild(open);
+  const hub = el("a", "btn sm", "IP 허브 열기 (:8800)");
+  hub.href = "http://127.0.0.1:8800/";
+  hub.target = "_blank";
+  hub.rel = "noopener noreferrer";
+  acts.appendChild(hub);
+  box.appendChild(acts);
 }

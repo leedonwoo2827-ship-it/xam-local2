@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>XAM 엑스잼</title>
-<meta name="description" content="문제은행 로컬 운영 콘솔 — 문항 교정 · 영상 검수 · 발행" />
+<meta name="description" content="문제은행 로컬 운영 콘솔 v2 — 문항 교정 · 원고 · 듣기 검수 · 06/ 빌드" />
 <meta name="color-scheme" content="light" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%23c41c0b'/%3E%3Ctext x='16' y='21' font-family='sans-serif' font-size='9.5' font-weight='700' fill='%23fffff3' text-anchor='middle'%3EXAM%3C/text%3E%3C/svg%3E" />
 <link rel="preload" href="/static/fonts/PretendardVariable.woff2" as="font" type="font/woff2" crossorigin />
@@ -89,8 +89,8 @@
            전에는 발행이 맨 아래 하나뿐이라, 영상이 한 편이라도 없으면 문항까지
            못 나갔다. 화면이 그 순서를 말하지 않으면 사람이 매번 물어야 한다.
            (게이트 자체는 `services/publish/validate.py` 의 `SCOPES` 가 가른다.) -->
-      <li><a href="#/publish/problems" data-nav="p" title="etest 발행 — 문제집 (1차)">
-        <span data-icon="package"></span><span>etest 발행 <em class="nav-dest">문제집 1차</em></span></a></li>
+      <li><a href="#/publish/problems" data-nav="p" title="06/ 빌드 — 문제집 (업로드는 IP 허브)">
+        <span data-icon="package"></span><span>06/ 빌드 <em class="nav-dest">문제집 · 검토용</em></span></a></li>
 
       <li class="side-nav-sep" aria-hidden="true"></li>
 
@@ -124,13 +124,12 @@
       <li><a href="/print/" target="_blank" rel="noopener" title="문항·대본 인쇄본 (새 탭)">
         <span data-icon="file"></span><span>인쇄본 <em class="nav-dest">종이 검수</em></span></a></li>
 
-      <li><a href="#/publish/video" data-nav="p2" title="해설영상 발행 (2차) — 영상 링크까지">
-        <span data-icon="package"></span><span>해설영상 발행 <em class="nav-dest">영상 2차</em></span></a></li>
+      <li><a href="#/publish/video" data-nav="p2" title="06/ 빌드 — 해설영상 링크까지 (업로드는 IP 허브)">
+        <span data-icon="package"></span><span>06/ 빌드 <em class="nav-dest">해설영상 · 검토용</em></span></a></li>
     </ul>
 
     <div class="side-section">
       <span class="side-section-title">최근 작업</span>
-      <a class="side-section-more" href="#/publish">발행 이력</a>
     </div>
     <div class="side-recent" id="side-recent">
       <div class="side-empty">아직 작업이 없습니다.</div>
