@@ -33,6 +33,17 @@ import socket
 # 같은 출처에서만 부르므로 프리플라이트가 필요 없고, 넣으면 규칙만 넓어진다.
 READ_METHODS = frozenset({"GET", "HEAD"})
 
+# ★ v2 — 보기 전용의 **유일한 예외**: 듣기 검수 판정 한 줄(덧붙이기만 하는 기록).
+#   여러 사람이 각자 자리에서 듣고 OK·고칠 곳을 누르는 것이 그 기능의 전부다.
+#   원고를 바꾸는 것(지적 반영·장 편집)은 여기 없다 — 운영자 PC 에서만 된다.
+#   경로를 정규식 하나로 못박는다. 접두 비교로 넓히면 같은 접두의 쓰기가 같이 열린다.
+import re as _re
+_LAN_WRITABLE = _re.compile(r"^/api/lecture/(summary|full)/[A-Za-z0-9_-]{1,40}/review$")
+
+
+def lan_writable(method: str, path: str) -> bool:
+    return method == "POST" and bool(_LAN_WRITABLE.match(path or ""))
+
 
 def is_local(host: str | None) -> bool:
     """루프백에서 온 요청인가.

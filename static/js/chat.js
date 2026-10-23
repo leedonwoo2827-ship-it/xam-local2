@@ -28,7 +28,12 @@ function screenContext() {
   let m;
   if ((m = h.match(/^#\/questions\/([^/?]+)/))) ctx.question = decodeURIComponent(m[1]);
   if ((m = h.match(/^#\/(?:video|render|precheck)\/([^/?]+)/))) ctx.bundle = decodeURIComponent(m[1]);
-  if ((m = h.match(/^#\/(?:summary|theory-video|listen)\/([^/?]+)/))) ctx.subject = decodeURIComponent(m[1]);
+  if ((m = h.match(/^#\/(?:summary|outline)\/([^/?]+)/))) ctx.subject = decodeURIComponent(m[1]);
+  // 강의 노트·듣기 검수는 #/lecture/<summary|full>/<과목> — 두 번째 칸이 과목이다
+  if ((m = h.match(/^#\/(?:lecture|listen)\/(summary|full)(?:\/([^/?]+))?/))) {
+    ctx.note = m[1] === "full" ? "종합반 강의 노트" : "요약반 강의 노트";
+    if (m[2]) ctx.subject = decodeURIComponent(m[2]);
+  }
   const book = $("#su-name"), team = $("#su-team");
   if (book) ctx.book = book.textContent.trim();
   if (team && team.textContent.trim() !== "—") ctx.pd = team.textContent.trim();
@@ -39,7 +44,7 @@ function screenContext() {
 }
 
 function ctxLabel(ctx) {
-  const bits = [ctx.question && `문항 ${ctx.question}`, ctx.bundle && `번들 ${ctx.bundle}`,
+  const bits = [ctx.note, ctx.question && `문항 ${ctx.question}`, ctx.bundle && `번들 ${ctx.bundle}`,
                 ctx.subject && `과목 ${ctx.subject}`].filter(Boolean);
   return bits.length ? bits.join(" · ") : ctx.route.replace(/^#\//, "") || "home";
 }

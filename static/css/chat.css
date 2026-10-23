@@ -204,3 +204,5 @@ body[data-chat="collapsed"] .panel-layer { right: var(--chat-w-collapsed); }
 .rail .side-nav li.is-theory a .nav-dest { color: #b39765; }
 .rail .side-nav li.is-theory a:hover { background: rgb(233 199 127 / .10); color: #f5dca6; }
 .rail .side-nav li.is-theory a.active { background: rgb(233 199 127 / .16); color: #f5dca6; }
+/* 이론 묶음은 안쪽으로 들여 쓴다 — 문항 흐름 아래에 딸린 갈래로 읽히게. 접힌 레일에서는 뺀다. */
+body:not([data-rail="collapsed"]) .rail .side-nav li.is-theory a { margin-left: 16px; }

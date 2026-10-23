@@ -21,7 +21,7 @@ from fastapi import APIRouter, HTTPException, Request
 from services.book import paths
 from services.chat import session as chat
 
-_CTX_KEYS = (("route", "화면"), ("question", "문항"), ("bundle", "번들"),
+_CTX_KEYS = (("route", "화면"), ("note", "노트"), ("question", "문항"), ("bundle", "번들"),
              ("subject", "과목"), ("book", "책"), ("pd", "품목"), ("selection", "선택한 글"))
 
 

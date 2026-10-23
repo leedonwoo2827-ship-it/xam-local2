@@ -69,7 +69,7 @@ app = FastAPI(
 #   항상 달아 둔다 — 루프백만 열려 있으면 이 미들웨어는 아무 일도 하지 않는다.
 @app.middleware("http")
 async def _readonly_for_lan(request: Request, call_next):
-    if request.method not in lan.READ_METHODS:
+    if request.method not in lan.READ_METHODS and not lan.lan_writable(request.method, request.url.path):
         host = request.client.host if request.client else None
         if not lan.is_local(host):
             # 화면에 그대로 뜨는 문구다. 왜 막혔는지·누가 풀 수 있는지를 담는다 —
@@ -116,6 +116,8 @@ _ROUTERS = (
     ("routes.summary_routes", "setup_summary_routes", "요약노트"),
     # v2 — 우측 채팅 패널. claude-agent-sdk 가 없으면 이것만 빠진다.
     ("routes.chat_routes", "setup_chat_routes", "채팅(구독 OAuth)"),
+    # v2 — 이론 묶음: 해설 모아 노트 구조화 · 요약반/종합반 강의 노트 · 듣기 검수
+    ("routes.lecture_routes", "setup_lecture_routes", "이론 노트·듣기 검수"),
 )
 
 

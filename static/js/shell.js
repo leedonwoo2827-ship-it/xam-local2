@@ -47,6 +47,14 @@ const routes = [
   { re: /^\/slides$/,           nav: "sl", layer: "base",  load: () => import("./slides.js") },
   { re: /^\/summary$/,          nav: "s",  layer: "base",  load: () => import("./summary.js") },
   { re: /^\/summary\/(.+)$/,    nav: "s",  layer: "base",  load: () => import("./summary.js") },
+  // v2 — 이론 묶음. 해설 구조화 · 요약반/종합반 강의 노트 · 듣기 검수(새 탭으로 여는 검수자 화면)
+  { re: /^\/outline$/,           nav: "ol", layer: "base",  load: () => import("./outline.js") },
+  { re: /^\/outline\/(.+)$/,     nav: "ol", layer: "base",  load: () => import("./outline.js") },
+  { re: /^\/lecture\/(summary)$/, nav: "ls", layer: "base", load: () => import("./lecture.js") },
+  { re: /^\/lecture\/(summary)\/([^/]+)$/, nav: "ls", layer: "base", load: () => import("./lecture.js") },
+  { re: /^\/lecture\/(full)$/,   nav: "lf", layer: "base",  load: () => import("./lecture.js") },
+  { re: /^\/lecture\/(full)\/([^/]+)$/, nav: "lf", layer: "base", load: () => import("./lecture.js") },
+  { re: /^\/listen\/(summary|full)\/([^/]+)$/, nav: "", layer: "base", load: () => import("./listen.js") },
 
   // 부유 패널(위층) — 고르는 곳
   { re: /^\/books$/,     nav: "",   layer: "panel", group: "books",     load: () => import("./books.js") },
