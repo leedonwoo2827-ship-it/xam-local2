@@ -16,7 +16,8 @@ ip-ops-hub (비공개)          261014-local-moodle                         IP �
 exam-ocr-tool                (xam-local services/ocr 에 흡수)            도구#1 OCR 검수, 기출PDF -> 01/*.md
 exambook-forge               260724-munje-sumary                         도구#2 Claude 스킬, 01 -> 02 문항, 03 요약, 04, 05 번들 (Q,S)
 chodangi-mp4-forge           260724-chodangi-mp4 (xam-local vendor 내장) 도구#3 문제풀이 mp4 렌더 (V)
-xam-local                    260803-xam-lo -> 261024-xam-local2 (v2 브랜치)  도구#4 문제은행 콘솔, 06/ 빌드 (Q,V,D) + v2 이론 묶음·듣기 검수
+xam-local (공개, v1)         260803-xam-lo      v1 — 2027-01 무렵 정리 예정
+xam-local2 (공개)            261024-xam-local2  v2 본선. https://github.com/leedonwoo2827-ship-it/xam-local2  도구#4 문제은행 콘솔, 06/ 빌드 (Q,V,D) + v2 이론 묶음·듣기 검수
 exambook-html2deck           260821-exambookhtml2slide (vendor/exam2deck 내장, vendor 쪽이 더 최신) 문제/요약 HTML -> 강의 PPTX (D)
 lecture-composer             261001-longform-full-auto                   롱폼 강의 편성 엔진, 3배 원고 -> 종합반 강의 mp4 + 교재 (L,B)
 backplate-studio             261013-backplate_showcase-master-onlycodex  1배 원고 HTML -> 배경판 16:9 요약영상 (M)
