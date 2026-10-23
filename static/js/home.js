@@ -23,7 +23,7 @@ const STEPS = [
     desc: "_rounds · 02/ · 05/lesson 을 함께 갱신합니다." },
   { nav: "v", path: "/video", icon: "film", label: "영상 제작·검수",
     desc: "슬라이드 · 음성 · 자막을 확인하고 렌더합니다." },
-  { nav: "p", path: "/publish", icon: "package", label: "06/ 빌드",
+  { nav: "p", path: "/publish", icon: "package", label: "1부 빌드",
     desc: "사전점검 → 빌드 → 검증. 업로드는 IP 허브가 가져갑니다." },
 ];
 

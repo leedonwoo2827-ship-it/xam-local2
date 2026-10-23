@@ -230,3 +230,9 @@ a.st-row:hover { background: var(--brand-wash); }
 .st-here { background: var(--brand-wash); box-shadow: inset 2px 0 0 var(--brand); }
 .st-reflect .st-row { background: #f8edc4; }
 .st-reflect .st-arrow { color: #6f6112; }
+
+/* v2 — 세 부분 표지(1부 문항 · 2부 이론 노트 · 3부 해설영상). 접힌 레일에서는 숨긴다. */
+.rail .side-nav-label { font-size: 10.5px; font-weight: 700; letter-spacing: .06em; color: var(--rail-ink-3);
+  padding: 2px 12px 2px; margin-top: 2px; }
+.rail .side-nav-label.is-theory { color: #b39765; margin-left: 16px; }
+body[data-rail="collapsed"] .rail .side-nav-label { display: none; }

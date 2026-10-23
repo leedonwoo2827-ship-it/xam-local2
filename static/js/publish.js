@@ -32,7 +32,7 @@ function scopeFromHash() {
 
 export const meta = {
   title: () => (scopeFromHash() === "problems"
-    ? "06/ 빌드 — 문제집" : "06/ 빌드 — 해설영상"),
+    ? "1부 빌드 — 문제집" : "3부 빌드 — 해설영상"),
   subtitle: () => (scopeFromHash() === "problems"
     ? "문항만 먼저 빌드합니다. 업로드는 IP 허브가 06/ 를 가져가서 합니다."
     : "영상 링크를 붙여 빌드합니다. 업로드는 IP 허브가 06/ 를 가져가서 합니다."),
@@ -1094,7 +1094,7 @@ function renderHub() {
   if (!box) return;
   box.innerHTML = "";
   box.appendChild(el("div", "muted",
-    "06/ 빌드와 problems.json 검증이 끝났으면 여기서 할 일은 끝입니다. "
+    "빌드(06/)와 problems.json 검증이 끝났으면 여기서 할 일은 끝입니다. "
     + "사이트 업로드 · 서버 임포트 · 영상 공개는 IP 허브에서 [가져오기] 로 이어 갑니다."));
   const acts = el("div", "qz-foot");
   const open = el("button", "btn sm", "06/ 폴더 열기");

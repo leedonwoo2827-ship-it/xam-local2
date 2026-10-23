@@ -174,23 +174,24 @@ def scenario(d: Demo, kind_key: str):
     key = kind_key
     d.go("#/home", 2.5)
     d.step("XAM LOCAL v2")
-    d.cap("실전모의고사에서 하향식으로 강의 패키지를 만드는 출발점 — XAM LOCAL v2 입니다.", 3.2)
+    d.cap("실전모의고사에서 하향식으로 강의 패키지를 만드는 출발점 — XAM LOCAL v2 입니다.", 2.5)
+    d.cap("1부 문항, 2부 이론 노트, 3부 해설영상까지 — 세 부분을 이 앱에서 만듭니다.", 3.0)
 
     # 1. OCR
-    d.step("1 · OCR 검수")
+    d.step("1부 · OCR 검수")
     d.point('a[data-nav="oc"]', pause=1.8)
     d.cap("OCR 을 하는 이유는, 수식과 표 등 다양하게 작성된 것을 매핑하기 위해서이므로, "
           "복사가 가능한 텍스트는 다음 정리 프로세스를 더 정확하게 완료할 수 있습니다.", 5.5)
     d.keys("Escape", 1.0)
 
     # 2. 문항
-    d.step("2 · 문항 집필 · 교정")
+    d.step("1부 · 문항 집필 · 교정")
     d.point('a[data-nav="q"]', pause=1.6)
     d.cap("자사 회차 문항을 교정합니다. 저장하면 다섯 파일이 함께 바뀌어 웹까지 그대로 갑니다.", 3.2)
     d.keys("Escape", 1.0)
 
     # 3. 해설 모아 노트 구조화
-    d.step("3 · 해설 모아 노트 구조화")
+    d.step("2부 · 해설 모아 노트 구조화")
     d.point('a[data-nav="ol"]', pause=1.8)
     d.cap("우리 모의고사 해설을 과목 → 항목 → 상세로 모으고 중복을 정돈합니다.", 1.5)
     d.point(".ol-card:nth-child(2)", pause=1.6)
@@ -198,12 +199,12 @@ def scenario(d: Demo, kind_key: str):
     d.cap("사람이 이 목차를 승인하면, 이론 요약 노트가 그 목차를 따릅니다.", 3.0)
 
     # 4. 이론 요약 노트
-    d.step("4 · 이론 요약 노트")
+    d.step("2부 · 이론 요약 노트")
     d.point('a[data-nav="s"]', pause=2.0)
     d.cap("이론 요약 노트는 텍스트 위주입니다.", 3.0)
 
     # 5. 요약반 강의 노트
-    d.step("5 · 요약반 강의 노트")
+    d.step("2부 · 요약반 강의 노트")
     d.go(f"#/lecture/summary/{key}", 2.5)
     d.point('a[data-nav="ls"]', click=False, pause=0.4)
     d.cap("요약반 강의 노트는 슬라이드에 의무적으로 표와 SVG 가 들어가서, 추후에 이미지화 영상을 만드는 데 기여합니다.", 4.5)
@@ -220,7 +221,7 @@ def scenario(d: Demo, kind_key: str):
     d.cap("메뉴마다 그 노트의 [노트 빌드] — 원고 HTML · 강의 PPTX · 장별 자막·낭독 목록. 영상은 다른 PC 에서 이미지화 작업을 한 후 하이퍼프레임을 활용해 렌더링을 합니다.", 4.5)
 
     # 6. 듣기 검수
-    d.step("6 · 듣기 검수 — 여러 사람")
+    d.step("2부 · 듣기 검수 — 여러 사람")
     d.go(f"#/listen/summary/{key}", 3.0)
     d.cap("듣기 검수는 여러 사람이 각자 자리에서 같은 과목을 듣고 장마다 OK · 고칠 곳을 남깁니다.", 3.0)
     d.point("#ls-play", pause=3.5)
@@ -230,7 +231,7 @@ def scenario(d: Demo, kind_key: str):
     d.cap("Space 듣기 · O 괜찮음 · F 고칠 곳. 낭독을 고치면 그 장의 OK 는 낡아 다시 들어야 합니다.", 3.5)
 
     # 7. 종합반
-    d.step("7 · 종합반 강의 노트")
+    d.step("2부 · 종합반 강의 노트")
     d.go(f"#/lecture/full/{key}", 2.5)
     d.cap("종합반 강의 노트는 슬라이드의 양을 증폭시켜서, 추후 종합반 영상덱에 기존에 생산된 모든 산물을 모아 "
           "함께 다량의 롱폼을 만드는 데 기여합니다.", 5.0)
@@ -238,9 +239,9 @@ def scenario(d: Demo, kind_key: str):
     d.cap("이후 미노출 종합본 HTML 을 만들고, 문제편을 제외한 초단기서의 핵심요약 HTML 까지 만듭니다.", 4.0)
 
     # 8. 해설영상 — 문항 슬라이드를 쪼갠 뒤 자막대본·발음대본
-    d.step("8 · 해설영상 — 슬라이드 쪼갠 뒤 대본")
+    d.step("3부 · 해설영상")
     d.point('a[data-nav="sl"]', pause=2.5)
-    d.cap("해설영상은 문항 슬라이드를 먼저 쪼갭니다 — 굽기, PPTX, 장수 확정, 그림파일 순서입니다.", 3.0)
+    d.cap("3부 해설영상 — 문제 HTML 을 잘라 증폭한 영상 전체를 이 앱에서 만듭니다. 먼저 문항 슬라이드를 쪼갭니다.", 3.5)
     d.p.mouse.wheel(0, 700)
     d.wait(1.0)
     d.cap("장수를 확정하면 장마다 자막대본과 발음대본이 다시 나뉩니다. 문항이 여러 장이면 낭독을 장마다 나눠 읽습니다.", 3.0)
@@ -249,10 +250,10 @@ def scenario(d: Demo, kind_key: str):
     d.point(".vd-2col", click=False, pause=0.3, hl=True)
     d.cap("영상 화면에서 씬마다 자막과 발음을 나란히 고치고, 그 씬만 다시 합성해 들어 봅니다.", 3.0)
     d.point("button:has-text('이 씬 재합성')", click=False, pause=0.3, hl=True)
-    d.cap("발음대본은 이 앱에서 다 완료하는 것이 목표입니다. 다른 도구는 받은 발음대본을 그대로 읽습니다.", 3.0)
+    d.cap("발음대본은 이 앱에서 다 완료하는 것이 목표입니다. 그리고 렌더링까지 이 앱에서 합니다.", 3.0)
 
     # 9. 발음 사전 — 넣기 · 적용 · 재굽기
-    d.step("9 · 발음 사전")
+    d.step("발음 사전")
     d.point('a[data-nav="dc"]', pause=2.5)
     d.cap("흩어져 있던 발음 사전 300여 개를 이 앱 하나에 모았습니다.", 2.5)
     d.point(".dc-miss", click=False, pause=0.3, hl=True)
@@ -261,7 +262,7 @@ def scenario(d: Demo, kind_key: str):
     d.cap("사전에 넣고, 원고에 적용하고, 소리를 다시 굽는 것까지 여기서 끝냅니다.", 3.0)
 
     # 10. 오른쪽 — 작업 현황
-    d.step("10 · 작업 현황 (오른쪽)")
+    d.step("작업 현황 (오른쪽)")
     d.go(f"#/lecture/summary/{key}", 2.5)
     d.point(".st-board", click=False, pause=0.3, hl=True)
     d.cap("오른쪽은 평소 작업 현황입니다 — 지금 하는 일, 고친 뒤 반영할 것, 다음에 할 일. CLI 렌더도 잡아 보여 줍니다.", 4.5)
@@ -269,12 +270,12 @@ def scenario(d: Demo, kind_key: str):
     d.cap("시장조사나 질문이 필요할 때만 대화로 바꿉니다. 실행은 승인 카드를 눌러야 진행됩니다.", 3.5)
     d.point("#ch-mode", pause=1.0)
 
-    # 9. 06/ 빌드
-    d.step("11 · 06/ 빌드")
+    # 1부·3부 빌드
+    d.step("1부 빌드 · 3부 빌드")
     d.point('a[data-nav="p"]', pause=2.5)
     d.p.mouse.wheel(0, 900)
     d.wait(1.0)
-    d.cap("06/ 빌드와 검증까지가 이 앱입니다. 사이트 업로드는 IP 허브가 가져가서 합니다.", 3.5)
+    d.cap("1부 빌드는 문제집을, 3부 빌드는 해설영상 링크까지 묶어 검토합니다. 사이트 업로드만 IP 허브가 가져가서 합니다.", 4.0)
     d.step("")
     d.cap("", 0.5)
 
