@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<title>XAM LOCAL v2 — 아웃트로</title>
+<style>
+@font-face { font-family: Pretendard; src: url("http://127.0.0.1:8871/static/fonts/PretendardVariable.woff2") format("woff2"); font-weight: 100 900; }
+:root { --brand: #c41c0b; --ink: #fffff3; --ink2: rgba(255,255,243,.62); --bg: #1b1814; --gold: #e9c77f; --ok: #3fb68b; }
+* { box-sizing: border-box; margin: 0; }
+html, body { width: 1920px; height: 1080px; overflow: hidden; background: var(--bg); font-family: Pretendard, sans-serif; color: var(--ink); }
+.grid { position: absolute; inset: 0; background-image: linear-gradient(rgba(255,255,243,.04) 1px, transparent 1px),
+  linear-gradient(90deg, rgba(255,255,243,.04) 1px, transparent 1px); background-size: 64px 64px; }
+.from { position: absolute; inset: 0; background: #edede2; }
+
+/* ── 장면 A: 이 앱 — 1·2·3부를 거쳐 나오는 것 (화면 가득) ── */
+.app { position: absolute; left: 120px; top: 110px; width: 1680px; height: 860px; border-radius: 36px;
+  border: 2px solid rgba(196,28,11,.7); background: rgba(196,28,11,.07); transform-origin: 0 0; }
+.app .cap { position: absolute; left: 44px; top: 30px; font-size: 30px; font-weight: 800; color: #ff8a73; letter-spacing: .02em; }
+.app .cap small { font-size: 24px; color: var(--ink2); font-weight: 600; margin-left: 14px; }
+.inp { position: absolute; left: 44px; top: 380px; width: 220px; height: 120px; border-radius: 22px; background: #121010;
+  border: 1.5px solid rgba(255,255,243,.2); display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.inp b { font-size: 34px; } .inp span { font-size: 22px; color: var(--ink2); margin-top: 4px; }
+.lane { position: absolute; left: 330px; height: 190px; width: 1300px; }
+.lane.l1 { top: 120px; } .lane.l2 { top: 335px; } .lane.l3 { top: 550px; }
+.part { position: absolute; left: 0; top: 30px; width: 300px; height: 130px; border-radius: 22px; padding: 18px 24px;
+  background: rgba(255,255,243,.07); border: 1.5px solid rgba(255,255,243,.16); }
+.part .no { font-size: 24px; font-weight: 800; color: var(--brand); } .part .nm { font-size: 40px; font-weight: 800; margin-top: 4px; }
+.lane.l2 .part { border-color: rgba(233,199,127,.5); background: rgba(233,199,127,.08); } .lane.l2 .part .no { color: var(--gold); }
+.ar { position: absolute; left: 310px; top: 92px; height: 5px; width: 0; background: var(--brand); }
+.lane.l2 .ar { background: var(--gold); }
+.outs { position: absolute; left: 400px; top: 42px; display: flex; gap: 18px; }
+.out { font-size: 30px; font-weight: 700; padding: 22px 28px; border-radius: 20px; background: rgba(255,255,243,.92); color: #1b1814; white-space: nowrap; }
+.out small { display: block; font-size: 20px; font-weight: 600; color: #6b6458; margin-top: 4px; }
+.lane.l2 .out { background: #f6e6bd; }
+.feed { position: absolute; left: 264px; top: 438px; width: 66px; height: 5px; background: rgba(255,255,243,.5); }
+.title { position: absolute; left: 0; right: 0; top: 34px; text-align: center; font-size: 40px; font-weight: 800; }
+
+/* ── 장면 B: 큰 그림 — 이 앱은 IP 허브의 모체, 산물은 그중 일부. 다른 앱들과 IP 허브로 ── */
+.oth { position: absolute; left: 860px; width: 470px; height: 120px; border-radius: 22px; padding: 16px 26px;
+  background: rgba(255,255,243,.06); border: 1.5px solid rgba(255,255,243,.16); }
+.oth .k { font-size: 21px; font-weight: 700; color: var(--ink2); } .oth .t { font-size: 32px; font-weight: 800; margin-top: 2px; }
+.o1 { top: 130px; } .o2 { top: 280px; } .o3 { top: 680px; } .o4 { top: 830px; }
+.more { position: absolute; left: 860px; top: 970px; font-size: 24px; color: var(--ink2); }
+svg.links { position: absolute; inset: 0; width: 1920px; height: 1080px; overflow: visible; }
+svg.links path { fill: none; stroke: rgba(255,255,243,.38); stroke-width: 5; stroke-linecap: round;
+  stroke-dasharray: 1; stroke-dashoffset: 1; }
+svg.links path.me { stroke: var(--brand); stroke-width: 9; }
+.hub { position: absolute; left: 1500px; top: 390px; width: 330px; height: 300px; border-radius: 32px; background: var(--brand);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+.hub b { font-size: 56px; font-weight: 800; } .hub span { font-size: 25px; font-weight: 600; opacity: .9; margin-top: 10px; padding: 0 20px; }
+.bigcap { position: absolute; left: 120px; top: 40px; font-size: 44px; font-weight: 800; }
+.bigcap small { font-size: 28px; color: var(--ink2); font-weight: 600; margin-left: 16px; }
+
+/* ── 끝 장면 ── */
+.end { position: absolute; inset: 0; background: var(--bg); display: grid; place-items: center; }
+.end .in { text-align: center; }
+.end .logo { width: 220px; height: 110px; border-radius: 26px; background: var(--brand); display: grid; place-items: center;
+  font-weight: 800; font-size: 58px; margin: 0 auto 36px; }
+.end .name { font-size: 80px; font-weight: 800; } .end .name b { color: var(--brand); }
+.end .sub { font-size: 32px; color: var(--ink2); margin-top: 18px; }
+.end .url { font-size: 28px; color: rgba(255,255,243,.45); margin-top: 14px; letter-spacing: .02em; }
+</style></head>
+<body>
+<div class="grid"></div>
+<div class="title">이 앱에서 나오는 것</div>
+
+<div class="app">
+  <div class="cap">XAM LOCAL v2<small>IP 허브의 모체 · 산물의 일부</small></div>
+  <div class="inp"><b>기출 PDF</b><span>OCR → 모원고</span></div>
+  <div class="feed"></div>
+  <div class="lane l1"><div class="part"><div class="no">1부</div><div class="nm">문항</div></div><div class="ar"></div>
+    <div class="outs"><div class="out">문제집<small>책 수록 문제</small></div><div class="out">e-test</div><div class="out">문제은행<small>남은 회차</small></div></div></div>
+  <div class="lane l2"><div class="part"><div class="no">2부</div><div class="nm">이론 노트</div></div><div class="ar"></div>
+    <div class="outs"><div class="out">이론 요약 HTML</div><div class="out">요약반 HTML<small>표·SVG 의무</small></div><div class="out">종합반 HTML<small>n배 증폭</small></div></div></div>
+  <div class="lane l3"><div class="part"><div class="no">3부</div><div class="nm">해설영상</div></div><div class="ar"></div>
+    <div class="outs"><div class="out">슬라이드 · 자막 · 음성</div><div class="out">문제풀이 영상<small>렌더링 완료</small></div></div></div>
+</div>
+
+<div class="bigcap">모두 IP 허브로 모입니다<small>이 앱은 IP 허브의 모체 — 산물은 그중 일부</small></div>
+<div class="oth o1"><div class="k">영상반 도구</div><div class="t">요약 영상 · 종합반 강의</div></div>
+<div class="oth o2"><div class="k">영상반 도구</div><div class="t">용어 쇼츠</div></div>
+<div class="oth o3"><div class="k">무료 제공 앱</div><div class="t">실습 게임 · 이북</div></div>
+<div class="oth o4"><div class="k">검수</div><div class="t">정오표 · 검수단</div></div>
+<div class="more">… 앞으로 더 붙습니다</div>
+<svg class="links" viewBox="0 0 1920 1080">
+  <path class="me" pathLength="1" d="M 725 540 L 1500 540"/>
+  <path pathLength="1" d="M 1330 190 C 1420 190, 1420 470, 1500 470"/>
+  <path pathLength="1" d="M 1330 340 C 1420 340, 1420 505, 1500 505"/>
+  <path pathLength="1" d="M 1330 740 C 1420 740, 1420 575, 1500 575"/>
+  <path pathLength="1" d="M 1330 890 C 1420 890, 1420 610, 1500 610"/>
+</svg>
+<div class="hub"><b>IP 허브</b><span>검수 · 공개 → 사이트 · 채널</span></div>
+
+<div class="end"><div class="in"><div class="logo">XAM</div><div class="name">엑스잼 LOCAL <b>v2</b></div>
+  <div class="sub">IP 허브의 모체 — 증폭한 모원고 한 벌에서 교재와 영상이 모두 나온다</div>
+  <div class="url">github.com/leedonwoo2827-ship-it/xam-local2</div></div></div>
+<div class="from"></div>
+
+<script src="reel.js"></script>
+<script>
+window.DURATION = 25.0;
+// t = 낭독 시작 · scene = 그 장면이 시작되는 시각(앞 낭독이 길면 그 직전에서 멈춰 기다린다)
+window.CUES = [
+  { t: 1.0, read: "이 앱은 아이피 허브의 모체를 담당하면서, 산물들의 일부인 문제집과 이론 노트, 해설영상을 만듭니다." },
+  { t: 11.6, scene: 10.6, read: "영상반 도구와 실습 게임 같은 무료 제공 앱들과 함께, 모두 아이피 허브로 모입니다." },
+  { t: 19.0, scene: 18.2, read: "엑스잼 로컬 브이투. 증폭한 모원고 한 벌에서, 교재와 영상이 모두 나옵니다." },
+];
+// 장면 A — 이 앱이 화면 가득: 기출 → 1·2·3부 → 나오는 것
+tl(".from", [{ a: 0, b: .7, from: { o: 1 }, to: { o: 0 }, ease: "inout" }]);
+tl(".grid", [{ a: .2, b: 1.2, from: { o: 0 }, to: { o: 1 } }]);
+tl(".title", [{ a: .4, b: 1.0, from: { o: 0, y: -20 }, to: { o: 1, y: 0 } }, { a: 10.4, b: 10.9, to: { o: 0 } }]);
+tl(".app", [{ a: .5, b: 1.2, from: { o: 0, s: .96 }, to: { o: 1, s: 1 } },
+            // 장면 B — 물러나며 작아진다: 큰 그림의 일부가 된다
+            { a: 10.6, b: 12.0, to: { s: .36, x: 0, y: 275 }, ease: "inout" }]);
+tl(".inp", [{ a: 1.2, b: 1.8, from: { o: 0, x: -40 }, to: { o: 1, x: 0 }, ease: "back" }]);
+tl(".feed", [{ a: 1.8, b: 2.2, from: { o: 0 }, to: { o: 1 } }]);
+stagger(".part", 2.0, .9, [{ a: 0, b: .6, from: { o: 0, x: -40 }, to: { o: 1, x: 0 }, ease: "back" }]);
+stagger(".ar", 2.5, .9, [{ a: 0, b: .5, from: { w: 0 }, to: { w: 6.5 }, ease: "inout" }]);
+stagger(".l1 .out", 3.0, .35, [{ a: 0, b: .5, from: { o: 0, y: 30, s: .8 }, to: { o: 1, y: 0, s: 1 }, ease: "back" }]);
+stagger(".l2 .out", 4.6, .35, [{ a: 0, b: .5, from: { o: 0, y: 30, s: .8 }, to: { o: 1, y: 0, s: 1 }, ease: "back" }]);
+stagger(".l3 .out", 6.2, .35, [{ a: 0, b: .5, from: { o: 0, y: 30, s: .8 }, to: { o: 1, y: 0, s: 1 }, ease: "back" }]);
+// 장면 B — 다른 앱들이 나타나고 IP 허브로 모인다
+tl(".bigcap", [{ a: 11.4, b: 12.0, from: { o: 0, y: -20 }, to: { o: 1, y: 0 } }]);
+stagger(".oth", 12.0, .35, [{ a: 0, b: .6, from: { o: 0, x: 40 }, to: { o: 1, x: 0 }, ease: "back" }]);
+tl(".more", [{ a: 13.4, b: 14.0, from: { o: 0 }, to: { o: 1 } }]);
+tl(".hub", [{ a: 14.0, b: 14.7, from: { o: 0, s: .5 }, to: { o: 1, s: 1 }, ease: "back" }]);
+tl("svg.links path.me", [{ a: 14.4, b: 15.4, from: { draw: 0 }, to: { draw: 1 }, ease: "inout" }]);
+stagger("svg.links path:not(.me)", 14.8, .2, [{ a: 0, b: .8, from: { draw: 0 }, to: { draw: 1 }, ease: "inout" }]);
+// 끝 장면
+tl(".end", [{ a: 0, b: .01, from: { o: 0 }, to: { o: 0 } }, { a: 18.2, b: 18.8, from: { o: 0 }, to: { o: 1 }, ease: "inout" }]);
+tl(".end .logo", [{ a: 18.5, b: 19.1, from: { o: 0, s: .5 }, to: { o: 1, s: 1 }, ease: "back" }]);
+tl(".end .name", [{ a: 18.8, b: 19.5, from: { o: 0, y: 30 }, to: { o: 1, y: 0 } }]);
+tl(".end .sub", [{ a: 19.4, b: 20.1, from: { o: 0 }, to: { o: 1 } }]);
+tl(".end .url", [{ a: 19.9, b: 20.6, from: { o: 0 }, to: { o: 1 } }]);
+__seek(0);
+</script>
+</body></html>

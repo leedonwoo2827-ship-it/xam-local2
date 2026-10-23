@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<title>XAM LOCAL v2 — 인트로</title>
+<style>
+@font-face { font-family: Pretendard; src: url("http://127.0.0.1:8871/static/fonts/PretendardVariable.woff2") format("woff2"); font-weight: 100 900; }
+:root { --brand: #c41c0b; --ink: #fffff3; --ink2: rgba(255,255,243,.62); --bg: #1b1814; --gold: #e9c77f; --ok: #3fb68b; }
+* { box-sizing: border-box; margin: 0; }
+html, body { width: 1920px; height: 1080px; overflow: hidden; background: var(--bg); font-family: Pretendard, sans-serif; color: var(--ink); }
+.grid { position: absolute; inset: 0; background-image: linear-gradient(rgba(255,255,243,.04) 1px, transparent 1px),
+  linear-gradient(90deg, rgba(255,255,243,.04) 1px, transparent 1px); background-size: 64px 64px; }
+.glow { position: absolute; width: 1400px; height: 1400px; left: 260px; top: -520px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(196,28,11,.30), transparent 62%); }
+.sweep { position: absolute; left: 0; top: 520px; height: 6px; width: 0; background: var(--brand); }
+.logo { position: absolute; left: 50%; top: 300px; margin-left: -110px; width: 220px; height: 110px; border-radius: 26px;
+  background: var(--brand); display: grid; place-items: center; font-weight: 800; font-size: 58px; letter-spacing: .02em; }
+.title { position: absolute; left: 0; right: 0; top: 440px; text-align: center; font-size: 88px; font-weight: 800; letter-spacing: -.01em; }
+.title b { color: var(--brand); }
+.tag { position: absolute; left: 0; right: 0; top: 570px; text-align: center; font-size: 38px; font-weight: 500; color: var(--ink2); }
+.parts { position: absolute; transform-origin: 50% 40%; left: 160px; right: 160px; top: 230px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 48px; }
+.card { background: rgba(255,255,243,.06); border: 1.5px solid rgba(255,255,243,.14); border-radius: 28px; padding: 44px 40px 40px; min-height: 470px; }
+.card .no { font-size: 30px; font-weight: 800; color: var(--brand); letter-spacing: .04em; }
+.card.gold .no { color: var(--gold); }
+.card.gold { border-color: rgba(233,199,127,.42); background: rgba(233,199,127,.07); }
+.card h2 { font-size: 58px; font-weight: 800; margin: 10px 0 28px; }
+.card ul { padding: 0; }
+.card li { list-style: none; font-size: 31px; line-height: 1.5; color: var(--ink2); padding: 7px 0; border-top: 1px solid rgba(255,255,243,.09); }
+.card li b { color: var(--ink); font-weight: 700; }
+.link { position: absolute; top: 233px; height: 4px; background: var(--brand); width: 0; }
+.chips { position: absolute; left: 0; right: 0; top: 790px; display: flex; justify-content: center; gap: 22px; }
+.chip { font-size: 32px; font-weight: 700; padding: 16px 30px; border-radius: 999px; background: rgba(255,255,243,.08); border: 1.5px solid rgba(255,255,243,.16); }
+.chip .d { display: inline-block; width: 14px; height: 14px; border-radius: 50%; background: var(--ok); margin-right: 14px; vertical-align: middle; }
+/* v2 에서 더한 것 — 오른쪽 채팅 */
+.why { position: absolute; left: 160px; top: 210px; width: 1000px; }
+.why h3 { font-size: 30px; font-weight: 800; color: var(--brand); letter-spacing: .04em; }
+.why h2 { font-size: 66px; font-weight: 800; margin: 12px 0 30px; line-height: 1.2; }
+.why li { list-style: none; font-size: 36px; font-weight: 600; padding: 12px 0; color: var(--ink2); }
+.why li b { color: var(--ink); }
+.why ul { padding: 0; }
+.panel { position: absolute; right: 0; top: 0; width: 640px; height: 1080px; background: #fffff3; color: #1b1814;
+  box-shadow: -20px 0 60px rgba(0,0,0,.35); padding: 40px 34px; }
+.panel .ph { font-size: 26px; font-weight: 800; margin-bottom: 26px; display: flex; justify-content: space-between; }
+.panel .ph span { font-size: 20px; padding: 6px 14px; border-radius: 999px; background: #edede2; color: #4d5348; }
+.panel .sh { font-size: 19px; font-weight: 700; color: #7b8175; margin: 18px 0 8px; letter-spacing: .04em; }
+.panel .row { font-size: 23px; padding: 14px 16px; border-radius: 12px; background: #edede2; margin-bottom: 8px; }
+.panel .row.here { background: #ffe9e3; box-shadow: inset 4px 0 0 #c41c0b; }
+.panel .row.ref { background: #f8edc4; }
+.panel .q { position: absolute; left: 34px; right: 34px; font-size: 23px; padding: 14px 18px; border-radius: 16px 16px 4px 16px;
+  background: #edede2; text-align: right; }
+.panel .q1 { top: 690px; } .panel .q2 { top: 770px; } .panel .q3 { top: 850px; }
+.panel .box { position: absolute; left: 34px; right: 34px; bottom: 40px; height: 70px; border-radius: 18px; background: #fff;
+  box-shadow: 0 0 0 1.5px rgba(28,36,26,.12); font-size: 21px; color: #7b8175; padding: 22px 20px; }
+.fade { position: absolute; inset: 0; background: #edede2; }
+</style></head>
+<body>
+<div class="grid"></div><div class="glow"></div><div class="sweep"></div>
+<div class="logo">XAM</div>
+<div class="title">엑스잼 LOCAL <b>v2</b></div>
+<div class="tag">XAM 프로세스의 앞부분 — 증폭한 모원고 한 벌에서 교재와 영상이 모두 나온다</div>
+
+<div class="parts">
+  <div class="card c1"><div class="no">1부</div><h2>문항</h2><ul>
+    <li><b>OCR</b> 검수 · 구조화</li><li>문항 <b>집필 · 교정</b></li><li><b>1부 빌드</b> — 문제집</li></ul></div>
+  <div class="card gold c2"><div class="no">2부</div><h2>이론 노트</h2><ul>
+    <li>해설 모아 <b>노트 구조화</b></li><li><b>이론 요약</b> HTML</li><li><b>요약반 · 종합반</b> 영상용 HTML</li></ul></div>
+  <div class="card c3"><div class="no">3부</div><h2>해설영상</h2><ul>
+    <li>문항 <b>슬라이드</b> 쪼개기</li><li><b>자막대본 · 음성대본</b></li><li><b>렌더링</b> → 3부 빌드</li></ul></div>
+  <div class="link l1" style="left:501px"></div><div class="link l2" style="left:1050px"></div>
+</div>
+
+<div class="chips">
+  <div class="chip"><span class="d"></span>발음대본은 여기서 끝낸다</div>
+  <div class="chip"><span class="d"></span>여러 사람 듣기 검수</div>
+  <div class="chip"><span class="d"></span>그다음은 IP 허브로</div>
+</div>
+<div class="why">
+  <h3>v2 에서 더한 것</h3>
+  <h2>오른쪽에 채팅을<br>붙인 이유</h2>
+  <ul><li><b>시장조사</b> · 최근 현황 파악</li><li>허브가 조사한 <b>시험후기 · 정오표</b> 반영</li><li><b>고칠 자리</b>를 파일과 줄로 짚기</li><li>평소엔 <b>지금 할 일 · 다음 할 일</b></li><li>실행은 <b>승인 카드</b>를 눌러야</li></ul>
+</div>
+<div class="panel">
+  <div class="ph">작업 현황 <span>대화</span></div>
+  <div class="sh">지금 하는 일</div><div class="row">CLI 렌더 · m03-2 씬 14/30</div>
+  <div class="sh">고친 뒤 반영할 것</div><div class="row ref">2과목 자막 고친 3장 → 낭독 다시</div>
+  <div class="sh">다음에 할 일</div><div class="row here">2과목 요약반 듣기 검수 12/46장</div><div class="row">1과목 해설 모아 노트 구조화</div>
+  <div class="q q1">SQLD 인강 시장 현황을 최근 자료로</div>
+  <div class="q q2">허브 정오표 3건, 고칠 문항과 줄을 짚어 줘</div>
+  <div class="q q3">3과목 낭독대본 단계 실행해 줘</div>
+  <div class="box">필요할 때만 — 시장조사·질문·실행 요청</div>
+</div>
+<div class="fade"></div>
+
+<script src="reel.js"></script>
+<script>
+window.DURATION = 37.0;
+// 낭독(M1) — 자막은 넣지 않는다(쇼릴). t = 낭독 시작, scene = 그 장면이 시작되는 시각.
+// 앞 낭독이 길면 렌더러가 scene 직전(앞 장면이 다 자리 잡은 때)에서 화면을 멈춰 기다린다.
+window.CUES = [
+  { t: 1.3, read: "엑스잼 로컬 브이투." },
+  { t: 2.9, scene: 2.6, read: "기출을 여러 배로 증폭한 모원고 한 벌에서, 교재와 영상이 모두 나옵니다." },
+  { t: 8.0, scene: 6.6, read: "일부 문항, 이부 이론 노트, 삼부 해설영상. 세 부분을 이 앱 하나에서 만듭니다." },
+  { t: 15.4, scene: 14.7, read: "발음대본까지 여기서 끝내고, 결과물은 아이피 허브로 보냅니다." },
+  { t: 21.4, scene: 20.4, read: "브이투에서는 오른쪽에 채팅을 붙였습니다. 시장조사와 최근 현황, 그리고 허브에서 조사된 시험후기와 정오표를 반영할 자리를 찾을 때 묻고, 평소에는 지금 할 일과 다음 할 일을 보여 줍니다." },
+];
+tl(".grid", [{ a: 0, b: 1.2, from: { o: 0 }, to: { o: 1 } }]);
+tl(".glow", [{ a: 0, b: 2, from: { o: 0, s: .7 }, to: { o: 1, s: 1 } }, { a: 6.6, b: 7.6, to: { o: .45 } }]);
+tl(".sweep", [{ a: .2, b: 1.1, from: { w: 0 }, to: { w: 100 }, ease: "inout" }, { a: 1.1, b: 1.6, from: { o: 1 }, to: { o: 0 } }]);
+tl(".logo", [{ a: .9, b: 1.6, from: { o: 0, s: .4 }, to: { o: 1, s: 1 }, ease: "back" }, { a: 6.6, b: 7.2, to: { o: 0, y: -160, s: .6 } }]);
+tl(".title", [{ a: 1.3, b: 2.1, from: { o: 0, y: 40 }, to: { o: 1, y: 0 } }, { a: 6.6, b: 7.2, to: { o: 0, y: -140 } }]);
+tl(".tag", [{ a: 2.6, b: 3.4, from: { o: 0, y: 24 }, to: { o: 1, y: 0 } }, { a: 6.6, b: 7.2, to: { o: 0, y: -120 } }]);
+stagger(".card", 7.4, .55, [{ a: 0, b: .8, from: { o: 0, y: 70, s: .94 }, to: { o: 1, y: 0, s: 1 }, ease: "back" }]);
+stagger(".card li", 8.0, .22, [{ a: 0, b: .5, from: { o: 0, x: -24 }, to: { o: 1, x: 0 } }]);
+tl(".l1", [{ a: 8.0, b: 8.6, from: { w: 0 }, to: { w: 3 }, ease: "inout" }]);
+tl(".l2", [{ a: 8.6, b: 9.2, from: { w: 0 }, to: { w: 3 }, ease: "inout" }]);
+tl(".parts", [{ a: 14.7, b: 15.4, to: { y: -90, s: .9 } }]);
+stagger(".chip", 15.3, .35, [{ a: 0, b: .6, from: { o: 0, y: 40 }, to: { o: 1, y: -40 }, ease: "back" }]);
+// v2 에서 더한 것 — 세 부분 장면이 빠지고 채팅 패널이 오른쪽에서 밀려 들어온다
+tl(".parts", [{ a: 20.2, b: 20.8, to: { o: 0, y: -160 } }]);
+tl(".chip", [{ a: 20.2, b: 20.7, to: { o: 0 } }]);
+tl(".panel", [{ a: 20.6, b: 21.6, from: { x: 680 }, to: { x: 0 }, ease: "inout" }]);
+tl(".why h3", [{ a: 21.0, b: 21.6, from: { o: 0, y: 20 }, to: { o: 1, y: 0 } }]);
+tl(".why h2", [{ a: 21.2, b: 21.9, from: { o: 0, y: 30 }, to: { o: 1, y: 0 } }]);
+stagger(".why li", 22.4, 1.6, [{ a: 0, b: .5, from: { o: 0, x: -30 }, to: { o: 1, x: 0 } }]);
+stagger(".panel .row", 21.8, .3, [{ a: 0, b: .4, from: { o: 0 }, to: { o: 1 } }]);
+stagger(".panel .q", 26.0, 2.6, [{ a: 0, b: .5, from: { o: 0, y: 20 }, to: { o: 1, y: 0 }, ease: "back" }]);
+tl(".fade", [{ a: 0, b: .01, from: { o: 0 }, to: { o: 0 } }, { a: 36.2, b: 37.0, from: { o: 0 }, to: { o: 1 }, ease: "inout" }]);
+__seek(0);
+</script>
+</body></html>

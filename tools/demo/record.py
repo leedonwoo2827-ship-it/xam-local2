@@ -174,7 +174,7 @@ def scenario(d: Demo, kind_key: str):
     key = kind_key
     d.go("#/home", 2.5)
     d.step("XAM LOCAL v2")
-    d.cap("실전모의고사에서 하향식으로 강의 패키지를 만드는 출발점 — XAM LOCAL v2 입니다.", 2.5)
+    d.cap("XAM LOCAL v2 — IP 허브의 모체. 기출을 여러 배로 증폭한 모원고 한 벌에서 교재와 영상이 모두 나옵니다.", 2.5)
     d.cap("1부 문항, 2부 이론 노트, 3부 해설영상까지 — 세 부분을 이 앱에서 만듭니다.", 3.0)
 
     # 1. OCR
