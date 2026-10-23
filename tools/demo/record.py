@@ -1,7 +1,11 @@
 # -*- coding: utf-8 -*-
 """시연 영상 녹화 — 앱 조작 장면만 (tools/demo/NOTES.md).
 
-    venv\\Scripts\\python tools\\demo\\record.py [--port 8871] [--out _context\\XAM-LOCAL-v2-데모.mp4]
+    venv\\Scripts\\python tools\\demo\\record.py [--port 8871] [--out _context\\XAM-LOCAL-v2-데모.mp4] [--voice F1]
+
+--voice 를 주면 낭독을 입힌다: 자막 문구를 발음대로 바꿔 supertonic3-tts(별도 앱, 기본
+D:\\00work\\260910-무료TTS앱-슈퍼토닉3)로 먼저 굽고, 녹화하면서 장면마다 그 낭독이 끝날
+때까지 기다린 뒤, 자막이 뜬 시각에 각 음성을 얹어 합친다. 자막과 소리가 어긋나지 않는다.
 
 Playwright 가 실제 앱을 조작하며 녹화한다. 화면 위에 얹는 것은 셋뿐이다:
   · 커서 점 + 클릭 물결(녹화에는 마우스가 안 찍힌다)
@@ -59,14 +63,41 @@ OVERLAY_JS = r"""
 """
 
 
+# 자막 → 낭독(소리 나는 대로). 약어·기호는 강사가 읽는 소리로. 숫자는 core.speak 가 마저 바꾼다.
+READ = [("XAM LOCAL v2", "엑스잼 로컬 브이투"), ("06/", "공육"), ("OCR", "오씨알"), ("SVG", "에스브이지"),
+        ("HTML", "에이치티엠엘"), ("PPTX", "피피티엑스"), ("CLI", "씨엘아이"), ("IP 허브", "아이피 허브"),
+        ("PC", "피씨"), ("OK", "오케이"), ("Space", "스페이스"), ("→", ", "), ("·", ", "), ("—", ", "),
+        ("①", "일,"), ("②", "이,"), ("③", "삼,"), ("[", ""), ("]", ""), ("'", ""),
+        ("O 괜찮음", "오 키는 괜찮음"), ("F 고칠 곳", "에프 키는 고칠 곳"), ("▶", "재생 단추")]
+
+
+def to_read(text: str) -> str:
+    out = text
+    for a, b in sorted(READ, key=lambda x: -len(x[0])):
+        out = out.replace(a, b)
+    try:
+        from core.speak import speak_numbers
+        out = speak_numbers(out)
+    except Exception:                                   # noqa: BLE001
+        pass
+    import re
+    out = " ".join(out.split())
+    # 「SVG 가」 처럼 띄어 쓴 조사는 붙여 읽는다 — 띄우면 TTS 가 조사 앞에서 쉰다.
+    out = re.sub(r"(\S) (가|을|를|은|는|에서|까지|입니다)(?=[\s,.]|$)", r"\1\2", out)
+    return re.sub(r"\s+,", ",", out)
+
+
 class Demo:
-    def __init__(self, page, base: str):
+    def __init__(self, page, base: str, voice: dict | None = None):
         self.p = page
         self.base = base
         self.t0 = time.monotonic()
         self.cues: list[tuple[float, float, str]] = []
         self._cap_at = None
         self._cap = ""
+        self.voice = voice or {}          # 자막 → (wav, 초)
+        self.said: list[tuple[float, str]] = []
+        self._busy_until = 0.0
 
     def now(self) -> float:
         return time.monotonic() - self.t0
@@ -85,10 +116,19 @@ class Demo:
 
     def cap(self, t: str, hold: float = 0.0):
         self.ov()
+        # 낭독 모드: 앞 자막의 소리가 끝나기 전에는 다음 자막으로 넘어가지 않는다.
+        left = self._busy_until - self.now()
+        if left > 0:
+            self.p.wait_for_timeout(int(left * 1000))
         if self._cap and self._cap_at is not None:
             self.cues.append((self._cap_at, self.now(), self._cap))
         self._cap, self._cap_at = t, (self.now() if t else None)
         self.p.evaluate(f"__demo.cap({json.dumps(t)})")
+        if t and t in self.voice:
+            wav, sec = self.voice[t]
+            self.said.append((self.now(), wav))
+            self._busy_until = self.now() + sec + 0.35
+            hold = max(hold, min(sec + 0.35, 2.5))   # 나머지는 다음 동작과 겹쳐 흐른다
         if hold:
             self.p.wait_for_timeout(int(hold * 1000))
 
@@ -216,12 +256,54 @@ def scenario(d: Demo, kind_key: str):
     d.cap("", 0.5)
 
 
+class _Stub:
+    """브라우저 없이 시나리오를 훑어 자막 문구만 모은다(낭독을 먼저 굽기 위해)."""
+    def __init__(self):
+        self.texts: list[str] = []
+
+    @property
+    def p(self):
+        return self
+
+    @property
+    def mouse(self):
+        return self
+
+    def __getattr__(self, name):
+        return lambda *a, **k: None
+
+    def cap(self, t, hold=0.0):
+        if t and t not in self.texts:
+            self.texts.append(t)
+
+
+def bake_voice(key: str, voice: str, app: str, work: str) -> dict:
+    stub = _Stub()
+    scenario(stub, key)
+    rows = [{"id": f"c{i:02d}", "read": to_read(t), "text": t} for i, t in enumerate(stub.texts, 1)]
+    os.makedirs(work, exist_ok=True)
+    inp = os.path.join(work, "lines.json")
+    with open(inp, "w", encoding="utf-8") as f:
+        json.dump(rows, f, ensure_ascii=False, indent=1)
+    py = os.path.join(app, ".venv", "Scripts", "python.exe")
+    here = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tts_supertonic.py")
+    subprocess.run([py, here, inp, work, "--app", app, "--voice", voice], check=True,
+                   env=dict(os.environ, PYTHONIOENCODING="utf-8"))
+    with open(os.path.join(work, "durations.json"), encoding="utf-8") as f:
+        dur = json.load(f)
+    return {r["text"]: (os.path.join(work, f"{r['id']}.wav"), float(dur[r["id"]])) for r in rows}
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=8871)
     ap.add_argument("--key", default="planning")
     ap.add_argument("--out", default=os.path.join("_context", "XAM-LOCAL-v2-데모.mp4"))
+    ap.add_argument("--voice", default="", help="낭독 목소리(예: F1 = supertonic 여성1). 비우면 무음")
+    ap.add_argument("--tts-app", default=r"D:\00work\260910-무료TTS앱-슈퍼토닉3")
     a = ap.parse_args()
+    vwork = tempfile.mkdtemp(prefix="xam-demo-voice-")
+    voice = bake_voice(a.key, a.voice, a.tts_app, vwork) if a.voice else {}
     from playwright.sync_api import sync_playwright
 
     base = f"http://127.0.0.1:{a.port}/"
@@ -233,10 +315,12 @@ def main():
         ctx.add_init_script("try{localStorage.setItem('xam.listen.name','시연 검수자');"
                             "localStorage.setItem('xam.chat.mode','status')}catch(e){}")
         page = ctx.new_page()
+        t_page = time.monotonic()                  # 녹화는 페이지가 생길 때 시작한다
         page.goto(base + "#/home")
         page.wait_for_timeout(2500)
-        d = Demo(page, base)
+        d = Demo(page, base, voice)
         d.t0 = time.monotonic()
+        lead = d.t0 - t_page
         try:
             scenario(d, a.key)
         finally:
@@ -246,11 +330,25 @@ def main():
             ctx.close()
             b.close()
     os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
-    # 앞의 첫 로딩(2.5초)을 잘라 자막 시각과 맞춘다.
-    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-ss", "2.5", "-i", video,
-                    "-vf", "scale=1920:1080:flags=lanczos,fps=30", "-c:v", "libx264", "-pix_fmt", "yuv420p",
-                    "-crf", "20", "-movflags", "+faststart", a.out], check=True)
+    # 앞의 첫 로딩(실측 lead 초)을 잘라 자막 시각(t0 기준)과 맞춘다.
+    cmd = ["ffmpeg", "-y", "-loglevel", "error", "-ss", f"{lead:.3f}", "-i", video]
+    filt = "[0:v]scale=1920:1080:flags=lanczos,fps=30[v]"
+    maps = ["-map", "[v]"]
+    if d.said:
+        for _t, wav in d.said:
+            cmd += ["-i", wav]
+        parts = []
+        for i, (t, _w) in enumerate(d.said, 1):
+            ms = max(0, int(t * 1000))
+            parts.append(f"[{i}:a]aresample=48000,adelay={ms}|{ms}[a{i}]")
+        mix = "".join(f"[a{i}]" for i in range(1, len(d.said) + 1))
+        filt += ";" + ";".join(parts) + f";{mix}amix=inputs={len(d.said)}:normalize=0,loudnorm=I=-16:TP=-1.5[a]"
+        maps += ["-map", "[a]", "-c:a", "aac", "-b:a", "160k"]
+    cmd += ["-filter_complex", filt] + maps + ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "20",
+                                               "-movflags", "+faststart", a.out]
+    subprocess.run(cmd, check=True)
     shutil.rmtree(vid_dir, ignore_errors=True)
+    shutil.rmtree(vwork, ignore_errors=True)
     print("영상:", os.path.abspath(a.out))
     print("자막:", os.path.abspath(srt))
 
