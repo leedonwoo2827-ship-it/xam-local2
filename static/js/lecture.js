@@ -90,7 +90,7 @@ function emptyState() {
     box.appendChild(b);
   } else {
     box.innerHTML = `<h3>${subj.no}과목 종합반 노트가 아직 없습니다</h3>
-      <p class="muted">승인된 요약반 노트(자막·낭독·SVG)를 복사해 시작합니다. 배수만큼 장을 늘리는 것은 ④ 단계입니다.</p>`;
+      <p class="muted">승인된 요약반 노트(자막·낭독·SVG)를 복사해 시작합니다. 배수만큼 장을 늘리는 것은 다음의 「내용 n배 확장」 단계입니다.</p>`;
     const row = el("div", "row");
     const sel = el("select", "lc-factor");
     [2, 3, 4, 5].forEach((n) => { const o = el("option", null, `${n}배`); o.value = n; if (n === 3) o.selected = true; sel.appendChild(o); });
