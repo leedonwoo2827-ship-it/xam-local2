@@ -169,13 +169,18 @@ class Demo:
                 f.write(f"{i}\n{ts(a)} --> {ts(b)}\n{t}\n\n")
 
 
-def scenario(d: Demo, kind_key: str):
-    """앱 조작 장면. 문구는 NOTES.md 의 사용자 원문을 그대로 쓴다."""
+def scenario(d: Demo, kind_key: str, opening: bool = True):
+    """앱 조작 장면. 문구는 NOTES.md 의 사용자 원문을 그대로 쓴다.
+
+    ★ opening=False — 인트로와 이어 붙일 본편. 여는 두 마디(모체 · 세 부분)는 인트로가 이미
+      말하므로 빼고 바로 1부로 들어간다(합치면 같은 말을 두 번 했다 — 사용자 지적 2026-10-24).
+    """
     key = kind_key
-    d.go("#/home", 2.5)
-    d.step("XAM LOCAL v2")
-    d.cap("XAM LOCAL v2 — IP 허브의 모체. 기출을 여러 배로 증폭한 모원고 한 벌에서 교재와 영상이 모두 나옵니다.", 2.5)
-    d.cap("1부 문항, 2부 이론 노트, 3부 해설영상까지 — 세 부분을 이 앱에서 만듭니다.", 3.0)
+    d.go("#/home", 2.5 if opening else 1.0)
+    if opening:
+        d.step("XAM LOCAL v2")
+        d.cap("XAM LOCAL v2 — IP 허브의 모체. 기출을 여러 배로 증폭한 모원고 한 벌에서 교재와 영상이 모두 나옵니다.", 2.5)
+        d.cap("1부 문항, 2부 이론 노트, 3부 해설영상까지 — 세 부분을 이 앱에서 만듭니다.", 3.0)
 
     # 1. OCR
     d.step("1부 · OCR 검수")
@@ -301,9 +306,9 @@ class _Stub:
             self.texts.append(t)
 
 
-def bake_voice(key: str, voice: str, app: str, work: str) -> dict:
+def bake_voice(key: str, voice: str, app: str, work: str, opening: bool = True) -> dict:
     stub = _Stub()
-    scenario(stub, key)
+    scenario(stub, key, opening)
     rows = [{"id": f"c{i:02d}", "read": to_read(t), "text": t} for i, t in enumerate(stub.texts, 1)]
     os.makedirs(work, exist_ok=True)
     inp = os.path.join(work, "lines.json")
@@ -325,9 +330,11 @@ def main():
     ap.add_argument("--out", default=os.path.join("_context", "XAM-LOCAL-v2-데모.mp4"))
     ap.add_argument("--voice", default="", help="낭독 목소리(예: F1 = supertonic 여성1). 비우면 무음")
     ap.add_argument("--tts-app", default=r"D:\00work\260910-무료TTS앱-슈퍼토닉3")
+    ap.add_argument("--no-opening", action="store_true",
+                    help="인트로와 이어 붙일 본편 — 여는 두 마디를 빼고 1부 OCR 부터 시작한다")
     a = ap.parse_args()
     vwork = tempfile.mkdtemp(prefix="xam-demo-voice-")
-    voice = bake_voice(a.key, a.voice, a.tts_app, vwork) if a.voice else {}
+    voice = bake_voice(a.key, a.voice, a.tts_app, vwork, not a.no_opening) if a.voice else {}
     from playwright.sync_api import sync_playwright
 
     base = f"http://127.0.0.1:{a.port}/"
@@ -346,7 +353,7 @@ def main():
         d.t0 = time.monotonic()
         lead = d.t0 - t_page
         try:
-            scenario(d, a.key)
+            scenario(d, a.key, not a.no_opening)
         finally:
             srt = os.path.splitext(a.out)[0] + ".srt"
             d.srt(srt)

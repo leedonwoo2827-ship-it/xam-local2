@@ -41,7 +41,10 @@ def main() -> int:
     ap.add_argument("--name", default="남성1")
     a = ap.parse_args()
     intro = os.path.join(CTX, f"XAM-LOCAL-v2-intro_{a.voice}.mp4")
-    body = os.path.join(CTX, f"XAM-LOCAL-v2-데모_{a.name}.mp4")
+    # 이어 붙임용 본편(여는 두 마디를 뺀 것 — record.py --no-opening)이 있으면 그것을 쓴다.
+    body = os.path.join(CTX, f"XAM-LOCAL-v2-본편_{a.name}.mp4")
+    if not os.path.isfile(body):
+        body = os.path.join(CTX, f"XAM-LOCAL-v2-데모_{a.name}.mp4")
     outro = os.path.join(CTX, f"XAM-LOCAL-v2-outro_{a.voice}.mp4")
     out = os.path.join(CTX, f"XAM-LOCAL-v2-완성_{a.name}.mp4")
     for p in (intro, body, outro):
