@@ -158,7 +158,7 @@ window.EXAM_API = EXAM_CFG.api; window.EXAM_PD = EXAM_CFG.pd;</script>
           <div class="gauge-wrap"><div id="gauge"></div>
             <div><div class="big"><span id="scoreNum">0</span> <small>/ <span id="scoreTot">0</span></small></div><div class="k2" id="scoreK">입력한 문항</div></div></div>
           <div class="side-actions">
-            <button class="btn btn-blue btn-block" onclick="grade()"><svg class="ic"><use href="#i-check"></use></svg> 채점하기</button>
+            <button class="btn btn-blue btn-block" onclick="grade()"><svg class="ic"><use href="#i-check"></use></svg> 제출 · 기록</button>
             <button class="btn btn-outline btn-block" onclick="reveal()">정답 보기</button>
             <button class="btn btn-outline btn-block" onclick="resetAll()"><svg class="ic"><use href="#i-refresh"></use></svg> 초기화</button>
           </div>

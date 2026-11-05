@@ -187,3 +187,9 @@ pre.sql code{ background:none; padding:0; border-radius:0; color:inherit; font-s
 /* 채점 후 나타나는 성적표 버튼 (check.js 가 #rpLink 를 채운다) */
 #rpLink{ margin-top:10px; padding-top:12px; border-top:1px solid var(--hairline); }
 #rpLink .rp-hint{ margin-top:7px; font-size:12px; color:var(--faint); line-height:1.55; text-align:center; }
+
+/* 바로 채점 — 누른 보기가 톡 눌리는 피드백, 채점된 문항은 손가락 모양을 거둔다 */
+.opt.tap{animation:optTap .28s ease-out}
+@keyframes optTap{0%{transform:scale(.98)}60%{transform:scale(1.01)}100%{transform:none}}
+.qcard.done .opt{cursor:default}
+.opt{touch-action:manipulation;-webkit-tap-highlight-color:transparent}

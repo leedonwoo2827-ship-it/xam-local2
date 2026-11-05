@@ -46,6 +46,11 @@ let page=0;
 /* 채점 결과를 들고 있는다. 페이지를 넘기면 카드가 새로 그려지므로,
    보관하지 않으면 2쪽으로 넘어간 순간 정답·해설이 사라진다. */
 let lastResults=null;
+/* 바로 채점 — 보기 원숫자를 누르면(펜·손가락·마우스 모두 click) 그 문항만 즉시 채점한다.
+   {key: result} 로 들고 있다가 쪽을 넘겨 카드가 새로 그려지면 다시 입힌다.
+   한 번 채점한 문항은 다시 고를 수 없다(초기화로만 푼다). 「제출·기록」은 회차 전체를
+   grade.php 로 보내 성적표·오답노트에 남기는 일만 한다. */
+let instant={};
 
 /* ── 풀던 답안 보존 ────────────────────────────────────────────────────
    answers 가 메모리 변수라 새로고침·탭닫기에 날아갔다.
@@ -115,12 +120,12 @@ const ApiDS = {
   /* 서버는 '화면에 보이던 문제 집합'을 알아야 미응답을 셀 수 있다.
      과목·난이도 필터가 걸려 있으면 회차 전체가 아니라 그 부분집합이 채점 대상이다.
      그래서 keys 를 함께 보낸다 — 서버는 이걸 DB 행과 교집합으로만 쓴다. */
-  async grade(round, ans){
+  async grade(round, ans, keys){
     const rows=cur();
     const r=await fetch(API+"grade.php", {method:"POST", credentials:"same-origin",
       headers:{"Content-Type":"application/json","X-Exam-Csrf":(window.ME&&ME.csrf)||""},
       body:JSON.stringify({
-        pd:PD, round:round, keys:rows.map(keyOf), answers:ans,
+        pd:PD, round:round, keys:keys||rows.map(keyOf), answers:ans,
         filter:$("#fSubject").value||""
       })});
     return await r.json();
@@ -245,10 +250,12 @@ function setMode(m){
 
   if(m==="quiz"){ const rs=rounds(); curRound=curRound&&rs.includes(curRound)?curRound:(rs[0]||null);
     answers=loadAns();                      // 풀던 답안 복원
+    instant={};                             // 복원한 답안은 이미 바로 채점된 것 — 정답이 손에 있으면 다시 칠한다
+    P.forEach(p=>{ const k=keyOf(p); if(answers[k]!=null && typeof p.answer_index==="number") instant[k]=judge(p, answers[k]); });
     const n=Object.keys(answers).length;
     if(n && !restoreNoticed){ restoreNoticed=true;
       setTimeout(()=>toast("이전에 선택한 답안 "+n+"개를 불러왔습니다"), 400); }
-    $("#pgTitle").textContent="회차별 모의고사 · 정답 체크"; $("#pgSub").textContent="보기를 고르고 채점하기를 누르면 정답·해설이 표시됩니다."; }
+    $("#pgTitle").textContent="회차별 모의고사 · 정답 체크"; $("#pgSub").textContent="보기 번호를 누르면 바로 정답·해설이 표시됩니다."; }
   else if(m==="theory"){ curTheory=curTheory||(THEORY[0]&&THEORY[0].href)||null;
     $("#pgTitle").textContent="이론 요약노트"; $("#pgSub").textContent="과목별 핵심 개념 요약입니다."; }
   else if(m==="board"){
@@ -352,6 +359,7 @@ function render(){
   document.querySelectorAll(".opt").forEach(el=>{ if(answers[el.dataset.k]===+el.dataset.ci) el.classList.add("sel"); });
   /* 채점한 뒤 쪽을 넘기면 카드가 새로 그려진다 — 보관해 둔 결과를 다시 입힌다.
      applyResults 는 DOM 에 없는 문항을 건너뛰므로 이 쪽 것만 칠해진다. */
+  applyResults(Object.values(instant));
   if(graded && lastResults) applyResults(lastResults);
   updateGauge();
 }
@@ -399,16 +407,32 @@ function goPage(n){
           window.scrollTo({top:Math.max(0,y), behavior:"smooth"}); }
 }
 
-document.addEventListener("click",e=>{
+function judge(p, ci){
+  return {key:keyOf(p), ok:ci===p.answer_index, chosen:ci, answer_index:p.answer_index, explanation:p.explanation};
+}
+document.addEventListener("click",async e=>{
   const o=e.target.closest(".opt"); if(!o||graded||mode!=="quiz") return;
-  const k=o.dataset.k, ci=+o.dataset.ci; answers[k]=ci; saveAns();
-  o.parentElement.querySelectorAll(".opt").forEach(x=>x.classList.remove("sel")); o.classList.add("sel"); updateGauge();
+  const k=o.dataset.k, ci=+o.dataset.ci;
+  if(instant[k]) return;                     // 이미 채점한 문항
+  answers[k]=ci; saveAns();
+  o.parentElement.querySelectorAll(".opt").forEach(x=>x.classList.remove("sel")); o.classList.add("sel","tap");
+  const p=P.find(q=>keyOf(q)===k); if(!p) return;
+  let r=null;
+  if(typeof p.answer_index==="number") r=judge(p, ci);
+  else{                                      // 정답이 내려오지 않은 서버 모드 — 그 문항만 물어본다
+    try{ const res=await DS.grade(curRound, {[k]:ci}, [k]); r=res&&res.results&&res.results.find(x=>x.key===k); }catch(_){}
+    if(!r){ toast("채점에 실패했습니다. 잠시 후 다시 시도해 주세요."); return; }
+  }
+  instant[k]=r; applyResults([r]);
+  const card=o.closest(".qcard"); if(card) card.classList.add("done", r.ok?"is-ok":"is-ng");
+  updateGauge();
 });
 function updateGauge(){
   if(mode!=="quiz") return;
   const rows=cur(), tot=rows.length;
   if(!graded){ const ans=rows.filter(p=>answers[keyOf(p)]!=null).length;
-    $("#scoreNum").textContent=ans; $("#scoreTot").textContent=tot; $("#scoreK").textContent="입력한 문항";
+    const ok=rows.filter(p=>(instant[keyOf(p)]||{}).ok).length;
+    $("#scoreNum").textContent=ans; $("#scoreTot").textContent=tot; $("#scoreK").textContent="푼 문항 · 정답 "+ok;
     const pct=tot?Math.round(ans/tot*100):0;
     $("#gauge").innerHTML=WPUI.donut({pct,label:pct+"%",color:"var(--blue-600)",size:78,stroke:9,labelColor:"var(--blue-600)"}); }
 }
@@ -463,7 +487,7 @@ async function reveal(){
   lastResults=res.results.map(r=>({...r, chosen:-1}));
   applyResults(lastResults);
 }
-function resetAll(){ answers={}; graded=false; lastResults=null; page=0; saveAns(); render(); }   // saveAns 가 빈 값이면 지운다
+function resetAll(){ answers={}; instant={}; graded=false; lastResults=null; page=0; saveAns(); render(); }   // saveAns 가 빈 값이면 지운다
 
 function renderHome(list){
   let h='<div class="cat">';
