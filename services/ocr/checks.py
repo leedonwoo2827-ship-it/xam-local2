@@ -25,6 +25,9 @@ from services.ocr import draft, finalize, project
 
 TOKEN = re.compile(r"\{\{([A-Za-z]+-\d+)\}\}")
 INLINE_MATH = re.compile(r"(?<!\\)\$[^$\n]+?(?<!\\)\$")
+# static/js/ocr.js 의 CELLREF 와 같은 식 — 미리보기도 이것을 수식에서 뺀다
+CELLREF = re.compile(r"(?<![A-Za-z0-9$])\$?[A-Z]{1,3}\$?\d{1,7}"
+                     r"(?::\$?[A-Z]{1,3}\$?\d{1,7})?(?![A-Za-z0-9])")
 CIRCLED = "①②③④⑤"
 DIFFICULTIES = ("하", "중", "상")
 
@@ -239,7 +242,8 @@ def verify_round(src: str, round_no: int, *, total: int | None = None) -> dict:
             probs.append(f"{n}번: 해설 비어있음")
 
         a = q.get("answer") or ""
-        if a not in CIRCLED:
+        # ★ `"" in CIRCLED` 는 True 다 — 빈 정답이 이 검사를 그냥 통과했다
+        if not a or a not in CIRCLED:
             probs.append(f"{n}번: 정답기호 이상 {a!r}")
         elif n in answers and a != answers[n]:
             probs.append(f"{n}번: 정답 불일치 — 초안 {a} vs 정답표 {answers[n]}")
@@ -262,7 +266,8 @@ def verify_round(src: str, round_no: int, *, total: int | None = None) -> dict:
             probs.append(f"{n}번: 과목 {q.get('subject_no')} (문항번호 기준 {want})")
 
         for t in _texts(q):
-            if t.count("$") % 2:
+            # 엑셀 절대참조($D$2:$D$6, $B3)의 $ 는 수식 짝이 아니다 — 세기 전에 뺀다
+            if CELLREF.sub("", t).count("$") % 2:
                 probs.append(f"{n}번: $ 개수 홀수 — 수식 짝 확인 필요")
                 break
 

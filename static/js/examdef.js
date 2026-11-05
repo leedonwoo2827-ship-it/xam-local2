@@ -245,6 +245,8 @@ function drawList() {
         <button class="btn sm${e.confirmed ? "" : " primary"} ed-conf"
           data-id="${escapeHtml(e.id)}" data-on="${e.confirmed ? "0" : "1"}"
           type="button">${e.confirmed ? "미확인으로" : "확인 처리"}</button>
+        <button class="btn sm${e.pd_id ? "" : " primary"} ed-pd" data-id="${escapeHtml(e.id)}"
+          type="button">품목 연결</button>
         <button class="btn sm ed-dl" data-id="${escapeHtml(e.id)}" type="button">JSON 꺼내기</button>
       </td>
     </tr>`;
@@ -260,6 +262,70 @@ function drawList() {
 
   $$(".ed-conf", box).forEach((b) => { b.onclick = () => confirmOne(b, items); });
   $$(".ed-dl", box).forEach((b) => { b.onclick = () => exportOne(b.dataset.id); });
+  $$(".ed-pd", box).forEach((b) => { b.onclick = () => linkPd(b.dataset.id, items); });
+}
+
+/* ★ 품목 연결 — 문항 집필은 **시험정보의 pd_id == 작업 폴더의 pd** 로 시험을 찾는다.
+ *   새 과정은 둘 다 비어 있어서 집필 화면이 「시험정보를 찾지 못했습니다」 로 멈췄다
+ *   (실측 2026-11-01 컴활 2급). 한쪽은 JSON 을 다시 받아야 하고 다른 쪽은 작업 폴더
+ *   패널에 있어 사람이 두 군데를 찾아다녔다 — 한 버튼으로 둘을 같은 값으로 맞춘다. */
+async function linkPd(id, items) {
+  const e = items.find((x) => x.id === id) || {};
+  const b = S.book || {};
+  const got = await formModal({
+    title: `${e.label || id} — 품목 코드 연결`,
+    body: `<div style="text-align:left;line-height:1.7">
+      같은 값을 <b>두 곳</b>에 적습니다.
+      <ul style="margin:8px 0 8px 18px">
+        <li>시험정보 <code>exams/${escapeHtml(id)}.json</code> 의 <code>pd_id</code>
+          (지금 ${escapeHtml(e.pd_id || "없음")})</li>
+        <li>지금 작업 폴더 <code>${escapeHtml(b.path || "(지정 안 됨)")}</code> 의 품목
+          (지금 ${escapeHtml(b.pd || "없음")})</li>
+      </ul>
+      품목 코드는 발행 대상이기도 합니다 — 이미 있는 다른 품목 코드를 쓰면 그 품목을 덮어씁니다.</div>`,
+    fields: [
+      { name: "pd", label: "품목 코드 (pd)", required: true,
+        value: e.pd_id || b.pd || "", placeholder: "com2-27",
+        pattern: "^[a-z0-9\\-]{1,20}$", patternMsg: "영소문자·숫자·하이픈 20자 이내입니다." },
+    ],
+    ok: "연결", cancel: "취소",
+  });
+  if (!got) return;
+  const pd = got.pd.trim();
+  // ★ 다른 과정이 이미 쓰는 코드면 막는다 — 두 과정이 한 품목을 가리키면 집필이
+  //   어느 시험 기준으로 돌지 모른다(실측: 컴활 코드가 빅분기 줄에 들어갔다).
+  const other = items.find((x) => x.id !== id && x.pd_id === pd);
+  if (other) {
+    toast(`${pd} 는 이미 「${other.label}」 의 품목입니다 — 다른 코드를 쓰세요.`, "err");
+    return;
+  }
+  // 이미 품목이 있는 과정의 코드를 바꾸는 것은 거의 언제나 줄을 잘못 누른 것이다.
+  if (e.pd_id && e.pd_id !== pd && !(await confirmModal({
+    title: `「${e.label || id}」 의 품목을 바꿉니까?`,
+    body: `이 과정은 이미 품목 <b>${escapeHtml(e.pd_id)}</b> 입니다. `
+      + `<b>${escapeHtml(pd)}</b> 로 바꾸면 그 품목의 작업 폴더가 이 과정을 못 찾습니다. `
+      + "줄을 잘못 누르신 것은 아닌지 확인하세요.",
+    ok: "바꾸기", cancel: "취소", danger: true,
+  }))) return;
+  try {
+    const r = await api(`/api/authoring/exams/${encodeURIComponent(id)}`);
+    if ((r.doc || {}).pd_id !== pd) {
+      await api(`/api/authoring/exams/${encodeURIComponent(id)}`, {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ doc: { ...r.doc, pd_id: pd } }),
+      });
+    }
+    if (b.path && b.pd !== pd) {
+      await api("/api/books/meta", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: b.path, pd }),
+      });
+    }
+    toast(`품목 ${pd} 로 연결했습니다 — 이제 [문항 집필] 에서 이 과정으로 씁니다.`);
+  } catch (err) {
+    toast("연결하지 못했습니다: " + err.message, "err");
+  }
+  await load();
 }
 
 /* ★ 「확인했다」 는 사람만 아는 값이다 — 이 값이 공고와 같은지는 공고를 봐야 안다.

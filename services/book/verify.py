@@ -240,7 +240,11 @@ def run_all() -> dict:
         rnd_g["fail_count"] == 0 and rnd_g["total"] > 0
         and md_g["fail_count"] == 0 and md_g["missing_count"] == 0
         and idx_g["ok"] == idx_g["total"]
-        and les_g["fail_count"] == 0 and les_g["missing_count"] == 0
+        # ★ lesson 은 **없는 것**으로는 막지 않는다. 저장 경로(store.save)가 없는
+        #   lesson 은 건너뛰므로 망가질 것이 없다. 새 문제집은 집필 직후 05/ 가 아직
+        #   없어서(1부 빌드 전) 이 줄이 문항 교정 저장을 통째로 막았다(실측 2026-11-01
+        #   컴활 m01: lesson 0/4). 있는데 어긋나는 것(fail)만 막는다.
+        and les_g["fail_count"] == 0
     )
     return {
         "ok": blocking_ok,

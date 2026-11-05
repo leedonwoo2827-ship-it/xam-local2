@@ -197,13 +197,17 @@ def part_label(part_index: int) -> str:
 # ── 검증 ────────────────────────────────────────────────────────────────────
 # 낭독에 있으면 안 되는 것. 마크다운은 TTS 가 그대로 읽는다("별표 별표").
 _MD_IN_SPEECH = [("**", "굵게 표시"), ("`", "백틱"), ("![", "그림 링크"),
-                 ("](", "링크"), ("- ", "불릿")]
+                 ("](", "링크")]
+# 불릿은 **줄머리** 의 `- ` 만 본다. 문장 속 `- 표시`(회계 서식의 0 대시)는 불릿이 아니다.
+_SPEECH_BULLET = re.compile(r"(?m)^\s*- ")
 
 # ★ 발음체 누출. 시험지 표기는 `ㄱㄴㄷㄹ` 이고, 자모 이름 낭독은 렌더 단계의
 #   발음사전이 한다. 집필이 `그/드/르` 를 쓰면 **자막에도 그것이 나간다.**
 #   기존 9회차에서 실제로 그렇게 됐다(회차당 8~9건).
 #   경계를 좁게 잡는다 — "그리고" · "느낌" · "드러난다" 를 잡으면 안 된다.
-_SPEECH_JAMO = re.compile(r"(?<![가-힣])(그|느|드|르|므)(?=\s*[,·)]|입니다|이고|와|과)")
+# `와/과` 는 뒤에 또 발음체가 올 때만 — "그와 크게 다른"(대명사)을 잡으면 안 된다.
+_SPEECH_JAMO = re.compile(r"(?<![가-힣])(그|느|드|르|므)"
+                          r"(?=\s*[,·)]|입니다|이고|[와과]\s*(?:그|느|드|르|므)(?![가-힣]))")
 
 
 def _validate(items: List[Dict[str, Any]], numbers: List[int]) -> tuple[List[str], List[str]]:
@@ -243,6 +247,8 @@ def _validate(items: List[Dict[str, Any]], numbers: List[int]) -> tuple[List[str
             if mark in sp:
                 problems.append(f"{tag}: 낭독에 {ko}({mark}) 가 있습니다 — "
                                 f"TTS 가 그대로 읽습니다")
+        if _SPEECH_BULLET.search(sp):
+            problems.append(f"{tag}: 낭독에 불릿(- ) 가 있습니다 — TTS 가 그대로 읽습니다")
         if m := _SPEECH_JAMO.search(sp):
             problems.append(f"{tag}: 낭독에 발음체 '{m.group(1)}' 가 있습니다 — "
                             f"`ㄱㄴㄷㄹ` 원문으로 쓰십시오(자막에 그대로 나갑니다)")
@@ -312,7 +318,8 @@ def draft_part(*, round_code: str, part_index: int, book_dir: str,
                mode: str = "derive",
                round_index: int = 0, round_total: int = 0,
                model: str = "", effort: Optional[str] = None,
-               on_activity: Optional[Callable[[str], None]] = None) -> PartResult:
+               on_activity: Optional[Callable[[str], None]] = None,
+               should_stop: Optional[Callable[[], bool]] = None) -> PartResult:
     """파트 1개를 집필해 스테이징에 저장한다. 검증 실패도 **저장한다.**
 
     ★ 실패한 것도 저장하는 이유: $0.25~ 를 이미 썼다. 버리면 사람이 무엇이 틀렸는지
@@ -324,7 +331,7 @@ def draft_part(*, round_code: str, part_index: int, book_dir: str,
     ask = plans[min(part_index - 1, len(plans) - 1)]
 
     author = ClaudeAuthor(model=model, effort=effort, cwd=book_dir,
-                          on_activity=on_activity)
+                          on_activity=on_activity, should_stop=should_stop)
     prompt = part_prompt(round_code=round_code, numbers=numbers,
                          subject_nos=subj_nos, difficulty_ask=ask,
                          derive_hint=("" if mode == "exam" else derive_hint),

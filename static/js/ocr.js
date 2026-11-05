@@ -106,7 +106,7 @@ function zoomControl() {
   const r = el("input");
   r.type = "range";
   r.min = "0.4";
-  r.max = "2";
+  r.max = "3";
   r.step = "0.1";
   r.value = String(S.zoom);
   r.addEventListener("input", () => {
@@ -169,11 +169,14 @@ function renderHead() {
     //   [PDF 렌더] 가 이 폴더를 만든다(그 라우트만 판독 폴더를 요구하지 않는다).
     //   예전 문구는 "지정하거나 .env 를 채우세요" 뿐이라, 처음 쓰는 사람은 아직
     //   존재하지도 않는 폴더를 고르라는 말로 읽고 거기서 멈춘다.
-    box.appendChild(el("div", "field-hint",
+    // el() 은 textContent 로 넣으므로 태그가 글자로 보인다 — innerHTML 로 넣는다.
+    const hint = el("div", "field-hint");
+    hint.innerHTML =
       "<b>새 문제집이면 정상입니다</b> — 좌측 <b>[＋ OCR]</b> 의 [PDF 렌더] 가 "
       + "이 폴더를 만듭니다. 00/ 에 원본 PDF 를 넣어 두었는지만 확인하세요.<br>"
       + "이미 판독해 둔 폴더가 따로 있으면 좌하단 작업 폴더 패널에서 지정하거나 "
-      + ".env 의 XAM_OCR 을 채우세요."));
+      + ".env 의 XAM_OCR 을 채우세요.";
+    box.appendChild(hint);
     return;
   }
 
@@ -284,9 +287,10 @@ async function mountWork(root, ctx) {
   S.hideOcr = getPref("ocrHideOcr", false);
   S.zoom = Number(getPref("ocrZoom", 0.9)) || 0.9;
 
-  const page = el("div", "page");
+  const page = el("div", "page oc-page");
   page.innerHTML = `
     <div class="oc-work" id="oc-work">
+      <div class="oc-split" id="oc-split" title="끌어서 스캔 폭 조절 · 더블클릭: 기본 폭"></div>
       <div class="oc-pane oc-img" id="oc-imgpane">
         <div class="oc-pagenav" id="oc-pagenav">
           <button class="btn sm" id="oc-pgprev" type="button">◀ 앞 면</button>
@@ -328,6 +332,7 @@ async function mountWork(root, ctx) {
   hydrateIcons(page);
 
   bindDrag();
+  bindSplit();
   bindPageNav();
   $("#oc-applykey").addEventListener("click", applyKey);
   document.addEventListener("keydown", onKey);
@@ -347,6 +352,58 @@ function applyLayout() {
   if (b2 && b2.lastChild) b2.lastChild.textContent = S.showScan ? "스캔 숨기기" : "스캔 보기";
   const img = $("#oc-scan");
   if (img) img.style.width = (S.zoom * 100) + "%";
+  placeSplit();
+}
+
+/* ★ 스캔 칸 폭 — 경계를 끌어서 정한다. 확대 슬라이더는 **칸 폭 대비** 배율이라
+ *   칸이 좁으면 확대해도 가로 스크롤만 늘어난다. 칸 자체를 넓히는 길이 따로 있어야 한다.
+ *   폭은 작업면 대비 % 로 기억한다 — 창 크기가 바뀌어도 비율이 유지된다. */
+function placeSplit() {
+  const w = $("#oc-work");
+  const bar = $("#oc-split");
+  if (!w || !bar) return;
+  const pct = Number(getPref("ocrScanW", 0)) || 0;
+  if (pct) w.style.setProperty("--oc-scan-w", pct + "%");
+  else w.style.removeProperty("--oc-scan-w");
+  const pane = $("#oc-imgpane");
+  if (pane && S.showScan) bar.style.left = pane.offsetWidth + "px";
+}
+
+function bindSplit() {
+  const w = $("#oc-work");
+  const bar = $("#oc-split");
+  if (!w || !bar) return;
+  bar.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    bar.setPointerCapture(e.pointerId);
+    bar.classList.add("drag");
+    w.classList.add("resizing");
+    const r = w.getBoundingClientRect();
+    const move = (ev) => {
+      const pct = Math.min(85, Math.max(15, ((ev.clientX - r.left) / r.width) * 100));
+      w.style.setProperty("--oc-scan-w", pct.toFixed(1) + "%");
+      bar.style.left = $("#oc-imgpane").offsetWidth + "px";
+    };
+    const up = () => {
+      bar.removeEventListener("pointermove", move);
+      bar.classList.remove("drag");
+      w.classList.remove("resizing");
+      const pct = ($("#oc-imgpane").offsetWidth / w.clientWidth) * 100;
+      setPref("ocrScanW", Math.round(pct * 10) / 10);
+    };
+    bar.addEventListener("pointermove", move);
+    bar.addEventListener("pointerup", up, { once: true });
+  });
+  bar.addEventListener("dblclick", () => {
+    setPref("ocrScanW", 0);
+    placeSplit();
+  });
+  // 창 크기가 바뀌면 칸 폭(%)은 따라가지만 손잡이 위치(px)는 다시 잡아야 한다.
+  // 바탕은 페이지마다 다시 마운트되므로 한 번만 건다(placeSplit 은 화면이 없으면 그냥 돈다).
+  if (!S.splitResize) {
+    S.splitResize = true;
+    window.addEventListener("resize", placeSplit);
+  }
 }
 
 /* ★ 스캔 보기의 **면 넘기기.**
@@ -988,12 +1045,15 @@ async function saveOne(i) {
     toast("회차와 문항번호를 채우세요.", "err");
     return;
   }
+  // finalize() 와 같은 이유로 면 번호를 먼저 잡는다 — 대조완료 체크 직후 [다음 ▶] 도 같은 길이다.
+  const cur = { ...S.cur };
   if (!(await saveDraft(true))) return;
+  if (S.cur.src !== cur.src || S.cur.page !== cur.page) return;
   try {
     const r = await api("/api/ocr/finalize", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ src: S.cur.src, page: S.cur.page, questions: [q] }),
+      body: JSON.stringify({ src: cur.src, page: cur.page, questions: [q] }),
     });
     status(`저장됨${q.verified ? " ✓대조완료" : ""}: `
       + ((r.saved || []).join(", ") || "바뀐 내용 없음"), true);
@@ -1016,7 +1076,16 @@ async function onVerify(i, checked) {
 }
 
 async function finalize() {
+  // ★ 면 번호를 **누른 순간** 잡아 둔다. 저장을 기다리는 사이 [다음 ▶] 으로 넘어가면
+  //   S.cur 는 다음 면이 되고 S.draft 는 아직 이 면이라, 이 면 문항이 다음 면 출처로
+  //   확정됐다(실측 2회 30~33번: p.18 문항이 source_pages 19 로 기록 → 게이트가 막음).
+  const cur = S.cur && { ...S.cur };
+  if (!cur) return;
   if (!(await saveDraft(true))) return;
+  if (!S.cur || S.cur.src !== cur.src || S.cur.page !== cur.page) {
+    toast(`면을 옮겨서 확정을 멈췄습니다 — ${cur.src} p.${cur.page} 로 돌아가 다시 누르세요.`, "err");
+    return;
+  }
   const qs = (S.draft.questions || []).map(stampRound);
   const bad = qs.filter((q) => !q.round || !q.question_no);
   if (bad.length) {
@@ -1027,7 +1096,7 @@ async function finalize() {
     const r = await api("/api/ocr/finalize", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ src: S.cur.src, page: S.cur.page, questions: qs }),
+      body: JSON.stringify({ src: cur.src, page: cur.page, questions: qs }),
     });
     status(`확정 ${(r.saved || []).length}건 기록`
       + ((r.unchanged || []).length ? ` · 변경없음 ${r.unchanged.length}` : ""), true);
@@ -1320,8 +1389,15 @@ function hlSql(code) {
 function inl(s) {
   return escapeHtml(s)
     .replace(/\*\*(.+?)\*\*/g, "<b>$1</b>")
-    .replace(/&lt;br\s*\/?&gt;/gi, "<br>");
+    .replace(/&lt;br\s*\/?&gt;/gi, "<br>")
+    .replace(CELLREF, (m) => (m.includes("$") ? `<span class="mathjax_ignore">${m}</span>` : m));
 }
+
+/* ★ 엑셀 절대참조(`$E$3:$F$6`, `A$3`)의 `$` 는 수식 구분자가 아니다.
+ *   그대로 두면 MathJax 가 `$E$` 를 수식으로 먹어 E 가 기울고 `$` 가 사라진다
+ *   (실측 2과목 23번 VLOOKUP 보기). MD 원문은 손대지 않고 화면에서만 수식 대상에서 뺀다 —
+ *   `mathjax_ignore` 는 MathJax 3 이 건너뛰는 클래스다(v2 의 `tex2jax_ignore` 는 안 먹는다). */
+const CELLREF = /(?<![A-Za-z0-9$])\$?[A-Z]{1,3}\$?\d{1,7}(?::\$?[A-Z]{1,3}\$?\d{1,7})?(?![A-Za-z0-9])/g;
 
 /** 이 줄이 **진짜 표 행**인가.
  *
@@ -1439,6 +1515,7 @@ function ensureMathJax() {
     // 코드박스(SQL/text)는 건드리지 않는다 — pre/code 는 기본 제외 목록이다.
     options: {
       skipHtmlTags: ["script", "noscript", "style", "textarea", "pre", "code"],
+      ignoreHtmlClass: "mathjax_ignore",   // 엑셀 셀 참조(inl 의 CELLREF)
       menuOptions: { settings: { inTabOrder: false } },
     },
     svg: { fontCache: "global" },

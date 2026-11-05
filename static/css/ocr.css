@@ -56,16 +56,30 @@
 .oc-cell .oc-cell-id { /* 정책의 .st-title 역할 */ }
 
 /* ── 바탕: 3열 작업면 ─────────────────────────────────────────────────────── */
+/* ★ 이 화면만 공용 `.page` 의 1120px 상한을 푼다. 스캔을 원문 글자 크기로 읽으려면
+   넓은 모니터의 폭을 다 써야 한다 — 상한이 있으면 스캔 칸이 300px 남짓에 갇힌다. */
+.page.oc-page { max-width: none; }
 .oc-work {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(240px, .8fr) 1.9fr;      /* OCR 원문 | 문제 카드 */
   height: calc(100vh - 132px); min-height: 420px;
   border: 1px solid var(--hairline); border-radius: var(--r-md);
   overflow: hidden; background: var(--white);
 }
-.oc-work.showscan       { grid-template-columns: minmax(220px, .62fr) .9fr 1.6fr; }
+/* 스캔 칸 폭은 --oc-scan-w 가 정한다 — 경계(.oc-split)를 끌어서 바꾸고 기억한다. */
+.oc-work.showscan       { grid-template-columns: var(--oc-scan-w, 45%) minmax(200px, .9fr) minmax(320px, 1.6fr); }
 .oc-work.noocr          { grid-template-columns: 1fr; }
-.oc-work.noocr.showscan { grid-template-columns: minmax(220px, .7fr) 1.9fr; }
+.oc-work.noocr.showscan { grid-template-columns: var(--oc-scan-w, 58%) minmax(320px, 1fr); }  /* 한 모니터 대조: 스캔을 크게 */
+/* 스캔 | 나머지 경계 손잡이. 칸 안에 두면 스캔과 함께 스크롤되므로 작업면에 띄운다. */
+.oc-split {
+  display: none; position: absolute; top: 0; bottom: 0; z-index: 5;
+  width: 8px; margin-left: -4px; cursor: col-resize;
+}
+.oc-work.showscan .oc-split { display: block; }
+.oc-split:hover, .oc-split.drag { background: rgb(var(--brand-rgb) / .35); }
+.oc-work.resizing { cursor: col-resize; user-select: none; }
+.oc-work.resizing .oc-pane { pointer-events: none; }
 .oc-work.noocr .oc-ocr  { display: none; }
 
 .oc-pane { min-width: 0; overflow: auto; }

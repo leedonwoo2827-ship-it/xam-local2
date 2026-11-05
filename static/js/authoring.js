@@ -388,14 +388,6 @@ async function start() {
   /* ★ 켜진 행만 돌린다. 회차마다 **기준이 다를 수 있으므로** 회차별로 보낸다 —
    *   `[{round:"m10", mode:"exam"}, …]`. 전역 mode 하나였던 것을 고쳤다:
    *   기출 1회차는 시험기준 변형으로, 2회차는 대표문제 변형으로 갈 수 있어야 한다. */
-  const items = [];
-  for (const r of (PLAN.rows || [])) {
-    if (PICK_BY_ROW[r.pool_round] === false) continue;
-    const mode = MODE_BY_ROW[r.pool_round] || "exam";
-    for (const c of r.targets) items.push({ round: c, mode });
-  }
-  if (!items.length) { toast("집필할 회차를 고르십시오.", "err"); return; }
-
   /* ★ 여기서 계획을 **다시 받는다** (2026-09-08).
    *
    *   `PLAN` 은 화면을 열 때 잡은 값이다. 한 번 돌리고 중단한 뒤 다시 누르면
@@ -404,6 +396,17 @@ async function start() {
    *   **묻는 말이 틀리면 사람이 계획을 잘못 읽는다.**
    *   싼 호출이다(모델을 안 부른다). 묻기 전에 사실을 맞춘다. */
   await loadPlan();
+
+  /* ★ 회차 목록은 **다시 받은 계획으로** 만든다. 예전엔 받기 전에 만들어서, 배수를
+   *   ×4 → ×1 로 바꾼 뒤 누르면 화면을 열 때의 목표(m01~m03)가 그대로 나갔다
+   *   (실측 2026-11-01: 「1회차 · 40문항」 화면에서 「3회차 · 68파트」 를 물었다). */
+  const items = [];
+  for (const r of (PLAN.rows || [])) {
+    if (PICK_BY_ROW[r.pool_round] === false) continue;
+    const mode = MODE_BY_ROW[r.pool_round] || "exam";
+    for (const c of r.targets) items.push({ round: c, mode });
+  }
+  if (!items.length) { toast("집필할 회차를 고르십시오.", "err"); return; }
 
   // ★ 총계 줄과 **같은 값**을 쓴다. 예전엔 확인창이 자기 상수로 다시 곱해서
   //   같은 화면의 두 숫자가 서로 달랐다($62 와 $71).
@@ -414,8 +417,11 @@ async function start() {
   }
   // ★ **실제로 돌 파트 수**로 묻는다. `회차 × 파트` 로 물었더니 「60회」라고 묻고
   //   29번만 돌았고, 그 차이 때문에 사람이 계획을 잘못 읽었다(2026-08-20).
-  const nCall = PLAN.remaining_count != null
-    ? PLAN.remaining_count : items.length * nParts;
+  //   서버의 remaining 은 **체크를 끈 행까지** 센다 — 고른 회차의 것만 남긴다.
+  const picked = new Set(items.map((it) => it.round));
+  const nCall = Array.isArray(PLAN.remaining_parts)
+    ? PLAN.remaining_parts.filter((k) => picked.has(k.split("-p")[0])).length
+    : items.length * nParts;
   const done = items.length * nParts - nCall;
   const e = scaleEst(PLAN.est, nCall / nParts, nParts, PLAN.round_size);
   if (!window.confirm(
