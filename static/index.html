@@ -112,40 +112,18 @@
       <li class="is-theory"><a href="#/dict" data-nav="dc" title="발음 사전 — 공용·품목. 낭독대본·영상 합성에 걸린다">
         <span data-icon="key"></span><span>발음 사전 <em class="nav-dest">공용·품목</em></span></a></li>
       <li class="side-nav-sep is-strong" aria-hidden="true"></li>
-      <li class="side-nav-label" aria-hidden="true">3부 · 해설영상</li>
+      <li class="side-nav-label" aria-hidden="true">3부 · 이북</li>
 
-      <!-- ★ 여기부터가 «해설영상» 묶음이다 — 슬라이드 → 영상 → 인쇄본 → 발행.
-           슬라이드가 영상 앞인 이유: 분할·넘침을 먼저 잡아야 영상을 다시 굽지 않는다.
-           인쇄본이 발행 앞인 이유: 종이 검수가 발행 전 마지막 관문이다.
-
-           ★ 목적지 표시(`nav-dest`)에 **폴더 번호를 넣지 않는다.** 02·03·04·05·06 이
-             바뀔 수 있다고 했다 — 번호를 라벨에 박으면 폴더를 옮길 때 화면이 거짓말을
-             한다. 단계 이름만 쓴다. -->
-
-      <!-- ★ 앱 안 화면이다(2026-08-20). 굽기 버튼이 여기 있어야 한다 —
-           05/ 를 만드는 입구가 CLI(`tools/bake_all.py`) 뿐이라, 새 책은 영상 화면에서
-           100번들이 `broken` 으로 뜨고 [미완성만 렌더] 가 「렌더할 번들이 없습니다」 로
-           끝났다. 사람이 다음에 무엇을 눌러야 하는지 알 방법이 없었다.
-           ★ **보는 일은 새 탭이 그대로 맡는다.** 슬라이드가 1920×1080 고정이라
-             앱 셸(레일 248px) 안에서는 축소돼 넘침을 판단할 수 없다. 그 링크는
-             이 화면 아래쪽 「눈으로 보기」 칸에 있다.
-
-             ★ 2026-08-24 부터 이 화면이 **PPTX 까지** 맡는다 — 슬라이드의 진실이
-             deck.html 캡처에서 `05/<번들>/source/deck.pptx` 로 옮겨 갔다. 그래서
-             목적지 표시를 「제작」에서 「PPTX」로 바꿨다. -->
-      <li><a href="#/slides" data-nav="sl"
-             title="슬라이드 제작 — 굽기 → PPTX → 장수 확정 → 그림파일">
-        <span data-icon="grid"></span><span>문항 슬라이드 제작 <em class="nav-dest">PPTX·그림</em></span></a></li>
-
-      <li><a href="#/video" data-nav="v" title="영상 제작·검수">
-        <span data-icon="film"></span><span>영상 제작·검수</span></a></li>
+      <!-- ★ 2026-10-31 정리 — 3부 영상·이북은 해설북(haeseolbook)이 만든다.
+           이 앱은 그 입력인 1단 시험지 + 자막·음성·발음 대본(07/)만 굽는다.
+           옛 경로(문항 슬라이드 #/slides · 영상 제작 #/video · 3부 빌드 #/publish/video)는
+           메뉴에서만 뺐다 — 화면·API 는 남아 있어 주소로 열 수 있다. -->
+      <li><a href="#/ebook" data-nav="eb" title="HTML 문제집 제작 — 1단 시험지(HTML·PDF) + 자막·음성·발음 대본 (해설북 입력)">
+        <span data-icon="file"></span><span>HTML 문제집 제작 <em class="nav-dest">1단+대본</em></span></a></li>
 
       <!-- ★ 인쇄본도 별개 페이지다 — Ctrl+P 로 뽑을 때 앱 화면이 같이 인쇄되면 안 된다. -->
       <li><a href="/print/" target="_blank" rel="noopener" title="문항·대본 인쇄본 (새 탭)">
         <span data-icon="file"></span><span>인쇄본 <em class="nav-dest">종이 검수</em></span></a></li>
-
-      <li><a href="#/publish/video" data-nav="p2" title="3부 빌드 — 해설영상 링크까지 (06/ · 업로드는 IP 허브)">
-        <span data-icon="package"></span><span>3부 빌드 <em class="nav-dest">해설영상</em></span></a></li>
 
     </ul>
 

@@ -45,6 +45,7 @@ const routes = [
   { re: /^\/publish\/video$/,    nav: "p2", layer: "base",  load: () => import("./publish.js") },
   { re: /^\/publish$/,          nav: "p2", layer: "base",  load: () => import("./publish.js") },
   { re: /^\/slides$/,           nav: "sl", layer: "base",  load: () => import("./slides.js") },
+  { re: /^\/ebook$/,            nav: "eb", layer: "base",  load: () => import("./ebook.js") },
   { re: /^\/summary$/,          nav: "s",  layer: "base",  load: () => import("./summary.js") },
   { re: /^\/summary\/(.+)$/,    nav: "s",  layer: "base",  load: () => import("./summary.js") },
   // v2 — 이론 묶음. 해설 구조화 · 요약반/종합반 강의 노트 · 듣기 검수(새 탭으로 여는 검수자 화면)

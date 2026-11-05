@@ -39,6 +39,7 @@ pydantic>=2.6      # voicewright 대본 스키마
 pysrt>=1.1.2       # 자막
 lxml>=5.2.0        # mp4maker (MLT XML)
 playwright>=1.44   # deck.html → 슬라이드 캡처 (Chromium)
+segno>=1.6         # 교재 정답·해설편의 해설 영상 QR (순수 파이썬 · SVG)
 #
 # ★ 이 둘은 pip 로 안 된다 — 바이너리라서 저장소에도 못 넣는다. setup.bat 이 확인한다.
 #     ffmpeg                                  PATH 에 있어야 한다

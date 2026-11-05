@@ -419,6 +419,11 @@ def bundle_audio_dir(bundle: str) -> str:
     return os.path.join(bundle_dir(bundle), "audio")
 
 
+# ── 07/ 이북 시험지 (1단 시험지 + 자막·음성·발음 대본 → 해설북) ─────────────
+def ebook_dir() -> str:
+    return os.path.join(book_dir(), "07")
+
+
 # ── 06/ 발행 산출물 (axexam build_check.py 가 소유) ─────────────────────────
 def out_dir() -> str:
     return os.path.join(book_dir(), "06")

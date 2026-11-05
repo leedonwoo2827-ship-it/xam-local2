@@ -21,9 +21,9 @@ const STEPS = [
     desc: "스캔한 OCR 본문을 01/*.md 로 확정합니다." },
   { nav: "q", path: "/questions", icon: "file", label: "문항 교정",
     desc: "_rounds · 02/ · 05/lesson 을 함께 갱신합니다." },
-  { nav: "v", path: "/video", icon: "film", label: "영상 제작·검수",
-    desc: "슬라이드 · 음성 · 자막을 확인하고 렌더합니다." },
-  { nav: "p", path: "/publish", icon: "package", label: "1부 빌드",
+  { nav: "eb", path: "/ebook", icon: "file", label: "HTML 문제집 제작",
+    desc: "1단 시험지와 자막·음성·발음 대본을 굽습니다. 영상·이북은 해설북에서." },
+  { nav: "p", path: "/publish/problems", icon: "package", label: "1부 빌드",
     desc: "사전점검 → 빌드 → 검증. 업로드는 IP 허브가 가져갑니다." },
 ];
 
