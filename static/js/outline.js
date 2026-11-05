@@ -9,6 +9,7 @@
 import { api, el, escapeHtml, toast, renderMarkdown } from "./util.js";
 import { pollJob } from "./store.js";
 import { actionBtn } from "./panel.js";
+import { jobClock } from "./jobclock.js";
 
 const S = { root: null, key: "", items: [] };
 
@@ -16,7 +17,6 @@ export const meta = {
   title: "해설 모아 노트 구조화",
   subtitle: "우리 모의고사 해설을 과목 → 항목 → 상세로 모으고 중복을 정돈합니다. 승인한 목차를 이론 요약 노트가 따릅니다.",
   actions: () => [
-    actionBtn("전 과목 해설 모으기", () => collectAll(), { iconName: "download" }),
     actionBtn("노트 빌드 — 전 과목 구조화", () => structure(S.items.map((i) => i.key)), { primary: true, iconName: "sparkles" }),
   ],
 };
@@ -27,6 +27,7 @@ export async function mount(root, ctx) {
   const page = el("div", "page ol-page");
   root.appendChild(page);
   page.appendChild(el("div", "ol-list", ""));
+  page.appendChild(el("div", "lc-clock", ""));
   page.appendChild(el("div", "lc-log", ""));
   page.appendChild(el("div", "ol-view", ""));
   await reload();
@@ -47,7 +48,6 @@ async function reload() {
       <div class="muted">해설 ${c ? `${c.n}개 · ${c.rounds}회차 · ${c.chars.toLocaleString()}자` : "아직 안 모음"}</div>
       <div class="muted">구조 ${o ? `대단원 ${o.topics} · 소단원 ${o.items} · 출처 ${o.refs}${o.cost_usd ? ` · $${o.cost_usd}` : ""}` : "아직 없음"}</div>`;
     const row = el("div", "row");
-    row.appendChild(small("모으기", () => collect(it.key)));
     row.appendChild(small("구조화 (Claude)", () => structure([it.key]), true));
     if (o) row.appendChild(small(o.approved ? "승인 취소" : "목차 승인", () => approve(it.key, !o.approved)));
     card.appendChild(row);
@@ -83,23 +83,9 @@ async function show() {
     card.innerHTML = `<h3>모은 해설 — 많이 나온 개념</h3><p class="muted">${c.n}개 해설 · 아직 구조화하지 않았습니다.</p>`
       + `<ul>${(c.top_tags || []).map(([t, n]) => `<li>${escapeHtml(t)} <b>${n}</b></li>`).join("")}</ul>`;
   } else {
-    card.innerHTML = `<p class="muted">[모으기] 를 누르면 이 과목의 해설을 회차마다 모읍니다. 모델을 부르지 않습니다.</p>`;
+    card.innerHTML = `<p class="muted">[구조화] 를 누르면 이 과목의 해설을 회차마다 모은 뒤 목차로 정돈합니다.</p>`;
   }
   view.appendChild(card);
-}
-
-async function collect(key) {
-  try { await api(`/api/outline/${key}/collect`, { method: "POST" }); toast("모았습니다."); S.key = key; reload(); }
-  catch (e) { toast(e.message, "err"); }
-}
-
-async function collectAll() {
-  for (const it of S.items) {
-    try { await api(`/api/outline/${it.key}/collect`, { method: "POST" }); }
-    catch (e) { toast(`${it.no}과목: ${e.message}`, "err"); }
-  }
-  toast("전 과목 해설을 모았습니다.");
-  reload();
 }
 
 async function structure(keys) {
@@ -109,10 +95,13 @@ async function structure(keys) {
     });
     const box = S.root.querySelector(".lc-log");
     box.classList.add("on");
+    // 과목당 약 4분 20초 — 컴활2급 1과목 해설 400개 실측(2026-11-01)
+    const clock = jobClock(S.root.querySelector(".lc-clock"), { unit: "과목", hintSec: 260 });
     const lines = [];
     const fin = await pollJob(job.id, (j) => {
       (j.log && j.log.lines || []).forEach((l) => lines.push(typeof l === "string" ? l : (l.line || l.text || "")));
       box.textContent = lines.slice(-8).join("\n") || j.label;
+      clock.update(j, lines);
     });
     toast(fin && fin.status === "done" ? "구조화를 마쳤습니다." : "실패했습니다", fin && fin.status === "done" ? "" : "err");
     reload();

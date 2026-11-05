@@ -14,6 +14,7 @@
 import { $, api, el, escapeHtml, toast, confirmModal } from "./util.js";
 import { pollJob } from "./store.js";
 import { actionBtn } from "./panel.js";
+import { jobClock } from "./jobclock.js";
 
 const KIND_LABEL = { summary: "요약반 강의 노트", full: "종합반 강의 노트" };
 // ★ 세 노트의 역할 — 사용자 지시 원문(2026-10-24)을 그대로 화면에 둔다.
@@ -36,7 +37,9 @@ export const meta = {
               { iconName: "external" }),
     actionBtn("듣기 검수 화면", () => S.key && window.open(`#/listen/${S.kind}/${S.key}`, "_blank"),
               { iconName: "play" }),
-    actionBtn("노트 빌드", () => runStage("build"), { primary: true, iconName: "package" }),
+    actionBtn("노트 빌드", () => runStage("build"), { iconName: "package" }),
+    // ★ 사람 승인 없이 끝까지(사용자 지시 2026-11-01) — 두 과목 동시, 요약반 → 종합반 3배.
+    actionBtn("전 과목 자동 진행", () => autoAll(), { primary: true, iconName: "sparkles" }),
   ],
 };
 
@@ -55,8 +58,13 @@ export async function mount(root, ctx) {
     tabs.appendChild(a);
   });
   page.appendChild(tabs);
+  // 진행 상자는 본문 밖에 둔다 — 노트가 아직 없을 때(자동 진행 첫 단계)도 보여야 한다.
+  page.appendChild(el("div", "lc-clock", ""));
+  page.appendChild(el("div", "lc-log", ""));
   page.appendChild(el("div", "lc-body", ""));
   await reload();
+  // 화면을 다시 열었을 때 돌고 있는 자동 진행에 다시 붙는다.
+  api("/api/lecture-auto/running").then((r) => { if (r && r.id) watch(r.id); }).catch(() => {});
 }
 
 async function reload() {
@@ -69,7 +77,6 @@ async function reload() {
   grid.appendChild(stepper());
   const main = el("div", "lc-main");
   main.appendChild(stageBar());
-  main.appendChild(el("div", "lc-log", ""));
   main.appendChild(slideList());
   grid.appendChild(main);
   body.appendChild(grid);
@@ -199,14 +206,45 @@ async function watch(id) {
   const box = S.root.querySelector(".lc-log");
   box.classList.add("on");
   box.textContent = "시작합니다…";
+  let clock = null;
   const lines = [];
+  let seen = -1;
   const fin = await pollJob(id, (job) => {
+    // 자동 진행은 「과목 × 단계」 를 항목으로 센다 — 단계가 끝날 때마다 단계표를 새로 그린다.
+    clock = clock || jobClock(S.root.querySelector(".lc-clock"), { unit: job.auto ? "단계" : "대단원" });
     (job.log && job.log.lines || []).forEach((l) => lines.push(typeof l === "string" ? l : (l.line || l.text || "")));
     box.textContent = lines.slice(-8).join("\n") || job.label;
+    clock.update(job, lines);
+    if (job.auto && job.done_count !== seen) { seen = job.done_count; reload(); }
   });
   if (fin && fin.status === "done") toast("끝났습니다.");
   else if (fin) toast(fin.error || "실패했습니다", "err");
   reload();
+}
+
+async function autoAll() {
+  const list = await api(`/api/lecture/summary`);
+  const keys = list.items.map((i) => i.key);
+  const body = `<p>${list.items.map((i) => `<b>${i.no}과목</b>`).join(" · ")}을 <b>동시에</b> 돌립니다.
+      단계마다 <b>자동 승인</b>하고 노트 빌드까지 갑니다(듣기 검수는 건너뜁니다).</p>
+    <p>요약반: 노트 만들기 → 자막대본 → 낭독대본 → SVG → 노트 빌드</p>
+    <p><label><input type="checkbox" id="lc-auto-full" checked> 이어서 <b>종합반</b>
+      <select id="lc-auto-factor">${[2, 3, 4, 5].map((n) => `<option value="${n}"${n === 3 ? " selected" : ""}>${n}배</option>`).join("")}</select>
+      (n배 확장 → 낭독대본 → SVG → 노트 빌드)</label></p>
+    <p class="muted">이미 승인된 단계는 건너뜁니다. 중간에 멈춰도 끝난 단계는 남고, 다시 누르면 이어 갑니다.
+      구독 한도에 걸리면 기다렸다가 이어 갑니다.</p>`;
+  if (!(await confirmModal({ title: "강의 노트를 자동으로 끝까지 만들까요?", body, ok: "자동 진행 시작" }))) return;
+  // 모달이 닫히기 전에 읽는다(summary.js 와 같은 이유).
+  const full = !!(document.querySelector("#lc-auto-full") || {}).checked;
+  const factor = +((document.querySelector("#lc-auto-factor") || {}).value || 3);
+  try {
+    const job = await api("/api/lecture-auto", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kinds: full ? ["summary", "full"] : ["summary"], keys, factor }),
+    });
+    toast("자동 진행을 시작했습니다.");
+    watch(job.id);
+  } catch (e) { toast(e.message, "err"); }
 }
 
 async function approve(stage, on = true) {

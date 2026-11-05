@@ -44,6 +44,8 @@ export async function mount(root, ctx) {
     <div class="quick-row" id="sm-tabs"></div>
     <div id="sm-theory"></div>
     <div id="sm-drift"></div>
+    <details class="sm-edit">
+    <summary class="btn sm">HTML 직접 편집 — 고칠 때만 펼치기</summary>
     <div class="sm-split">
       <div>
         <div class="qz-label" id="sm-label">03/summary_* — 편집</div>
@@ -59,6 +61,7 @@ export async function mount(root, ctx) {
         <div class="card preview" id="sm-prev"></div>
       </div>
     </div>
+    </details>
   `;
   root.appendChild(page);
   hydrateIcons(page);
@@ -287,7 +290,7 @@ function renderTheory(job) {
   } else {
     // ★ "무엇을 눌러야 하나" 를 말한다. 4/4 가 있다는 사실만 알려 주면 사람이
     //   빈 편집기를 보고 멈춘다 — 실제로 그렇게 됐다(2026-08-12).
-    txt = `03/ 에 ${have}/4 과목이 있습니다 · 소스 ${rounds}회차`
+    txt = `03/ 에 ${have}/${(S.th.items || []).length}편이 있습니다 · 소스 ${rounds}회차`
       + `  —  위 탭(${(S.th.items || []).filter((i) => i.exists).map((i) => i.label || i.key).join(" · ")})`
       + `을 눌러 본문을 열고, [발행될 HTML 보기] 로 실제 모양을 확인하십시오.`;
   }

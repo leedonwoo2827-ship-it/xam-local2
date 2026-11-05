@@ -200,6 +200,7 @@ def run(kind: str, key: str, stage: str, *, log: Log, cancelled: Callable[[], bo
 
     system = SYSTEM.replace("{시험}", _exam_label())
     author, cwd = _author(log, model, effort)
+    author.should_stop = cancelled      # 한도 대기 중에도 [중단] 이 먹게
     total = 0.0
     changed = 0
     try:
@@ -444,3 +445,53 @@ def _longform_kit(doc, html) -> str:
             shutil.copyfile(os.path.join(rd, fn), os.path.join(root, "rounds", fn))
     shutil.copyfile(html, os.path.join(root, "scripts", os.path.basename(html)))
     return root
+
+
+# ── 자동 진행 — 사람 승인 없이 끝까지 ────────────────────────────────────────
+# ★ 사용자 지시(2026-11-01): "내가 승인 안 해도 된다 — 모두 마찬가지".
+#   듣기 검수는 실제 영상 만드는 쪽에서 하므로 여기서는 건너뛴다.
+#   단계마다 빈 장이 남으면 한 번 더 돌리고, 그래도 남으면 멈춘다 — 빈 장을
+#   승인한 채 넘기면 다음 단계가 빈 장을 들고 간다(approve 라우트와 같은 기준).
+def autorun(kind: str, key: str, *, log: Log, cancelled: Callable[[], bool],
+            factor: int = DEFAULT_FACTOR,
+            on_stage: Optional[Callable[[str, str], None]] = None) -> Dict[str, Any]:
+    doc = N.load(kind, key)
+    if not doc:
+        doc = N.init(kind, key, factor=factor)
+        log(f"노트 만들기 — {len(N.slides(doc))}장")
+    cost = 0.0
+    for st in N.STAGES[kind]:
+        if st == "listen":
+            continue
+        if cancelled():
+            log("취소했습니다 — 끝난 단계는 남습니다.")
+            return {"ok": False, "cost_usd": round(cost, 4)}
+        cur = ((N.load(kind, key) or {}).get("stages") or {}).get(st, {}).get("status")
+        if cur == "approved" or (st == "build" and cur == "done"):
+            if on_stage:
+                on_stage(st, "done")
+            continue
+        if on_stage:
+            on_stage(st, "running")
+        left: List[str] = []
+        for attempt in range(2):
+            r = run(kind, key, st, log=log, cancelled=cancelled)
+            cost += float(r.get("cost_usd") or 0)
+            if cancelled():
+                log("취소했습니다 — 끝난 단계는 남습니다.")
+                return {"ok": False, "cost_usd": round(cost, 4)}
+            left = incomplete(N.load(kind, key), st)
+            if not left:
+                break
+            log(f"「{N.STAGE_LABEL[st]}」 빈 장 {len(left)}개 — 한 번 더 돌립니다.")
+        if left:
+            raise ValueError(f"「{N.STAGE_LABEL[st]}」 를 두 번 돌려도 빈 장이 {len(left)}개 남았습니다"
+                             f"({', '.join(left[:6])}…). 화면에서 [남은 장 실행] 을 누르십시오.")
+        if st != "build":
+            doc = N.load(kind, key)
+            N.set_stage(doc, st, "approved", auto=True)
+            N.save(doc)
+            log(f"「{N.STAGE_LABEL[st]}」 자동 승인")
+        if on_stage:
+            on_stage(st, "done")
+    return {"ok": True, "cost_usd": round(cost, 4)}

@@ -180,6 +180,79 @@ def setup_lecture_routes() -> APIRouter:
         registry.spawn(job, work)
         return registry.view(job)
 
+    @router.post("/api/lecture-auto")
+    async def lecture_auto(request: Request):
+        """자동 진행(잡) — 과목들을 **동시에**, 단계마다 자동 승인하며 노트 빌드까지.
+
+        kinds: ["summary"] 또는 ["summary", "full"](요약반 → 이어서 종합반).
+        진행은 「과목 × 단계」 를 항목으로 센다 — 화면 초시계가 그것으로 남은 시간을 낸다.
+        """
+        b = await _body(request)
+        kinds = [k for k in (b.get("kinds") or ["summary"]) if k in notes.STAGES]
+        keys = [str(k) for k in (b.get("keys") or [])]
+        if not kinds or not keys:
+            raise HTTPException(status_code=400, detail="kinds · keys 가 필요합니다.")
+        for k in keys:
+            _need(kinds[0], k)
+        factor = int(b.get("factor") or common.DEFAULT_FACTOR)
+        _busy()
+        units = [f"{k}:{kd}:{st}" for k in keys for kd in kinds
+                 for st in notes.STAGES[kd] if st != "listen"]
+        names = {k: f"{common.subject(k).get('no', '')}과목" for k in keys}
+        job = registry.create(KIND_JOB, f"강의 노트 자동 · {' · '.join(names.values())}"
+                                        f" · {'요약반→종합반' if len(kinds) > 1 else notes.KIND_LABEL[kinds[0]]}",
+                              units)
+        job["auto"] = {"kinds": kinds, "keys": keys, "factor": factor}
+
+        def one(j, k):
+            tag = names[k]
+            say = lambda s, j=j: registry.log(j, f"[{tag}] {s}")     # noqa: E731
+            stop = lambda j=j: bool(j.get("cancel_requested"))      # noqa: E731
+            for kd in kinds:
+                def mark(st, status, kd=kd):
+                    registry.item(j, f"{k}:{kd}:{st}", status=status)
+                    if status == "running":
+                        registry.update(j, current=f"{tag} {notes.KIND_LABEL[kd]} · {notes.STAGE_LABEL[st]}")
+                say(f"{notes.KIND_LABEL[kd]} 시작")
+                r = stages.autorun(kd, k, log=say, cancelled=stop, factor=factor, on_stage=mark)
+                say(f"{notes.KIND_LABEL[kd]} {'끝' if r['ok'] else '멈춤'} · ${r['cost_usd']:.3f}")
+                if not r["ok"]:
+                    return
+
+        def work(j):
+            import threading
+            errs: list[str] = []
+
+            def guard(k):
+                try:
+                    one(j, k)
+                except Exception as e:                       # noqa: BLE001
+                    errs.append(f"{names[k]}: {e}")
+                    registry.log(j, f"[{names[k]}] (문제) {type(e).__name__}: {e}", force=True)
+                    for u, it in j["items"].items():
+                        if u.startswith(f"{k}:") and it.get("status") in ("queued", "running"):
+                            registry.item(j, u, status="error", error=str(e))
+
+            ts = [threading.Thread(target=guard, args=(k,), daemon=True) for k in keys]
+            for t in ts:
+                t.start()
+            for t in ts:
+                t.join()
+            if errs:
+                registry.finish(j, "error", error=" / ".join(errs))
+            else:
+                registry.finish(j, "done")
+
+        registry.spawn(job, work)
+        return registry.view(job)
+
+    @router.get("/api/lecture-auto/running")
+    async def lecture_auto_running():
+        """화면을 다시 열었을 때 돌고 있는 자동 진행에 다시 붙는다."""
+        j = registry.running(KIND_JOB)
+        return {"id": j["id"] if j and j.get("auto") else None,
+                "auto": (j or {}).get("auto")}
+
     @router.post("/api/lecture/{kind}/{key}/approve")
     async def lecture_approve(kind: str, key: str, request: Request):
         """사람 승인 — 승인해야 다음 단계가 열린다. 듣기 검수는 필요 인원이 다 들어야 된다."""

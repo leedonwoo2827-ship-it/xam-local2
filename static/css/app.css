@@ -1500,6 +1500,10 @@ kbd {
 
 
 /* ── 화면 ④ 요약노트 — 좌 편집 / 우 즉시 미리보기 ───────────────────────── */
+/* 원고(코드)는 접어 둔다 — 화면은 진행 상황 위주(2026-11-01 지시). */
+.sm-edit { margin-top: 10px; }
+.sm-edit > summary { list-style: none; display: inline-flex; margin-bottom: 10px; }
+.sm-edit > summary::-webkit-details-marker { display: none; }
 .sm-split { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
 @media (max-width: 1100px) { .sm-split { grid-template-columns: minmax(0, 1fr); } }
 .md-edit {
