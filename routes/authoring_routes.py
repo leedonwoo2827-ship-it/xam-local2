@@ -15,6 +15,7 @@
 """
 from __future__ import annotations
 
+import time
 from typing import Any, Dict, List
 
 from fastapi import APIRouter, Body, HTTPException
@@ -41,6 +42,13 @@ KIND = "authoring"
 # 연속 몇 번 헛발질하면 멈출 것인가. 3 인 이유: 1~2회는 일시적 과부하(529)로도
 # 나므로 그때 멈추면 멀쩡한 실행을 죽인다. 3회 연속이면 한도·인증 쪽이다.
 STALL_LIMIT = 3
+# ★ 한도에 걸리면 **기다렸다가 이어 간다**(기본값, 2026-11-01 지시: "쇼츠·종합본 영상
+#   도구에는 다 있다"). 세션 한도는 5시간 창이라 몇 시간이면 풀린다 — 밤새 돌려 둔
+#   집필이 한도 한 번에 멈춰 아침까지 놀던 것을 막는다. 주간 한도는 며칠이라
+#   LIMIT_WAIT_MAX 를 넘기면 예전처럼 멈추고 사람에게 넘긴다.
+LIMIT_RETRY_SEC = 60            # 1~2번째 헛발질 — 일시 과부하(529)일 수 있다
+LIMIT_WAIT_SEC = 15 * 60        # 3번째부터 — 한도로 보고 이 간격으로 다시 두드린다
+LIMIT_WAIT_MAX = 6 * 3600       # 한 번의 한도에 기다리는 최대 시간
 
 
 def _round_ok(code: str) -> str:
@@ -324,6 +332,9 @@ def setup_authoring_routes() -> APIRouter:
         #   버튼을 사람에게 남긴다.
         auto = body.get("auto_derive")
         auto = True if auto is None else bool(auto)
+        # 한도 대기 — 기본 켬. `wait_on_limit: false` 로 부르면 예전처럼 3번 만에 멈춘다.
+        wait_on_limit = body.get("wait_on_limit")
+        wait_on_limit = True if wait_on_limit is None else bool(wait_on_limit)
         todo: List[tuple] = []
         skipped: List[str] = []
         for it in items:
@@ -429,15 +440,46 @@ def setup_authoring_routes() -> APIRouter:
                 registry.item(j, key, status="running")
                 registry.log(j, f"[{key}] {nums[0]}~{nums[-1]}번 집필 시작", force=True)
 
-                res = draft.draft_part(
-                    round_code=rc, part_index=p, book_dir=paths.book_dir(),
-                    derive_hint=(hint if md == "derive" else ""), mode=md,
-                    round_index=codes.index(rc) + 1, round_total=len(codes),
-                    model=model, effort=effort,
-                    # ★ 모델이 무엇을 읽고 있는지 흘린다. 과목 1개가 10~20분씩 가는데
-                    #   화면이 한 글자도 안 바뀌면 멈춘 것으로 보인다.
-                    on_activity=lambda s, j=j, k=key: registry.log(j, f"[{k}] {s}"))
-                total_cost += res.cost_usd
+                # ★ 모델을 **못 부른** 실패(비용 0)는 같은 과목을 다시 두드린다 —
+                #   다음 과목으로 넘어가면 실패한 과목이 구멍으로 남는다. 1~2번째는
+                #   과부하일 수 있어 짧게, 그 뒤는 한도로 보고 길게 기다린다.
+                waited = 0
+                while True:
+                    res = draft.draft_part(
+                        round_code=rc, part_index=p, book_dir=paths.book_dir(),
+                        derive_hint=(hint if md == "derive" else ""), mode=md,
+                        round_index=codes.index(rc) + 1, round_total=len(codes),
+                        model=model, effort=effort,
+                        # ★ 모델이 무엇을 읽고 있는지 흘린다. 과목 1개가 10~20분씩 가는데
+                        #   화면이 한 글자도 안 바뀌면 멈춘 것으로 보인다.
+                        on_activity=lambda s, j=j, k=key: registry.log(j, f"[{k}] {s}"),
+                        # 한도 대기 중에 [일시정지] 를 누르면 기다리지 않고 멈춘다
+                        should_stop=lambda j=j: bool(j.get("cancel_requested")))
+                    total_cost += res.cost_usd
+                    if res.ok or res.cost_usd > 0 or not wait_on_limit:
+                        break
+                    stalled += 1
+                    nap = LIMIT_RETRY_SEC if stalled < STALL_LIMIT else LIMIT_WAIT_SEC
+                    if stalled >= STALL_LIMIT and waited + nap > LIMIT_WAIT_MAX:
+                        break                       # 주간 한도로 본다 — 아래 정지 경로로
+                    why = (res.problems or ["원인을 알 수 없습니다"])[0]
+                    registry.update(j, current=f"{key} · 한도 대기")
+                    registry.log(
+                        j, (f"[{key}] 모델을 부르지 못했습니다 — {why}\n"
+                            + (f"  구독 한도로 보고 {nap // 60}분 뒤 같은 과목을 다시 시도합니다 "
+                               f"(기다린 시간 {waited // 60}분 / 최대 {LIMIT_WAIT_MAX // 3600}시간). "
+                               f"[일시정지] 를 누르면 기다리지 않고 멈춥니다."
+                               if stalled >= STALL_LIMIT else
+                               f"  {nap}초 뒤 다시 시도합니다.")), force=True)
+                    for _ in range(nap // 5):
+                        if j.get("cancel_requested"):
+                            break
+                        time.sleep(5)
+                    waited += nap
+                    if j.get("cancel_requested"):
+                        break
+                    registry.update(j, current=key)
+                    registry.log(j, f"[{key}] 다시 시도합니다.", force=True)
 
                 for w in res.warnings:
                     registry.log(j, f"[{key}] (주의) {w}", force=True)
@@ -454,8 +496,11 @@ def setup_authoring_routes() -> APIRouter:
                     registry.item(j, key, status="error", output=res.path,
                                   seconds=round(res.seconds, 1),
                                   error=(res.problems or ["검증 실패"])[0])
-                    stalled = stalled + 1 if res.cost_usd <= 0 else 0
-                    if stalled >= STALL_LIMIT:
+                    if not wait_on_limit:
+                        stalled = stalled + 1 if res.cost_usd <= 0 else 0
+                    elif res.cost_usd > 0:
+                        stalled = 0
+                    if stalled >= STALL_LIMIT and res.cost_usd <= 0:
                         why = (res.problems or ["원인을 알 수 없습니다"])[0]
                         registry.log(
                             j, f"연속 {stalled}회 모델을 부르지 못해 멈춥니다 — {why}\n"

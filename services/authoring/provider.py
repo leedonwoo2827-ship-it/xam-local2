@@ -90,7 +90,9 @@ def _classify_error(msg: str) -> ProviderError:
     low = (msg or "").lower()
     if any(k in low for k in ("not authenticated", "sign in", "401", "unauthorized", "login")):
         return NotAuthenticated(msg)
-    if any(k in low for k in ("quota", "rate limit", "429", "usage limit", "overloaded")):
+    if any(k in low for k in ("quota", "rate limit", "429", "usage limit", "overloaded",
+                              "limit reached", "hit your limit", "session limit",
+                              "weekly limit", "5-hour limit")):
         return QuotaExceeded(msg)
     return ProviderError(msg)
 
@@ -161,6 +163,17 @@ class ClaudeAuthor:
     #   안 바뀌면 **멈춘 것으로 보인다.** 답변초안 화면에서 이미 같은 말을 들었다
     #   ("이거 진행중인거 만들어주기로 하지 않았나요?! 상태표시라도...").
     on_activity: Optional[Callable[[str], None]] = field(default=None, repr=False)
+    # ★ 한도 대기 — **기본 켬**(2026-11-01 지시: 1부·2부 모든 모델 호출에 적용).
+    #   구독 한도(QuotaExceeded)면 실패로 끝내지 않고 limit_wait_sec 마다 다시 부른다.
+    #   세션 한도는 5시간 창이라 limit_wait_max 안에 풀린다. 주간 한도처럼 그보다
+    #   길면 예외를 그대로 올려 잡 쪽 브레이크(STALL_LIMIT)에 맡긴다.
+    #   여기 하나에 두는 이유: OCR 판독·집필·해설 구조화·이론 요약·강의 노트가 모두
+    #   이 `structured()` 를 지난다 — 화면마다 따로 만들면 하나는 반드시 빠진다.
+    wait_on_limit: bool = True
+    limit_wait_sec: int = 15 * 60
+    limit_wait_max: int = 6 * 3600
+    # 기다리는 동안 [중단] 을 받을 통로. 잡이 넣어 주면 기다리지 않고 바로 실패한다.
+    should_stop: Optional[Callable[[], bool]] = field(default=None, repr=False)
 
     # 마지막 호출의 계량 — 화면이 "이번에 얼마 썼나" 를 보여줄 근거
     last_cost_usd: float = 0.0
@@ -236,7 +249,38 @@ class ClaudeAuthor:
           `subtype=="success"` 다. 개수 검증은 호출부(draft)가 하고, 여기서는
           "dict 가 아니면 실패" 까지만 본다.
         """
-        return _run(self._structured(system, prompt, schema))
+        waited = 0
+        while True:
+            try:
+                return _run(self._structured(system, prompt, schema))
+            except QuotaExceeded as e:
+                # 과부하(529)는 한도가 아니다 — 1분이면 풀린다. 한도만 길게 기다린다.
+                low = str(e).lower()
+                nap = 60 if ("overload" in low or "529" in low) else self.limit_wait_sec
+                if not self.wait_on_limit or waited + nap > self.limit_wait_max:
+                    raise
+                self._say(f"구독 한도로 보입니다 — {nap // 60}분 뒤 다시 "
+                          f"부릅니다 (기다린 시간 {waited // 60}분 / 최대 "
+                          f"{self.limit_wait_max // 3600}시간) · {str(e)[:120]}")
+                for _ in range(max(1, nap // 5)):
+                    if self.should_stop and self._stop():
+                        raise
+                    time.sleep(5)
+                waited += nap
+                self._say("한도 대기를 마치고 다시 부릅니다.")
+
+    def _say(self, s: str) -> None:
+        if self.on_activity:
+            try:
+                self.on_activity(s)
+            except Exception:      # noqa: BLE001 — 표시용이다
+                pass
+
+    def _stop(self) -> bool:
+        try:
+            return bool(self.should_stop())
+        except Exception:          # noqa: BLE001
+            return False
 
     # ── 지금 끊어야 하는가 ──
     def _abort_reason(self, m: Any, t0: float) -> str:
@@ -343,6 +387,7 @@ class ClaudeAuthor:
             return False, "Claude Code CLI 를 찾지 못했습니다 (CLAUDE_CLI 로 지정 가능)."
         schema = {"type": "object", "additionalProperties": False,
                   "required": ["ok"], "properties": {"ok": {"type": "boolean"}}}
+        self.wait_on_limit = False      # 연결 시험이 15분씩 기다리면 안 된다
         try:
             got = self.structured("You are a connection tester.",
                                   'Return {"ok": true}.', schema)
