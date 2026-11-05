@@ -31,3 +31,6 @@ _docs/
 # 참고 영상·시안 이미지(대용량). 글 자료(_context/*.html·*.txt·*.md)는 저장소에 둔다.
 _context/*.mp4
 _context/*.png
+
+# 기출 원본 스캔(출판사 저작물·대용량). 저장소에 올리지 않는다.
+_assets/
