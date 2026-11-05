@@ -89,6 +89,14 @@ body[data-chat="collapsed"] .panel-layer { right: var(--chat-w-collapsed); }
 .ch-bot code { background: var(--linen); border-radius: 4px; padding: 0 4px; font-size: .92em; }
 .ch-bot a { color: var(--brand); word-break: break-all; }
 .ch-bot blockquote { margin: 0 0 .5em; padding-left: 10px; box-shadow: inset 2px 0 0 var(--hairline); color: var(--text-2); }
+.ch-codewrap { position: relative; }
+.ch-copy {
+  position: absolute; top: 5px; right: 5px; z-index: 1;
+  font: inherit; font-size: var(--t-2xs); padding: 2px 8px; cursor: pointer;
+  color: var(--text-2); background: var(--white);
+  border: 1px solid var(--hairline); border-radius: var(--r-sm);
+}
+.ch-copy:hover { color: var(--brand); border-color: var(--brand); }
 .ch-code {
   background: var(--linen-deep); border-radius: var(--r-sm); padding: 8px 10px; margin: 0 0 .55em;
   font-size: var(--t-2xs); line-height: 1.5; overflow-x: auto; white-space: pre;

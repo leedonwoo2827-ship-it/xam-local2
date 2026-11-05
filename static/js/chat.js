@@ -63,7 +63,10 @@ function md(text) {
   parts.forEach((p, i) => {
     if (i % 2) {
       const body = p.replace(/^[^\n]*\n/, "");
-      out += `<pre class="ch-code">${escapeHtml(body)}</pre>`;
+      // [복사] — 이 창에서 받은 글을 다른 창·앱 칸에 그대로 옮겨 붙이는 일이 잦다.
+      //   스트리밍 중 innerHTML 이 계속 바뀌므로 클릭은 S.log 에 위임해서 받는다.
+      out += `<div class="ch-codewrap"><button class="ch-copy" type="button">복사</button>`
+        + `<pre class="ch-code">${escapeHtml(body)}</pre></div>`;
     } else {
       out += renderMarkdown(p);
     }
@@ -343,6 +346,18 @@ export async function mountChat(root) {
   hydrateIcons(root);
   S.log = $("#ch-log", root);
   S.input = $("#ch-input", root);
+  S.log.addEventListener("click", async (ev) => {
+    const b = ev.target.closest(".ch-copy");
+    if (!b) return;
+    const pre = b.parentElement.querySelector(".ch-code");
+    try {
+      await navigator.clipboard.writeText(pre ? pre.textContent : "");
+      b.textContent = "복사됨";
+      setTimeout(() => { b.textContent = "복사"; }, 1500);
+    } catch (err) {
+      toast("복사하지 못했습니다: " + err.message, "err");
+    }
+  });
 
   S.input.addEventListener("input", autosize);
   S.input.addEventListener("keydown", (e) => {
