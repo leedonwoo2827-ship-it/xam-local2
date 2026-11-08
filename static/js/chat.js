@@ -26,7 +26,8 @@ const KEY_MODE = "xam.chat.mode";
 const STATUS_MS = 8000;
 
 const S = { sid: "", cursor: 0, busy: false, timer: 0, curText: null, curRaw: "",
-            tools: new Map(), root: null, log: null, input: null, mode: "status", stTimer: 0 };
+            tools: new Map(), root: null, log: null, input: null, mode: "status", stTimer: 0,
+            book: "" };
 
 /* ── 화면 맥락 — 지금 무엇을 보고 있는지를 메시지에 붙인다 ── */
 function screenContext() {
@@ -227,10 +228,15 @@ function setBusy(b) {
   $("#ch-stop").hidden = !S.busy;
 }
 
+/* ★ 마지막 대화는 **작업 폴더마다** 기억한다(2026-11-08 지시: "폴더가 변경되면 리셋되거나
+ *   해당 건만 불러와야"). 폴더 하나로 쓰던 시절의 키(KEY_SID)는 더 읽지 않는다 —
+ *   필기 폴더의 대화가 실기 폴더에서 열리던 원인이다. */
+const sidKey = (book) => `${KEY_SID}::${book || ""}`;
+
 async function openSession(sid) {
   S.sid = sid; S.cursor = 0; S.curText = null; S.tools.clear();
   S.log.innerHTML = "";
-  try { localStorage.setItem(KEY_SID, sid); } catch (_) {}
+  try { localStorage.setItem(sidKey(S.book), sid); } catch (_) {}
   await poll();
   if (!S.log.children.length) emptyHint();
   S.log.scrollTop = S.log.scrollHeight;
@@ -287,17 +293,28 @@ async function stop() {
 
 async function showList() {
   const d = await api("/api/chat/sessions");
+  S.book = d.active_book || "";
   const menu = $("#ch-list");
   menu.innerHTML = "";
-  if (!d.items.length) menu.appendChild(el("div", "ch-list-empty", "대화가 없습니다."));
-  d.items.forEach((it) => {
-    const row = el("button", "ch-list-row" + (it.sid === S.sid ? " is-on" : ""));
-    row.type = "button";
-    row.innerHTML = `<span class="ch-list-t">${escapeHtml(it.title)}</span>`
-      + `<span class="ch-list-m">${escapeHtml((it.updated || "").replace("T", " ").slice(5, 16))}</span>`;
-    row.addEventListener("click", () => { menu.hidden = true; openSession(it.sid); });
-    menu.appendChild(row);
-  });
+  const mine = d.items.filter((it) => it.here);
+  const others = d.items.filter((it) => !it.here);
+  const row = (it, other) => {
+    const b = el("button", "ch-list-row" + (it.sid === S.sid ? " is-on" : ""));
+    b.type = "button";
+    if (other) b.style.opacity = ".6";
+    b.innerHTML = `<span class="ch-list-t">${escapeHtml(it.title)}</span>`
+      + `<span class="ch-list-m">${escapeHtml(other ? (it.book_label || "폴더 표시 없음") + " · " : "")}`
+      + `${escapeHtml((it.updated || "").replace("T", " ").slice(5, 16))}</span>`;
+    b.addEventListener("click", () => { menu.hidden = true; openSession(it.sid); });
+    return b;
+  };
+  menu.appendChild(el("div", "ch-list-empty", `이 작업 폴더 · ${d.active_label || "?"}`));
+  if (!mine.length) menu.appendChild(el("div", "ch-list-empty", "이 폴더의 대화가 없습니다 — ＋ 로 새로 시작하세요."));
+  mine.forEach((it) => menu.appendChild(row(it, false)));
+  if (others.length) {
+    menu.appendChild(el("div", "ch-list-empty", "다른 작업 폴더"));
+    others.forEach((it) => menu.appendChild(row(it, true)));
+  }
   menu.hidden = !menu.hidden;
 }
 
@@ -378,6 +395,12 @@ export async function mountChat(root) {
     if ((e.ctrlKey || e.metaKey) && (e.key === "j" || e.key === "J")) { e.preventDefault(); toggleChat(); }
   });
   window.addEventListener("hashchange", () => { updateCtxChip(); if (S.mode === "status") renderStatus(); });
+  // 작업 폴더를 바꾸면 대화도 그 폴더 것으로 갈아 끼운다(답을 쓰는 중이면 그 대화는 서버에서 계속 돈다)
+  window.addEventListener("xam:book-changed", () => {
+    clearTimeout(S.timer);
+    if (S.mode === "chat") enterChat();
+    else renderStatus();
+  });
   document.addEventListener("selectionchange", () => {
     clearTimeout(S.selT); S.selT = setTimeout(updateCtxChip, 250);
   });
@@ -400,18 +423,21 @@ async function enterChat(fresh = false) {
   clearTimeout(S.stTimer);
   S.root.classList.remove("is-status");
   $("#ch-mode").textContent = "현황";
+  // 지금 작업 폴더를 먼저 안다 — 마지막 대화를 폴더마다 기억하기 때문이다
+  let list = { items: [], active_book: "" };
+  try { list = await api("/api/chat/sessions"); } catch (_) {}
+  S.book = list.active_book || "";
   if (fresh) { await newSession(); return; }
   let sid = "";
-  try { sid = localStorage.getItem(KEY_SID) || ""; } catch (_) {}
-  if (sid) {
-    try {
-      await api(`/api/chat/${sid}/events?since=0`);     // 지워진 대화면 404 로 여기서 떨어진다
-      await openSession(sid);
-      return;
-    } catch (_) { /* 지워진 대화 — 빈 화면으로 */ }
+  try { sid = localStorage.getItem(sidKey(S.book)) || ""; } catch (_) {}
+  // 기억한 대화가 이 폴더 것인지 확인한다 — 아니면(지워졌거나 다른 폴더) 빈 화면
+  if (sid && list.items.some((it) => it.sid === sid && it.here)) {
+    await openSession(sid);
+    return;
   }
   S.sid = "";
   S.log.innerHTML = "";
+  $("#ch-title").textContent = "새 대화";
   emptyHint();
 }
 

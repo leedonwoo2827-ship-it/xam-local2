@@ -75,6 +75,10 @@ class ChatSession:
         self.updated: str = d.get("updated") or self.created
         self.claude_session: str = d.get("claude_session") or ""
         self.cwd: str = d.get("cwd") or ""
+        # 대화를 만든 작업 폴더 — 폴더를 바꾸면 그 폴더의 대화만 이어 연다(2026-11-08 지시).
+        #   예전 대화(이 칸이 없는 것)는 「다른 작업 폴더」 쪽에 남는다.
+        self.book: str = d.get("book") or ""
+        self.book_label: str = d.get("book_label") or ""
         self.events: List[Dict[str, Any]] = list(d.get("events") or [])
         self.cost: float = float(d.get("cost") or 0.0)
         self.base_url = "http://127.0.0.1:8871"
@@ -105,7 +109,8 @@ class ChatSession:
 
     def meta(self) -> Dict[str, Any]:
         return {"sid": self.sid, "title": self.title, "created": self.created,
-                "updated": self.updated, "busy": self.busy, "cost": round(self.cost, 4)}
+                "updated": self.updated, "busy": self.busy, "cost": round(self.cost, 4),
+                "book": self.book, "book_label": self.book_label}
 
     # ── 저장 ────────────────────────────────────────────────────────────────
     def _compact(self) -> List[Dict[str, Any]]:
@@ -135,7 +140,8 @@ class ChatSession:
         with self._lock:
             doc = {"sid": self.sid, "title": self.title, "created": self.created,
                    "updated": self.updated, "claude_session": self.claude_session,
-                   "cwd": self.cwd, "cost": self.cost, "events": self._compact()}
+                   "cwd": self.cwd, "cost": self.cost, "book": self.book,
+                   "book_label": self.book_label, "events": self._compact()}
         atomic_write_json(os.path.join(CHAT_DIR, f"{self.sid}.json"), doc, indent=1)
 
     # ── 루프 ────────────────────────────────────────────────────────────────
@@ -360,6 +366,12 @@ def get(sid: str) -> Optional[ChatSession]:
 def create() -> ChatSession:
     sid = time.strftime("%y%m%d-%H%M%S-") + uuid.uuid4().hex[:4]
     s = ChatSession(sid)
+    try:
+        from services.book import books
+        m = books.active_meta()
+        s.book, s.book_label = m.get("path") or "", m.get("label") or ""
+    except Exception:                                            # noqa: BLE001
+        pass
     with _MLOCK:
         _SESS[sid] = s
     s.save()
@@ -382,7 +394,8 @@ def listing(limit: int = 40) -> List[Dict[str, Any]]:
                     d = json.load(f)
                 out.append({"sid": sid, "title": d.get("title") or "새 대화",
                             "created": d.get("created"), "updated": d.get("updated"),
-                            "busy": False, "cost": d.get("cost", 0)})
+                            "busy": False, "cost": d.get("cost", 0),
+                            "book": d.get("book") or "", "book_label": d.get("book_label") or ""})
             except Exception:                                    # noqa: BLE001
                 continue
     out.sort(key=lambda x: x.get("updated") or "", reverse=True)

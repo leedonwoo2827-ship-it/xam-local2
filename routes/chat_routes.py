@@ -80,8 +80,16 @@ def setup_chat_routes() -> APIRouter:
 
     @router.get("/sessions")
     async def sessions():
-        """대화 목록 (최근 것부터)."""
-        return {"items": chat.listing()}
+        """대화 목록 (최근 것부터). `here` = 지금 작업 폴더에서 만든 대화."""
+        import os
+        from services.book import books
+        cur = books.active_meta()
+        key = os.path.normcase(cur.get("path") or "")
+        items = chat.listing()
+        for it in items:
+            it["here"] = bool(it.get("book")) and os.path.normcase(it["book"]) == key
+        return {"items": items, "active_book": cur.get("path") or "",
+                "active_label": cur.get("label") or ""}
 
     @router.post("/sessions")
     async def new_session():
