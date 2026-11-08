@@ -114,6 +114,7 @@ _ROUTERS = (
     ("routes.render_routes", "setup_job_routes", "잡 조회"),
     ("routes.publish_routes", "setup_publish_routes", "발행"),
     ("routes.ebook_routes", "setup_ebook_routes", "이북 시험지"),
+    ("routes.practical_routes", "setup_practical_routes", "실기(작업형)"),
     ("routes.summary_routes", "setup_summary_routes", "요약노트"),
     # v2 — 우측 채팅 패널. claude-agent-sdk 가 없으면 이것만 빠진다.
     ("routes.chat_routes", "setup_chat_routes", "채팅(구독 OAuth)"),

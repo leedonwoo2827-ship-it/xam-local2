@@ -28,6 +28,12 @@ const routes = [
   { re: /^\/ocr\/([^/]+)\/(\d+)$/, nav: "oc", layer: "base", load: () => import("./ocr.js") },
   // OCR 실행 — PDF 고르고 돌리는 **바탕** 화면. 로그가 아래로 흐르므로 패널이 아니다.
   { re: /^\/ocr-run$/, nav: "oc", layer: "base", load: () => import("./ocrrun.js") },
+  // 실기 OCR — 작업형(엑셀·액세스) 트랙의 입구. 필기 흐름과 데이터 모양이 달라 화면을 따로 둔다.
+  { re: /^\/practical-ocr$/, nav: "", layer: "base", load: () => import("./practical.js") },
+  // 실기 OCR 검수 — 필기 /ocr 와 같은 2층(패널 목록 → 바탕 작업). 실기 폴더에서 왼쪽 「OCR 검수」 가
+  // 여기로 온다(syncTrackNav). 패널 쪽 라우트는 아래 「부유 패널」 묶음에 있다.
+  { re: /^\/practical-review\/([^/]+)\/(\d+)$/, nav: "oc", layer: "base", load: () => import("./practicalReview.js") },
+  { re: /^\/practical-round$/, nav: "oc", layer: "base", load: () => import("./practicalReview.js") },
   { re: /^\/scan\/(.+)$/,       nav: "sc", layer: "base",  load: () => import("./scan.js") },
   // 과정 정의 — 시험정보(exams/<id>.json). 스캔이 없어도 여는 화면이라 입구 쪽이다.
   { re: /^\/exams$/,            nav: "ed", layer: "base",  load: () => import("./examdef.js") },
@@ -62,6 +68,7 @@ const routes = [
   // 부유 패널(위층) — 고르는 곳
   { re: /^\/books$/,     nav: "",   layer: "panel", group: "books",     load: () => import("./books.js") },
   { re: /^\/ocr$/,       nav: "oc", layer: "panel", group: "ocr",       load: () => import("./ocr.js") },
+  { re: /^\/practical-review$/, nav: "oc", layer: "panel", group: "ocr", load: () => import("./practicalReview.js") },
   { re: /^\/scan$/,      nav: "sc", layer: "panel", group: "scan",      load: () => import("./scan.js") },
   { re: /^\/questions$/, nav: "q",  layer: "panel", group: "questions", load: () => import("./questions.js") },
   { re: /^\/video$/,     nav: "v",  layer: "panel", group: "video",     load: () => import("./video.js") },
@@ -282,6 +289,8 @@ const PRIMARY = {
   "/ocr-run": [{ label: "← OCR 검수로", icon: "folder", key: "goto-ocr" }],
 };
 
+const B2_STYLE = ($("#btn-primary2") || {}).style?.cssText || "";
+
 function renderPrimary(path) {
   const b1 = $("#btn-primary"), b2 = $("#btn-primary2");
   if (!b1 || !b2) return;
@@ -296,11 +305,16 @@ function renderPrimary(path) {
     if (i) i.dataset.icon = ico;
     btn.hidden = false;
   };
+  // 두 번째 버튼의 모양 — 평소엔 보조(베이지), 기본값의 「실기 OCR」 일 때만 주 버튼과 같은 주황
+  b2.style.cssText = B2_STYLE;
   if (!spec) {
-    // 기본값 — 이 앱은 OCR 에서 시작한다
-    set(b1, "＋ OCR", "folder");
+    // 기본값 — 이 앱은 OCR 에서 시작한다. 필기(지금 흐름)와 실기(작업형 트랙)가 입구가 다르다
+    //   (2026-11-08 지시: "OCR 버튼을 2개 — 지금 거는 필기용, 실기를 추가하는 형태").
+    set(b1, "＋ 필기 OCR", "folder");
     b1.dataset.act = "goto-run";
-    b2.hidden = true;
+    set(b2, "＋ 실기 OCR", "grid");
+    b2.dataset.act = "goto-practical";
+    b2.style.cssText = "margin-top:-8px";
   } else {
     set(b1, spec[0].label, spec[0].icon);
     b1.dataset.act = spec[0].key;
@@ -317,6 +331,7 @@ function renderPrimary(path) {
 async function runPrimary(act) {
   if (act === "goto-run") return navigate("/ocr-run");
   if (act === "goto-ocr") return navigate("/ocr");
+  if (act === "goto-practical") return navigate("/practical-ocr");
   // 화면 모듈이 걸어 둔 함수 — 없으면 그 화면으로 먼저 데려간다.
   const fn = (window.XAM_PRIMARY || {})[act];
   if (typeof fn === "function") return fn();
@@ -349,7 +364,26 @@ window.addEventListener("hashchange", render);
  *   부유 창이 떠 있었다. 작업 폴더를 아직 고르지도 않았는데 어느 폴더의 결과인지
  *   모를 목록이 먼저 보이고, 그 창을 닫아야 바탕이 나온다 — 순서가 거꾸로다.
  *   패널은 "고르는 곳" 이므로 사람이 열어야 뜬다. */
+/* 실기 폴더면 왼쪽 「OCR 검수」 가 실기 검수를 연다.
+ *
+ * ★ 필기와 같은 메뉴 이름을 쓴다(2026-11-08 지시: "이건 OCR 검수에서 확인하는 거 아니에요?").
+ *   판정은 **실기 판독 결과가 있는가**다 — 시험정보(format)가 아직 없는 새 실기 폴더도 맞게 잡힌다. */
+async function syncTrackNav() {
+  const a = document.querySelector('#side-nav a[data-nav="oc"]');
+  if (!a) return;
+  let practical = false;
+  try {
+    const d = await fetch("/api/practical/overview").then((r) => (r.ok ? r.json() : null));
+    practical = !!(d && (d.srcs || []).some((s) => s.read > 0));
+  } catch (_) { /* 서버가 옛 버전이면 필기로 둔다 */ }
+  a.setAttribute("href", practical ? "#/practical-review" : "#/ocr");
+  const dest = a.querySelector(".nav-dest");
+  if (dest) dest.textContent = practical ? "실기" : "스캔→01";
+}
+window.addEventListener("xam:book-changed", syncTrackNav);
+
 if (!location.hash) location.hash = "#/home";
+syncTrackNav();
 render();
 mountChat($("#chat"));
 renderBrandStatus();
