@@ -43,7 +43,9 @@ def _md(rnd: int, it: Dict[str, Any], figs: List[str], afigs: List[str]) -> str:
            + (f" ({p0.get('points')}점)" if p0.get("points") is not None else ""), ""]
     for p in it["problems"]:
         out += [f"**{p.get('lead') or ''}**", ""]
-        # 인쇄된 기호 그대로 — 원문자 항목 아래의 ▶ 줄은 들여쓴다(마크다운 하위 목록)
+        # ★ 적힌 줄을 **그대로** 쓴다 — 목록 기호(- )나 ▶ 를 앱이 덧붙이지 않는다(2026-11-08 지시:
+        #   "강제로는 제가 넣을 테니 기본값은 빼 주세요"). 원문자 항목 아래 딸린 ▶ 줄만 들여쓴다.
+        #   줄 끝 공백 두 칸 = 마크다운 줄바꿈.  지정 함수는 JSON 에만 둔다(본문에 줄을 만들지 않는다).
         under = False
         for s in (p.get("instructions") or []):
             s = str(s).strip()
@@ -51,9 +53,7 @@ def _md(rnd: int, it: Dict[str, Any], figs: List[str], afigs: List[str]) -> str:
                 under = True
             elif not s.startswith(("▶", "※")):
                 under = False
-            out.append(("  - " if under and s.startswith(("▶", "※")) else "- ") + s)
-        if p.get("functions"):
-            out.append(f"- 지정 함수: {', '.join(p['functions'])}")
+            out.append(("&emsp;" if under and s.startswith(("▶", "※")) else "") + s + "  ")
         out.append("")
         if p.get("figure_table"):
             out += [p["figure_table"].strip(), ""]

@@ -652,9 +652,7 @@ function previewProblem(q) {
   const n = el("div");
   n.innerHTML = `<div class="oc-pv-qno">${q.part ?? "?"}-${q.no ?? "?"}</div>`
     + `<p><b>${escapeHtml(q.lead || "")}</b></p>`
-    + instrHtml(q.instructions)
-    + ((q.functions || []).length && !(q.instructions || []).some((s) => s.includes(q.functions[0]))
-      ? `<p>▶ ${escapeHtml(q.functions.join(", "))} 함수 사용</p>` : "");
+    + instrHtml(q.instructions);   // 적힌 줄만 — 기호·함수 줄을 앱이 덧붙이지 않는다(사람이 넣는다)
   n.appendChild(figBlock(q));
   return n;
 }
