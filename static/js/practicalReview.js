@@ -527,7 +527,7 @@ function qCard(q, i) {
 
   card.appendChild(labeled("발문(지시 문장)", area(q.lead, "번호 줄의 문장 그대로", (v) => { q.lead = v; markDirty(); }, 2)));
   card.appendChild(labeled("지문(세부 지시사항 — 한 줄에 하나)",
-    area((q.instructions || []).join("\n"), "▶ 로 시작하던 줄들", (v) => { q.instructions = lines(v); markDirty(); }, 5)));
+    area((q.instructions || []).join("\n"), "인쇄된 그대로 — ① ② 원문자, ▶ 기호까지", (v) => { q.instructions = lines(v); markDirty(); }, 5)));
   card.appendChild(labeled("지정 함수 (쉼표로)",
     input((q.functions || []).join(", "), "AND, YEAR, RIGHT", (v) => {
       q.functions = v.split(",").map((s) => s.trim()).filter(Boolean); markDirty();
@@ -634,11 +634,25 @@ function previewFoot(make) {
   return wrap;
 }
 
+/* 지시사항 줄 — 인쇄된 기호를 그대로 쓴다. 원문자(①~⑳) 항목 아래의 ▶ 줄은 그 항목에 딸린 것이라 들여쓴다.
+ * 기호 없는 줄에 ▶ 를 붙이지 않는다(2026-11-08: "원숫자들이 없이 ▶ 이게 강제화되어 있는 듯"). */
+const CIRCLED_RE = /^[①-⑳❶-❿]/;
+function instrHtml(list) {
+  let underCircled = false;
+  return (list || []).map((raw) => {
+    const s = String(raw || "").trim();
+    if (CIRCLED_RE.test(s)) underCircled = true;
+    else if (!s.startsWith("▶") && !s.startsWith("※")) underCircled = false;
+    const indent = underCircled && (s.startsWith("▶") || s.startsWith("※"));
+    return `<p style="margin:6px 0${indent ? ";padding-left:1.6em" : ""}">${escapeHtml(s)}</p>`;
+  }).join("");
+}
+
 function previewProblem(q) {
   const n = el("div");
   n.innerHTML = `<div class="oc-pv-qno">${q.part ?? "?"}-${q.no ?? "?"}</div>`
     + `<p><b>${escapeHtml(q.lead || "")}</b></p>`
-    + (q.instructions || []).map((s) => `<p>▶ ${escapeHtml(s)}</p>`).join("")
+    + instrHtml(q.instructions)
     + ((q.functions || []).length && !(q.instructions || []).some((s) => s.includes(q.functions[0]))
       ? `<p>▶ ${escapeHtml(q.functions.join(", "))} 함수 사용</p>` : "");
   n.appendChild(figBlock(q));
@@ -843,7 +857,7 @@ function roundCard(it) {
     const sec = el("div");
     sec.style.margin = "6px 0 10px";
     sec.innerHTML = `<div><b>${escapeHtml(p.lead || "")}</b></div>`
-      + `<ul style="margin:4px 0 0 18px">${(p.instructions || []).map((s) => `<li>${escapeHtml(s)}</li>`).join("")}</ul>`
+      + `<div style="margin:4px 0 0 4px">${instrHtml(p.instructions)}</div>`
       + ((p.functions || []).length ? `<div class="muted">지정 함수: ${escapeHtml(p.functions.join(", "))}</div>` : "");
     const keep = S.page;
     S.page = p.page;                     // figBlock 이 쪽 번호를 기본값으로 쓴다

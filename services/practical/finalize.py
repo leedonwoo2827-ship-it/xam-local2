@@ -43,7 +43,15 @@ def _md(rnd: int, it: Dict[str, Any], figs: List[str], afigs: List[str]) -> str:
            + (f" ({p0.get('points')}점)" if p0.get("points") is not None else ""), ""]
     for p in it["problems"]:
         out += [f"**{p.get('lead') or ''}**", ""]
-        out += [f"- ▶ {s}" for s in (p.get("instructions") or [])]
+        # 인쇄된 기호 그대로 — 원문자 항목 아래의 ▶ 줄은 들여쓴다(마크다운 하위 목록)
+        under = False
+        for s in (p.get("instructions") or []):
+            s = str(s).strip()
+            if s[:1] and ("①" <= s[0] <= "⑳" or "❶" <= s[0] <= "❿"):
+                under = True
+            elif not s.startswith(("▶", "※")):
+                under = False
+            out.append(("  - " if under and s.startswith(("▶", "※")) else "- ") + s)
         if p.get("functions"):
             out.append(f"- 지정 함수: {', '.join(p['functions'])}")
         out.append("")
