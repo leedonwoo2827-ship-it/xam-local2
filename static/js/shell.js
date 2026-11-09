@@ -324,11 +324,11 @@ function renderPrimary(path) {
   if (!spec) {
     // 기본값 — 이 앱은 OCR 에서 시작한다. 필기(지금 흐름)와 실기(작업형 트랙)가 입구가 다르다
     //   (2026-11-08 지시: "OCR 버튼을 2개 — 지금 거는 필기용, 실기를 추가하는 형태").
-    set(b1, "＋ 필기 OCR", "folder");
-    b1.dataset.act = "goto-run";
-    set(b2, "＋ 실기 OCR", "grid");
-    b2.dataset.act = "goto-practical";
-    b2.style.cssText = "margin-top:-8px";
+    // ★ 이 저장소는 실기 전용이 됐다(2026-11-10 지시: "필기 OCR 버튼 떼 주시고") — 필기는 local3.
+    //   큰 주황 버튼 하나 = 「＋ 실기 OCR」.
+    set(b1, "＋ 실기 OCR", "grid");
+    b1.dataset.act = "goto-practical";
+    b2.hidden = true;
   } else {
     set(b1, spec[0].label, spec[0].icon);
     b1.dataset.act = spec[0].key;
