@@ -283,3 +283,24 @@
 .oc-pagenav b { color: #f0efe9; font-variant-numeric: tabular-nums; }
 .oc-pagenav .muted { font-size: 12px; }
 .oc-pagenav .muted.warn { color: #f0b429; }
+
+/* ── OCR 검수(필기 ocr.js · 실기 practicalReview.js) — 원문자를 크게 ─────────────
+ * ★ textarea 안에서는 글자 하나만 스타일을 줄 수 없다. 그래서 **원문자 코드 범위에만** 다른 글꼴을
+ *   물려 size-adjust 로 키운다(2026-11-09 지시: "원숫자를 크게 보이게"). Pretendard 의 ①은 본문 글자보다
+ *   한참 작아서 ①과 ⑪ 이 구별이 안 됐다. 필기 정답 고를 때도 작았다(같은 날 지시) — 두 화면에 다 건다. */
+@font-face {
+  font-family: "XamCircled";
+  src: local("Malgun Gothic"), local("맑은 고딕"), local("Segoe UI Symbol");
+  unicode-range: U+2460-24FF;
+  size-adjust: 135%;
+}
+/* 검은 원문자(❶~❿)는 맑은 고딕에 없다 — 같은 이름으로 기호 글꼴을 따로 물린다 */
+@font-face {
+  font-family: "XamCircled";
+  src: local("Segoe UI Symbol"), local("Segoe UI Emoji"), local("Malgun Gothic");
+  unicode-range: U+2776-2793;
+  size-adjust: 125%;
+}
+.oc-page textarea, .oc-page input[type="text"], .oc-page select, .oc-page .oc-preview,
+.oc-page .oc-glyph, .oc-page .oc-q,
+.pr-page textarea, .pr-page input[type="text"], .pr-page .card { font-family: "XamCircled", var(--font); }

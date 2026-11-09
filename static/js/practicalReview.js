@@ -911,7 +911,7 @@ function bindSplit() {
 
 /* ══════════ 회차 묶음 — 문항 하나에 지시사항과 정답을 짝지어 대조 ══════════ */
 async function drawRound() {
-  const page = el("div", "page");
+  const page = el("div", "page pr-page");
   page.style.maxWidth = "none";
   page.innerHTML = `
     <div class="card"><div id="rv-rounds"><div class="empty">불러오는 중…</div></div></div>
