@@ -245,6 +245,30 @@ async function openPage(src, n) {
   applyLayout();
   renderCards();
   status("불러옴", true);
+  prefetchNext();
+}
+
+/* 다음 쪽을 미리 데워 둔다 — 스캔(줄인 것)과 그림 조각을 서버가 만들어 캐시해 두면 ▶ 가 바로 열린다.
+ *   처음 여는 쪽은 원본 해독 때문에 몇 초 걸린다(2026-11-09 실측 2~3초). 이 쪽을 보는 동안 다음 쪽을 만든다. */
+async function prefetchNext() {
+  const i = S.pages.findIndex((x) => x.page === S.page);
+  const nx = S.pages[i + 1];
+  if (!nx) return;
+  const q = encodeURIComponent(S.src);
+  try {
+    const d = await api(`/api/practical/page/${q}/${nx.page}`);
+    new Image().src = d.scan;
+    const r = d.read || {};
+    for (const x of [...(r.problem_items || []), ...(r.answer_entries || [])]) {
+      const list = Object.values(x.assets || {});
+      if (x.figure_bbox) list.push({ type: "figure", bbox: x.figure_bbox, page: x.figure_page });
+      for (const a of list) {
+        if (a.type !== "figure" || !a.bbox) continue;
+        const [bx, by, bw, bh] = a.bbox;
+        new Image().src = `/api/ocr/crop?src=${q}&page=${Number(a.page) || nx.page}&x=${bx}&y=${by}&w=${bw}&h=${bh}`;
+      }
+    }
+  } catch (_) { /* 미리 데우기는 실패해도 그만 */ }
 }
 
 function row() { return S.pages.find((r) => r.page === S.page) || {}; }

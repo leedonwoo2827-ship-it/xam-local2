@@ -142,6 +142,20 @@ def setup_ocr_routes() -> APIRouter:
     #   6417×9506(13.7MB)이라 크롭 한 번에 1.2초였고, async 핸들러에서 하면 그동안 **서버 전체가 멈춘다**
     #   (실측 2026-11-09: 그림이 많은 쪽을 열자 다른 요청이 45초씩 밀려 화면이 비었다).
     #   일반 def 는 FastAPI 가 스레드 풀에서 돌리므로 다른 요청을 막지 않는다. 결과는 디스크에 캐시한다.
+    import threading
+    _DEC = {"key": None, "img": None}
+    _DEC_LOCK = threading.Lock()
+
+    def _decoded(p: str):
+        key = (p, os.path.getmtime(p))
+        with _DEC_LOCK:
+            if _DEC["key"] != key:
+                from PIL import Image
+                with Image.open(p) as im:
+                    im.load()
+                    _DEC["img"], _DEC["key"] = im.copy(), key
+            return _DEC["img"]
+
     def _cache_dir(kind: str) -> str:
         d = os.path.join(project.ocr_dir(), "data", "view_cache", kind)
         os.makedirs(d, exist_ok=True)
@@ -180,10 +194,11 @@ def setup_ocr_routes() -> APIRouter:
         out = os.path.join(_cache_dir("crop"), f"{src}_p{int(page):03d}_{x}_{y}_{w}_{h}.png")
         if os.path.isfile(out) and os.path.getmtime(out) >= os.path.getmtime(p):
             return FileResponse(out, media_type="image/png")
-        from PIL import Image
-        with Image.open(p) as img:
-            buf = io.BytesIO()
-            img.crop((x, y, x + w, y + h)).save(buf, format="PNG")
+        # ★ 한 쪽의 그림 여러 장이 동시에 온다 — 원본(6417×9506) 해독이 1.2초라 장마다 열면 그만큼 곱해진다.
+        #   마지막에 연 쪽을 메모리에 하나 들고, 같은 쪽 크롭은 그것을 쓴다(잠금으로 한 번만 해독).
+        img = _decoded(p)
+        buf = io.BytesIO()
+        img.crop((x, y, x + w, y + h)).save(buf, format="PNG", compress_level=1)
         data = buf.getvalue()
         try:
             tmp = out + ".tmp"
