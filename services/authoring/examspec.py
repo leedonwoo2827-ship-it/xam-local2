@@ -41,10 +41,72 @@ def load(exam_id: str) -> Dict[str, Any]:
         return json.load(f)
 
 
+PRACTICAL_FORMATS = ("task", "written")      # task = 작업형(컴활) · written = 필답형(정처기·산기)
+
+
+def is_practical(d: Dict[str, Any]) -> bool:
+    return str((d or {}).get("format") or "").strip() in PRACTICAL_FORMATS
+
+
+def _revision_warns(d: Dict[str, Any]) -> List[str]:
+    rev = d.get("revision") or {}
+    warns: List[str] = []
+    until = str(rev.get("effective_until") or "").strip()
+    if not until:
+        warns.append("revision.effective_until 이 비었습니다 — 언제까지 유효한지 알 수 없습니다(YYYY-MM-DD).")
+    else:
+        try:
+            if date.fromisoformat(until) < date.today():
+                warns.append(f"유효 기간이 지났습니다 — {until} 까지였습니다. 공고를 다시 확인하십시오.")
+        except ValueError:
+            warns.append(f"revision.effective_until 이 날짜가 아닙니다: {until!r}")
+    if not rev.get("confirmed"):
+        warns.append("revision.confirmed 가 false 입니다 — 시행처 공고로 확인되지 않은 값입니다.")
+    if not rev.get("checked_at"):
+        warns.append("revision.checked_at 이 비었습니다 — 언제 확인한 값인지 알 수 없습니다.")
+    return warns
+
+
+def _validate_practical(d: Dict[str, Any]) -> Tuple[List[str], List[str]]:
+    """실기 시험정보 — 묶음(subjects)·문항수·배점을 검산한다. 보기·해설 분량은 없다.
+
+    subjects 는 「문제1 기본작업 · 문제2 계산작업 …」 같은 **묶음**이다. count 는 묶음의 문항 수,
+    points 는 묶음 배점. 합이 round.size · 100점과 맞아야 한다(틀리면 집필이 그 틀로 돈다)."""
+    errs: List[str] = []
+    for k in ("id", "label", "round", "subjects", "program"):
+        if not d.get(k):
+            errs.append(f"필수 항목이 없습니다: {k}")
+    if errs:
+        return errs, []
+    size = int((d.get("round") or {}).get("size") or 0)
+    subs = d.get("subjects") or []
+    if size <= 0:
+        errs.append("round.size 가 0 입니다.")
+    tot = sum(int(s.get("count") or 0) for s in subs)
+    if tot != size:
+        errs.append(f"묶음 문항수 합({tot}) 이 round.size({size}) 와 다릅니다.")
+    nos = [int(s.get("no") or 0) for s in subs]
+    if nos != list(range(1, len(subs) + 1)):
+        errs.append(f"묶음 번호가 1부터 연속이 아닙니다: {nos}")
+    for s in subs:
+        if not str(s.get("name") or "").strip() or not str(s.get("key") or "").strip():
+            errs.append(f"문제{s.get('no')} 의 name·key 가 비었습니다.")
+        if int(s.get("count") or 0) <= 0:
+            errs.append(f"문제{s.get('no')} 의 count 가 0 입니다.")
+    pts = [s.get("points") for s in subs]
+    if all(isinstance(p, (int, float)) for p in pts) and sum(pts) != int(d.get("total_points") or 100):
+        errs.append(f"묶음 배점 합({sum(pts)}) 이 총점({d.get('total_points') or 100}) 과 다릅니다.")
+    return errs, _revision_warns(d)
+
+
 def validate(d: Dict[str, Any]) -> Tuple[List[str], List[str]]:
     """(막는 것, 알려줄 것). 막는 것이 하나라도 있으면 집필에 쓰지 않는다."""
     errs: List[str] = []
     warns: List[str] = []
+
+    # ★ 실기(작업형 task · 필답형 written)는 보기·해설 분량이 없다 — 따로 본다(2026-11-09).
+    if is_practical(d):
+        return _validate_practical(d)
 
     for k in ("id", "label", "round", "subjects", "choices"):
         if not d.get(k):
@@ -168,6 +230,7 @@ def listing() -> List[Dict[str, Any]]:
             "label": d.get("label") or eid,
             "label_short": d.get("label_short") or "",
             "pd_id": d.get("pd_id") or "",
+            "format": str(d.get("format") or "mcq"),
             "round_size": (d.get("round") or {}).get("size"),
             "part_size": (d.get("round") or {}).get("part_size"),
             "subjects": [{"no": s.get("no"), "name": s.get("name"),

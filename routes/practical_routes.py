@@ -5,6 +5,8 @@
 """
 from __future__ import annotations
 
+import glob
+import json
 import os
 import re
 
@@ -34,6 +36,22 @@ def _parse_pages(text: str, all_pages: list[int]) -> list[int]:
 
 def setup_practical_routes() -> APIRouter:
     router = APIRouter(prefix="/api/practical", tags=["practical"])
+
+    @router.get("/track")
+    async def track():
+        """왼쪽 메뉴가 트랙을 고르는 근거 — 시험정보 format, 없으면 실기 판독 유무."""
+        from services.authoring import parts
+        spec = parts.active() or {}
+        fmt = str(spec.get("format") or "").strip()
+        read = False
+        if not fmt and project.ocr_dir():
+            try:
+                read = any(any(r["read"] for r in pread.page_table(s)) for s in project.rendered_srcs())
+            except Exception:                                   # noqa: BLE001 — 표시용
+                read = False
+        practical = fmt in ("task", "written") or (not fmt and read)
+        return {"track": fmt or ("task" if read else "mcq"), "practical": practical,
+                "spec_id": spec.get("id") or "", "label": spec.get("label") or ""}
 
     @router.get("/overview")
     async def overview():
@@ -127,6 +145,72 @@ def setup_practical_routes() -> APIRouter:
         except RuntimeError as e:
             raise HTTPException(status_code=409, detail=str(e)) from e
         return registry.view(job)
+
+    # ── 구조화 MD로 정리(실기) — 확정본 01/practical 문항 목록 · 보기 ─────────────
+    @router.get("/items")
+    async def items(q: str = "", unverified: int = 0):
+        from services.practical import finalize as pfin
+        d = pfin.out_dir()
+        rows = []
+        for f in sorted(glob.glob(os.path.join(d, "*.json"))):
+            stem = os.path.basename(f)[:-5]
+            if not re.fullmatch(r"\d{2}-\d-\d{2}", stem):
+                continue
+            try:
+                with open(f, encoding="utf-8") as fh:
+                    j = json.load(fh)
+            except (OSError, ValueError) as e:
+                rows.append({"id": stem, "error": f"읽지 못함: {e}"})
+                continue
+            p0 = (j.get("problems") or [{}])[0]
+            ans = j.get("answer") or {}
+            pages = sorted({int(p.get("page")) for p in j.get("problems") or [] if p.get("page")}
+                           | {int(x) for x in ans.get("pages") or []})
+            rows.append({
+                "id": stem, "round": j.get("round"), "part": j.get("part"), "no": j.get("no"),
+                "head": bool(j.get("head")), "points": p0.get("points"),
+                "verified": bool(j.get("verified")), "flags": j.get("flags") or [],
+                "figures": len(j.get("figures") or []) + len(j.get("answer_figures") or []),
+                "has_answer": bool(ans), "pages": pages,
+                "preview": (p0.get("lead") or "")[:160],
+            })
+        n, nv = len(rows), sum(1 for r in rows if r.get("verified"))
+        out = rows
+        if unverified:
+            out = [r for r in out if not r.get("verified")]
+        if q:
+            out = [r for r in out if q in r["id"] or q in (r.get("preview") or "")]
+        return {"dir": d, "count": n, "verified": nv, "filtered": len(out), "items": out}
+
+    @router.get("/item/{stem}")
+    async def item(stem: str):
+        from services.practical import finalize as pfin
+        if not re.fullmatch(r"\d{2}-\d-\d{2}", stem):
+            raise HTTPException(status_code=400, detail="문항 id 는 RR-P-NN 입니다.")
+        base = os.path.join(pfin.out_dir(), stem)
+        if not os.path.isfile(base + ".json"):
+            raise HTTPException(status_code=404, detail="확정본에 없는 문항입니다.")
+        with open(base + ".json", encoding="utf-8") as fh:
+            j = json.load(fh)
+        md = open(base + ".md", encoding="utf-8").read() if os.path.isfile(base + ".md") else ""
+        return {"id": stem, "json": j, "md": md, "path": base + ".md", "src": next(iter(project.rendered_srcs()), "")}
+
+    @router.get("/img/{which}/{name}")
+    def img(which: str, name: str):
+        """확정본(01)·집필(02) 원고가 부르는 그림 — images/ 아래 파일만."""
+        from fastapi.responses import FileResponse
+        from services.practical import author as pa
+        from services.practical import finalize as pfin
+        if which == "01":
+            d = os.path.join(pfin.out_dir(), "images")
+        elif re.fullmatch(r"m\d{2}", which):
+            d = os.path.join(pa.round_dir(int(which[1:])), "images")
+        else:
+            raise HTTPException(status_code=400, detail="which 는 01 또는 mNN")
+        p = os.path.join(d, os.path.basename(name))
+        if not os.path.isfile(p):
+            raise HTTPException(status_code=404, detail="그림이 없습니다.")
+        return FileResponse(p)
 
     # ── 실기 문제 집필 ──────────────────────────────────────────────────
     @router.get("/author/overview")

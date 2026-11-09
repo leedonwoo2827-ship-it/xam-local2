@@ -223,6 +223,18 @@ def invalidate() -> None:
     _CACHE["spec"] = None
 
 
+def track() -> str:
+    """지금 작업 폴더의 시험 형식 — `mcq`(필기) · `task`(실기 작업형) · `written`(실기 필답형).
+
+    ★ 트랙은 **시험정보의 format 하나로** 정한다(2026-11-09). 필기 코드 곳곳에 if 를 흩뿌리지 않고,
+      실기 쪽은 이 값을 보고 `services/practical/*` 어댑터로 갈라진다."""
+    return str((active() or {}).get("format") or "mcq").strip() or "mcq"
+
+
+def is_practical() -> bool:
+    return track() in ("task", "written")
+
+
 def subjects_map() -> Dict[int, str]:
     """과목번호 → 과목명. 옛 `schema.SUBJECTS` 를 대신한다."""
     return {s["no"]: s["name"] for s in _subjects(active() or {})}

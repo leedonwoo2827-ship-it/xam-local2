@@ -32,7 +32,11 @@ import { actionBtn } from "./panel.js";
 const S = {
   exams: null,      // /api/authoring/exams
   book: null,       // /api/books 의 활성 항목
+  fmt: "",          // ② 프롬프트 형식 — mcq(필기) · task(실기 작업형) · written(실기 필답형)
 };
+
+const FMT = [["mcq", "필기 (객관식)"], ["task", "실기 · 작업형 (컴활 엑셀·액세스)"], ["written", "실기 · 필답형 (정처기·산기)"]];
+const isPrac = (f) => f === "task" || f === "written";
 
 export const meta = {
   title: () => "과정 정의",
@@ -82,6 +86,11 @@ async function load() {
   ]);
   S.exams = ex;
   S.book = (bk.items || []).find((x) => x.active) || null;
+  if (!S.fmt) {
+    // 처음엔 작업 폴더의 트랙을 따른다(실기 폴더면 실기 프롬프트)
+    const t = await api("/api/practical/track").catch(() => null);
+    S.fmt = t && t.practical ? (t.track === "written" ? "written" : "task") : "mcq";
+  }
   drawWhy();
   drawPrompt();
   drawList();
@@ -111,6 +120,7 @@ function drawWhy() {
 /* ★ 대강만 적는다. 여기서 문장을 완벽하게 만들려 들면 시험이 개정될 때마다 이
  *   화면을 고쳐야 한다. 사람이 읽고 자기 과정에 맞게 고쳐 쓰는 것이 전제다. */
 function promptText() {
+  if (isPrac(S.fmt)) return practicalPrompt();
   const b = S.book || {};
   const pd = (b.pd || "").trim();
   const known = (S.exams && S.exams.items || []).map((x) => x.id);
@@ -159,17 +169,66 @@ function promptText() {
   ].join("\n");
 }
 
+/* ★ 실기 시험정보(2026-11-09) — 보기·해설 분량 대신 묶음·배점·프로그램·출제 범위·바뀐 점.
+ *   상시 시험은 공고 없이 조금씩 바뀐다 → 바뀐 점은 changes 에 쌓고 집필이 읽는다. */
+function practicalPrompt() {
+  const b = S.book || {};
+  const pd = (b.pd || "").trim();
+  const written = S.fmt === "written";
+  return [
+    `실기 과정의 시험정보 JSON 을 만들어 주세요. (형식: ${written ? "필답형 — format: \"written\"" : "작업형 — format: \"task\""})`,
+    ``,
+    `- 과정 이름: (여기에 적으세요 — 예: 컴퓨터활용능력 1급 실기 / 정보처리기사 실기)`,
+    `- 품목 코드(pd): ${pd || "(아직 없음 — 발행 대상 품목 코드)"}`,
+    `- 작업 폴더: ${b.path || "(작업 폴더를 먼저 지정하세요)"}`,
+    ``,
+    `해 주실 일:`,
+    ``,
+    `1. 시행처 공고·출제기준을 웹에서 찾아 읽고 다음을 확정해 주세요.`,
+    written
+      ? `   - 시험 시간, 문항 수, 배점, 출제 범위(과목·주요 항목), 답안 형식(단답·서술·코드·SQL)`
+      : `   - 시험 시간, 프로그램과 버전(예: MS Office 2021), 묶음 구성(문제1 기본작업 · 문제2 계산작업 …)과 묶음별 문항 수·배점, 합격 점수`,
+    written ? `   - 출제 범위의 언어·도구(C·Java·Python·SQL 등)` : `   - 출제 범위 함수·기능 목록(출제기준의 세세항목). 1급이면 액세스(테이블·쿼리·폼·보고서·처리 기능)까지`,
+    `   - 공고 표의 숫자를 그대로 쓰고, 블로그·요약글이 공고와 다르면 공고를 따르세요.`,
+    ``,
+    `2. 2027~2029 출제기준(새 커리큘럼)과 현행을 대조해 바뀐 점을 정리해 주세요. ★ 핵심입니다.`,
+    `   - 바뀐 점은 changes 배열에 {date, what, apply} 로 하나씩 — 집필이 이 목록을 읽어 반영합니다.`,
+    `   - 상시 시험에서 최근 바뀐 것(새 기능·빠진 기능·배점 변화)도 같은 자리에 적어 주세요.`,
+    ``,
+    `3. 이 값이 언제까지 유효한지 정해 주세요 — revision.effective_until 에 YYYY-MM-DD.`,
+    ``,
+    `4. 01/practical 확정본이 있으면 묶음별 문항 수·배점을 세어 공고와 대조해 주세요(어긋나면 공고를 따르고 알려 주세요).`,
+    ``,
+    `5. exams/com2-practical.json 을 본떠서 같은 구조로 만들어 주세요.`,
+    `   - format · program · program_version · time_minutes · total_points · pass_points`,
+    `   - subjects = 묶음(no · key(아스키) · name · count · points · items[{no, points, kind}])`,
+    `   - speech_dict 는 이 과정의 용어 발음으로 다시 써 주세요.`,
+    ``,
+    `6. 마지막에 반드시 확인해 주세요.`,
+    `   - 묶음 문항수의 합 == round.size, 묶음 배점의 합 == total_points (다르면 앱이 저장을 거부합니다)`,
+    `   - revision.source_url · checked_at · effective_until`,
+    ``,
+    `다 되면 JSON 전문을 보여 주세요. 제가 앱의 [JSON 받기] 로 넣겠습니다.`,
+  ].join("\n");
+}
+
 function drawPrompt() {
   const box = $("#ed-prompt");
   if (!box) return;
   const txt = promptText();
   box.innerHTML = `
+    <div class="row" style="gap:8px;align-items:center;margin-bottom:9px;flex-wrap:wrap">
+      <span class="dim">형식</span>
+      <select class="input" id="ed-fmt">${FMT.map(([v, l]) => `<option value="${v}"${v === S.fmt ? " selected" : ""}>${l}</option>`).join("")}</select>
+    </div>
     <pre class="pb-cmd" id="ed-ptext" style="white-space:pre-wrap">${escapeHtml(txt)}</pre>
     <div class="row" style="gap:8px;align-items:center;margin-top:9px;flex-wrap:wrap">
       <button class="btn primary" id="ed-copy" type="button">이 글 복사</button>
       <span class="dim">복사해서 <b>Claude Code 창</b>에 붙여 넣으세요.
         과정 이름은 직접 채우십시오 — 추측하면 안 되는 값입니다.</span>
     </div>`;
+  const sel = $("#ed-fmt");
+  if (sel) sel.onchange = () => { S.fmt = sel.value; drawPrompt(); };
   const b = $("#ed-copy");
   if (b) {
     b.onclick = async () => {
@@ -223,7 +282,8 @@ function drawList() {
     const badge = !e.ok ? `<b class="bad">오류 ${e.errors.length}건</b>`
       : e.confirmed ? `<span class="ok">확인됨</span>`
       : `<b class="warn">미확인</b>`;
-    const subs = (e.subjects || []).map((s) => `${s.no}. ${s.name} ${s.count}`).join(" · ");
+    const prac = isPrac(e.format);
+    const subs = (e.subjects || []).map((s) => prac ? `문제${s.no} ${s.name} ${s.count}` : `${s.no}. ${s.name} ${s.count}`).join(" · ");
     // ★ 지금 작업 폴더의 품목과 같은 과정을 표시해 준다 — 목록이 길어지면
     //   "내가 지금 쓰는 게 어느 것인가" 가 안 보인다.
     const mine = activePd && e.pd_id === activePd;
@@ -232,7 +292,7 @@ function drawList() {
         <div class="dim small"><code>${escapeHtml(e.id)}</code>
           ${e.pd_id ? " · 품목 " + escapeHtml(e.pd_id) : " · <b class='warn'>품목 코드 없음</b>"}
           ${e.spec_version ? " · v" + e.spec_version : ""}</div></td>
-      <td class="dim">회차 <b>${e.round_size ?? "-"}</b>문항 · 파트 상한 ${e.part_size ?? "-"}
+      <td class="dim">${prac ? `<span class="badge">실기 ${e.format === "written" ? "필답형" : "작업형"}</span> ` : ""}회차 <b>${e.round_size ?? "-"}</b>문항${prac ? "" : ` · 파트 상한 ${e.part_size ?? "-"}`}
         <div class="small">${escapeHtml(subs)}</div></td>
       <td>${badge} ${untilBadge(e)}
         <div class="dim small">${e.checked_at ? "확인 " + escapeHtml(e.checked_at)

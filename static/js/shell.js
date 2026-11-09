@@ -34,6 +34,8 @@ const routes = [
   // 여기로 온다(syncTrackNav). 패널 쪽 라우트는 아래 「부유 패널」 묶음에 있다.
   { re: /^\/practical-review\/([^/]+)\/(\d+)$/, nav: "oc", layer: "base", load: () => import("./practicalReview.js") },
   { re: /^\/practical-round$/, nav: "oc", layer: "base", load: () => import("./practicalReview.js") },
+  // 구조화 MD로 정리(실기) — 확정본 01/practical 문항 보기. 실기 폴더에서 왼쪽 「구조화 MD로 정리」 가 여기로 온다.
+  { re: /^\/practical-scan\/(.+)$/, nav: "sc", layer: "base", load: () => import("./practicalScan.js") },
   // 실기 문제 집필 — 필기 「문항 집필」 과 나눈 탭(2026-11-09). 실기 폴더에서만 왼쪽에 보인다.
   { re: /^\/practical-author$/, nav: "pa", layer: "base", load: () => import("./practicalAuthor.js") },
   { re: /^\/scan\/(.+)$/,       nav: "sc", layer: "base",  load: () => import("./scan.js") },
@@ -72,6 +74,7 @@ const routes = [
   { re: /^\/ocr$/,       nav: "oc", layer: "panel", group: "ocr",       load: () => import("./ocr.js") },
   { re: /^\/practical-review$/, nav: "oc", layer: "panel", group: "ocr", load: () => import("./practicalReview.js") },
   { re: /^\/scan$/,      nav: "sc", layer: "panel", group: "scan",      load: () => import("./scan.js") },
+  { re: /^\/practical-scan$/, nav: "sc", layer: "panel", group: "scan", load: () => import("./practicalScan.js") },
   { re: /^\/questions$/, nav: "q",  layer: "panel", group: "questions", load: () => import("./questions.js") },
   { re: /^\/video$/,     nav: "v",  layer: "panel", group: "video",     load: () => import("./video.js") },
 
@@ -370,19 +373,37 @@ window.addEventListener("hashchange", render);
  *
  * ★ 필기와 같은 메뉴 이름을 쓴다(2026-11-08 지시: "이건 OCR 검수에서 확인하는 거 아니에요?").
  *   판정은 **실기 판독 결과가 있는가**다 — 시험정보(format)가 아직 없는 새 실기 폴더도 맞게 잡힌다. */
+// 실기 트랙에서 갈아 끼우는 메뉴 — [data-nav, 실기 주소, 실기 꼬리표]. 필기 주소는 처음 그린 href 를 기억해 둔다.
+// 화면이 아직 없는 메뉴는 여기 넣지 않는다(넣으면 빈 화면으로 간다).
+const PRACTICAL_NAV = [
+  ["oc", "#/practical-review", "실기"],
+  ["sc", "#/practical-scan", "01/practical"],
+];
+const WRITTEN_HREF = {};
+
 async function syncTrackNav() {
-  const a = document.querySelector('#side-nav a[data-nav="oc"]');
-  if (!a) return;
   let practical = false;
   try {
-    const d = await fetch("/api/practical/overview").then((r) => (r.ok ? r.json() : null));
-    practical = !!(d && (d.srcs || []).some((s) => s.read > 0));
+    // ★ 판정은 시험정보 format(task·written) — 없으면 실기 판독 유무(2026-11-09)
+    const d = await fetch("/api/practical/track").then((r) => (r.ok ? r.json() : null));
+    if (d) practical = !!d.practical;
+    else {
+      const o = await fetch("/api/practical/overview").then((r) => (r.ok ? r.json() : null));
+      practical = !!(o && (o.srcs || []).some((s) => s.read > 0));
+    }
   } catch (_) { /* 서버가 옛 버전이면 필기로 둔다 */ }
-  a.setAttribute("href", practical ? "#/practical-review" : "#/ocr");
-  const pa = document.querySelector('#side-nav a[data-nav="pa"]');
-  if (pa) pa.closest("li").hidden = !practical;
-  const dest = a.querySelector(".nav-dest");
-  if (dest) dest.textContent = practical ? "실기" : "스캔→01";
+  for (const [nav, href, dest] of PRACTICAL_NAV) {
+    const a = document.querySelector(`#side-nav a[data-nav="${nav}"]`);
+    if (!a) continue;
+    const d = a.querySelector(".nav-dest");
+    if (!(nav in WRITTEN_HREF)) WRITTEN_HREF[nav] = [a.getAttribute("href"), d ? d.textContent : null];
+    a.setAttribute("href", practical ? href : WRITTEN_HREF[nav][0]);
+    if (d) d.textContent = practical ? dest : WRITTEN_HREF[nav][1];
+  }
+  // 「문항 집필」(필기) ↔ 「실기 문제 집필」 — 실기 폴더에서는 필기 집필을 숨긴다(2026-11-09 지시)
+  const show = (nav, on) => { const a = document.querySelector(`#side-nav a[data-nav="${nav}"]`); if (a) a.closest("li").hidden = !on; };
+  show("pa", practical);
+  show("a", !practical);
 }
 window.addEventListener("xam:book-changed", syncTrackNav);
 
