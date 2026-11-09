@@ -250,6 +250,125 @@ def setup_lecture_routes() -> APIRouter:
         registry.spawn(job, work)
         return registry.view(job)
 
+    @router.post("/api/part2-auto")
+    async def part2_auto(request: Request):
+        """2부 끝까지 한 번에(잡) — 해설 모으기·구조화·승인 → 이론 요약 노트 → 요약반 → 종합반(n배).
+
+        ★ 2026-11-10 지시: "4개를 한번에 실행하고 싶은데". 네 화면의 [전 과목 자동 진행] 을
+          순서대로 이어 붙인 것이다 — 단계마다 사람 승인 대신 자동 승인. 앞 단계가 실패한 묶음은
+          뒤 단계를 건너뛴다(빈 목차·빈 요약노트를 들고 가지 않는다).
+        """
+        from routes.theory_routes import DEFAULT_MODEL
+        from services.authoring import theory
+        from services.book import paths as _paths
+        b = await _body(request)
+        keys = [str(k) for k in (b.get("keys") or [s["key"] for s in common.subjects()])]
+        for k in keys:
+            _need("summary", k)
+        factor = int(b.get("factor") or common.DEFAULT_FACTOR)
+        full = bool(b.get("full", True))
+        redo_theory = bool(b.get("redo_theory"))
+        _busy()
+        kinds = ["summary", "full"] if full else ["summary"]
+        units = ([f"{k}:outline" for k in keys] + [f"{k}:theory" for k in keys]
+                 + [f"{k}:{kd}:{st}" for k in keys for kd in kinds for st in notes.STAGES[kd] if st != "listen"])
+        names = {k: (common.subject(k).get("label") or f"{common.subject(k).get('no', '')}과목") for k in keys}
+        job = registry.create(KIND_JOB, f"2부 자동 · {' · '.join(names.values())} · 구조화→이론→"
+                                        + ("요약반→종합반" if full else "요약반"), units)
+        job["auto"] = {"kinds": kinds, "keys": keys, "factor": factor, "part2": True}
+
+        def work(j):
+            import shutil
+            import threading
+            stop = lambda: bool(j.get("cancel_requested"))          # noqa: E731
+            ok = {k: True for k in keys}
+            # ① 해설 모으기 · 구조화 · 승인 — 묶음마다 차례로
+            for k in keys:
+                if stop():
+                    break
+                o = outline.read_outline(k)
+                if o and o.get("approved") and not b.get("redo_outline"):
+                    # 이미 승인된 목차는 다시 만들지 않는다 — 앞서 단계별로 돌린 것을 이어받는다
+                    registry.item(j, f"{k}:outline", status="done", output="이미 승인됨")
+                    continue
+                registry.item(j, f"{k}:outline", status="running")
+                registry.update(j, current=f"{names[k]} 해설 구조화")
+                try:
+                    outline.collect(k)
+                    d = outline.structure(k, log=lambda s, k=k: registry.log(j, f"[{names[k]}] {s}"))
+                    outline.approve(k, True)
+                    registry.item(j, f"{k}:outline", status="done", output=f"대단원 {len(d['topics'])}개 · 자동 승인")
+                except Exception as e:                       # noqa: BLE001
+                    ok[k] = False
+                    registry.item(j, f"{k}:outline", status="error", error=str(e))
+                    registry.log(j, f"[{names[k]}] (문제) 구조화 — {e}", force=True)
+            # ② 이론 요약 노트 — 한 폴더를 같이 써서 프롬프트 캐시를 살린다(theory_routes 와 같은 이유)
+            view = theory.source_view(_paths.book_dir()) if not stop() else ""
+            try:
+                for k in keys:
+                    if stop():
+                        break
+                    if not ok[k]:
+                        registry.item(j, f"{k}:theory", status="skipped", error="구조화 실패")
+                        continue
+                    if theory.is_done(k) and not redo_theory:
+                        registry.item(j, f"{k}:theory", status="done", output="이미 있음")
+                        continue
+                    registry.item(j, f"{k}:theory", status="running")
+                    registry.update(j, current=f"{names[k]} 이론 요약 노트")
+                    try:
+                        res = theory.draft_theory(key=k, book_dir=_paths.book_dir(), model=DEFAULT_MODEL, view=view,
+                                                  on_activity=lambda s, k=k: registry.log(j, f"[{names[k]}] {s}"))
+                    except Exception as e:                   # noqa: BLE001
+                        res = None
+                        registry.log(j, f"[{names[k]}] (문제) 이론 — {e}", force=True)
+                    if res is not None and res.ok:
+                        registry.item(j, f"{k}:theory", status="done",
+                                      output=f"대주제 {res.h2_count} · 소주제 {res.h3_count} · ${res.cost_usd:.3f}")
+                    else:
+                        ok[k] = False
+                        for pr in (res.problems if res else []):
+                            registry.log(j, f"[{names[k]}] (문제) {pr}", force=True)
+                        registry.item(j, f"{k}:theory", status="error", error=((res.problems or ["검증 실패"])[0] if res else "실패"))
+            finally:
+                if view:
+                    shutil.rmtree(view, ignore_errors=True)
+            # ③ 요약반 → 종합반 — 묶음마다 동시에(강의 노트 자동 진행과 같다)
+            def one(k):
+                say = lambda s: registry.log(j, f"[{names[k]}] {s}")    # noqa: E731
+                for kd in kinds:
+                    def mark(st, status, kd=kd):
+                        registry.item(j, f"{k}:{kd}:{st}", status=status)
+                        if status == "running":
+                            registry.update(j, current=f"{names[k]} {notes.KIND_LABEL[kd]} · {notes.STAGE_LABEL[st]}")
+                    r = stages.autorun(kd, k, log=say, cancelled=stop, factor=factor, on_stage=mark)
+                    say(f"{notes.KIND_LABEL[kd]} {'끝' if r['ok'] else '멈춤'} · ${r['cost_usd']:.3f}")
+                    if not r["ok"]:
+                        return
+
+            errs: list = []
+
+            def guard(k):
+                try:
+                    one(k)
+                except Exception as e:                       # noqa: BLE001
+                    errs.append(f"{names[k]}: {e}")
+                    registry.log(j, f"[{names[k]}] (문제) {type(e).__name__}: {e}", force=True)
+
+            ts = [threading.Thread(target=guard, args=(k,), daemon=True) for k in keys if ok[k] and not stop()]
+            for t in ts:
+                t.start()
+            for t in ts:
+                t.join()
+            bad = [names[k] for k in keys if not ok[k]] + errs
+            if bad:
+                registry.finish(j, "error", error="끝까지 못 간 묶음: " + " / ".join(bad))
+            else:
+                registry.finish(j, "done")
+
+        registry.spawn(job, work)
+        return registry.view(job)
+
     @router.get("/api/lecture-auto/running")
     async def lecture_auto_running():
         """화면을 다시 열었을 때 돌고 있는 자동 진행에 다시 붙는다."""

@@ -92,13 +92,42 @@ async function show() {
  *   (2026-11-10 지시: "가급적 4개가 실행이 통일"). 해설 모으기 → 구조화 → 자동 승인까지. */
 async function autoAll() {
   const items = S.items || [];
-  const body = `<p>${items.map((i) => `<b>${escapeHtml(i.label || i.no + "과목")}</b>`).join(" · ")}을 차례로 돌립니다.
-      단계마다 <b>자동 승인</b>합니다.</p>
+  const body = `<p>${items.map((i) => `<b>${escapeHtml(i.label || i.no + "과목")}</b>`).join(" · ")}을 돌립니다.
+      단계마다 사람 대신 <b>자동 승인</b>합니다.</p>
     <p>해설 모으기 → 노트 구조화(Claude) → 승인</p>
-    <p class="muted">묶음(과목) 하나에 4~5분. 중간에 멈춰도 끝난 것은 남고, 다시 누르면 다시 만듭니다.
-      승인한 목차를 [이론 요약 노트] 가 따릅니다.</p>`;
-  if (!(await confirmModal({ title: "해설 구조화를 자동으로 끝까지 할까요?", body, ok: "자동 진행 시작" }))) return;
-  structure(items.map((i) => i.key), true);
+    <p><label><input type="checkbox" id="ol-auto-all" checked> <b>이어서 2부 끝까지 한 번에</b> —
+      이론 요약 노트 → 요약반 → 종합반
+      <select id="ol-auto-factor">${[2, 3, 4, 5].map((n) => `<option value="${n}"${n === 3 ? " selected" : ""}>${n}배</option>`).join("")}</select></label></p>
+    <p class="muted">구조화 묶음당 4~5분 · 이론 편당 10~15분 · 강의 노트는 묶음마다 동시에. 끝까지면 몇 시간 걸립니다.
+      창을 닫아도 서버에서 계속 돌고, 중간에 멈춰도 끝난 단계는 남습니다.</p>`;
+  if (!(await confirmModal({ title: "2부를 자동으로 진행할까요?", body, ok: "자동 진행 시작" }))) return;
+  const all = !!(document.querySelector("#ol-auto-all") || {}).checked;
+  const factor = +((document.querySelector("#ol-auto-factor") || {}).value || 3);
+  if (!all) { structure(items.map((i) => i.key), true); return; }
+  try {
+    const job = await api("/api/part2-auto", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ keys: items.map((i) => i.key), factor, full: true }),
+    });
+    toast("2부 자동 진행을 시작했습니다 — 진행은 이 화면과 요약반·종합반 화면에서 보입니다.");
+    follow(job.id, "단계");
+  } catch (e) { toast(e.message, "err"); }
+}
+
+async function follow(id, unit) {
+  const box = S.root.querySelector(".lc-log");
+  box.classList.add("on");
+  const clock = jobClock(S.root.querySelector(".lc-clock"), { unit, hintSec: 260 });
+  const lines = [];
+  let seen = -1;
+  const fin = await pollJob(id, (j) => {
+    (j.log && j.log.lines || []).forEach((l) => lines.push(typeof l === "string" ? l : (l.line || l.text || "")));
+    box.textContent = lines.slice(-8).join("\n") || j.label;
+    clock.update(j, lines);
+    if (j.done_count !== seen) { seen = j.done_count; reload(); }
+  });
+  toast(fin && fin.status === "done" ? "끝났습니다." : ((fin && fin.error) || "실패했습니다"), fin && fin.status === "done" ? "" : "err");
+  reload();
 }
 
 async function structure(keys, autoApprove = false) {
