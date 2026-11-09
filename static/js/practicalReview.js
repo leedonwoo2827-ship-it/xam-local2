@@ -180,7 +180,7 @@ async function mountWork(root, ctx) {
       </div>
       <div class="oc-pane oc-ocr" id="oc-ocrpane">
         <div class="oc-pane-head"><span>OCR 원문 (페이지 판독)</span><span class="muted" id="oc-ocrmeta"></span></div>
-        <textarea id="oc-ocrtext" spellcheck="false" placeholder="이 쪽 글자 전문 — 비어 있으면 「＋ 실기 OCR」 의 [원문만 채우기] 로 채웁니다(카드는 그대로)."></textarea>
+        <textarea id="oc-ocrtext" spellcheck="false" placeholder="이 쪽 글자 전문 — 판독이 채웁니다."></textarea>
       </div>
       <div class="oc-pane oc-edit" id="oc-editpane">
         <div class="oc-toolbar" id="pr-toolbar"></div>
