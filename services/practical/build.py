@@ -249,7 +249,10 @@ def same(got, want, text: str = "") -> bool:
             return True
         d = _decimals(w) if isinstance(w, str) else None
         if d is not None:
-            return round(gn, d) == round(wn, d)
+            # 엑셀 표시는 사사오입(11.25 → 11.3) — 파이썬 round 는 짝수 쪽(11.2)이라 Decimal 로 맞춘다
+            from decimal import ROUND_HALF_UP, Decimal
+            q = Decimal(1).scaleb(-d)
+            return Decimal(repr(gn)).quantize(q, ROUND_HALF_UP) == Decimal(repr(wn)).quantize(q, ROUND_HALF_UP)
         if isinstance(w, (int, float)) and float(w).is_integer():
             return round(gn) == wn             # 정수로 적었으면 표시 형식(#,##0)으로 반올림된 값
         return False
