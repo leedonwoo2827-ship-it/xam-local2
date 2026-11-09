@@ -525,7 +525,7 @@ function linesWithAssets(list, x, page, opts = {}) {
         return;
       }
       if (!part.trim()) return;
-      const pEl = el(opts.ordered ? "div" : "p", null, (opts.ordered ? `${idx + 1}. ` : "") + part.trim());
+      const pEl = el("p", null, part.trim());
       pEl.style.margin = "6px 0";
       if (indent) pEl.style.paddingLeft = "1.6em";
       box.appendChild(pEl);
@@ -810,7 +810,7 @@ function previewAnswer(a) {
   }
   if (a.code) h.push(`<pre class="pb-cmd">${escapeHtml(a.code)}</pre>`);
   n.innerHTML = h.join("");
-  n.appendChild(linesWithAssets(a.steps, a, S.page, { ordered: true }));
+  n.appendChild(linesWithAssets(a.steps, a, S.page));   // 번호를 붙이지 않는다 — 적힌 줄 그대로
   return n;
 }
 
@@ -1018,8 +1018,8 @@ function roundCard(it) {
     }
     if (a.code) h.push(`<pre class="pb-cmd">${escapeHtml(a.code)}</pre>`);
     if (a.steps.length) {
-      h.push(`<details><summary class="muted">풀이 절차</summary><ol style="margin:4px 0 0 18px">`
-        + a.steps.map((s) => `<li>${escapeHtml(String(s).replace(/\{\{b-\d+\}\}/g, "(그림 — 아래)"))}</li>`).join("") + `</ol></details>`);
+      h.push(`<details><summary class="muted">풀이 절차</summary><div style="margin:4px 0 0 4px">`
+        + a.steps.map((s) => `<p style="margin:4px 0">${escapeHtml(String(s).replace(/\{\{b-\d+\}\}/g, "(그림 — 아래)"))}</p>`).join("") + `</div></details>`);
     }
     ans.innerHTML = h.join("");
     for (const f of a.figures || []) {
