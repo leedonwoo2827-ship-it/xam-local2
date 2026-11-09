@@ -159,7 +159,13 @@ function renderStep2() {
   btn.type = "button";
   btn.disabled = R.live;
   btn.addEventListener("click", () => startRead(s.src, inp.value.trim(), cb.checked));
-  form.append(inp, btn, ow);
+  // 원문만 채우기 — 이미 검수한 카드는 건드리지 않고 「OCR 원문」 칸만 채운다
+  const tbtn = el("button", "btn", "원문만 채우기");
+  tbtn.type = "button";
+  tbtn.disabled = R.live;
+  tbtn.title = "카드(문항·정답·그림)와 고친 것은 그대로 두고, 검수 화면 가운데 「OCR 원문」 칸만 채웁니다. 원문이 빈 쪽만 읽습니다.";
+  tbtn.addEventListener("click", () => startRead(s.src, inp.value.trim(), false, true));
+  form.append(inp, btn, tbtn, ow);
   box.appendChild(form);
   box.appendChild(el("div", "field-hint",
     "한 쪽에 40~60초쯤 걸립니다. 처음엔 한 회차만(예: 01회 쪽 범위) 돌려 결과를 보고 나머지를 돌리는 것을 권합니다. "
@@ -179,12 +185,12 @@ function logLine(text) {
   pre.scrollTop = pre.scrollHeight;
 }
 
-async function startRead(src, pages, overwrite) {
+async function startRead(src, pages, overwrite, textOnly = false) {
   let job;
   try {
     job = await api("/api/practical/read", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ src, pages, overwrite }),
+      body: JSON.stringify({ src, pages, overwrite, text_only: textOnly }),
     });
   } catch (e) {
     toast("판독을 시작하지 못했습니다: " + e.message, "err");

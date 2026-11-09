@@ -3,7 +3,7 @@
  * ★ **필기 OCR 검수(ocr.js)와 같은 화면**이다 — 정답·보기만 뺐다(2026-11-08 지시:
  *   "필기랑 정답이랑 보기를 제외하고는 동일하게"). 같은 CSS(ocr.css 의 oc-*), 같은 2층 구조:
  *     #/practical-review               위층 패널: 회차별 쪽 현황판(칸 색 = 대조완료)
- *     #/practical-review/:src/:page    아래층 바탕: 좌 스캔 / (판독 메모) / 우 카드
+ *     #/practical-review/:src/:page    아래층 바탕: 좌 스캔 / OCR 원문 / 우 카드
  *     #/practical-round?r=N            회차 묶음 — 문항 하나에 지시사항과 정답을 짝지어 대조
  *   머리줄 · 단축키(Ctrl+S 저장 · Ctrl+Enter 확정 · Alt+←/→ 쪽) · 카드 머리(문항·묶음·배점 ·
  *   대조완료 · 저장 · 그림 추가 · 삭제) · 미리보기 · 확정(MD 저장)이 필기와 같다.
@@ -51,7 +51,7 @@ export const meta = {
         actionBtn("◀ 이전", () => gotoPage(-1), { id: "pr-prev-btn" }),
         pageLabel(ctx),
         actionBtn("다음 ▶", () => gotoPage(1), { id: "pr-next-btn" }),
-        actionBtn("판독메모 펴기", () => toggleMemo(), { iconName: "file", id: "pr-memo-btn" }),
+        actionBtn("OCR원문 접기", () => toggleMemo(), { iconName: "file", id: "pr-memo-btn" }),
         actionBtn("스캔 숨기기", () => toggleScan(), { iconName: "panelRight", id: "pr-scan-btn" }),
         zoomControl(),
         actionBtn("＋ 문제 추가", () => addItem()),
@@ -89,7 +89,7 @@ export async function mount(root, ctx) {
   S.ctx = ctx;
   S.root = root;
   S.showScan = getPref("prShowScan", true);
-  S.showMemo = getPref("prShowMemo", false);
+  S.showMemo = getPref("prShowOcr", true);
   S.zoom = Number(getPref("prZoom", 1)) || 1;
   await loadTable();
   if (ctx.panel) return mountList(root, ctx);
@@ -179,8 +179,8 @@ async function mountWork(root, ctx) {
         </div>
       </div>
       <div class="oc-pane oc-ocr" id="oc-ocrpane">
-        <div class="oc-pane-head"><span>판독 메모</span><span class="muted" id="oc-ocrmeta"></span></div>
-        <textarea id="oc-ocrtext" spellcheck="false" placeholder="판독이 남긴 메모 — 회차 표기 유무, 이어지는 문항 등"></textarea>
+        <div class="oc-pane-head"><span>OCR 원문 (페이지 판독)</span><span class="muted" id="oc-ocrmeta"></span></div>
+        <textarea id="oc-ocrtext" spellcheck="false" placeholder="이 쪽 글자 전문 — 비어 있으면 「＋ 실기 OCR」 의 [원문만 채우기] 로 채웁니다(카드는 그대로)."></textarea>
       </div>
       <div class="oc-pane oc-edit" id="oc-editpane">
         <div class="oc-toolbar" id="pr-toolbar"></div>
@@ -197,7 +197,7 @@ async function mountWork(root, ctx) {
   bindSplit();
   $("#oc-pgprev").addEventListener("click", () => showScanPage(S.scanPage - 1));
   $("#oc-pgnext").addEventListener("click", () => showScanPage(S.scanPage + 1));
-  $("#oc-ocrtext").addEventListener("input", (e) => { if (S.draft) { S.draft.notes = e.target.value; markDirty(); } });
+  $("#oc-ocrtext").addEventListener("input", (e) => { if (S.draft) { S.draft.ocr_text = e.target.value; markDirty(); } });
   if (!S.keyBound) { S.keyBound = true; document.addEventListener("keydown", onKey); }
   await openPage(decodeURIComponent(ctx.args[0]), Number(ctx.args[1]));
 }
@@ -208,7 +208,7 @@ function applyLayout() {
   w.classList.toggle("showscan", S.showScan);
   w.classList.toggle("noocr", !S.showMemo);
   const b1 = $("#pr-memo-btn");
-  if (b1 && b1.lastChild) b1.lastChild.textContent = S.showMemo ? "판독메모 접기" : "판독메모 펴기";
+  if (b1 && b1.lastChild) b1.lastChild.textContent = S.showMemo ? "OCR원문 접기" : "OCR원문 펴기";
   const b2 = $("#pr-scan-btn");
   if (b2 && b2.lastChild) b2.lastChild.textContent = S.showScan ? "스캔 숨기기" : "스캔 보기";
   const img = $("#oc-scan");
@@ -216,7 +216,7 @@ function applyLayout() {
   placeSplitBar();
 }
 function toggleScan() { S.showScan = !S.showScan; setPref("prShowScan", S.showScan); applyLayout(); }
-function toggleMemo() { S.showMemo = !S.showMemo; setPref("prShowMemo", S.showMemo); applyLayout(); }
+function toggleMemo() { S.showMemo = !S.showMemo; setPref("prShowOcr", S.showMemo); applyLayout(); }
 
 async function openPage(src, n) {
   let d;
@@ -234,7 +234,7 @@ async function openPage(src, n) {
     if (x.title) x.title = x.title.replace(/[❶-❿]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0x2776 + 0x2460));
   });
   S.dirty = false;
-  $("#oc-ocrtext").value = S.draft.notes || "";
+  $("#oc-ocrtext").value = S.draft.ocr_text || "";
   $("#oc-ocrmeta").textContent = `${src}.pdf p.${n}`;
   S.scanPage = n;
   S.scanW = (d.scan_size || [])[0] || 0;   // 원본 폭 — 화면 이미지는 줄인 것(2400px)

@@ -108,17 +108,20 @@ def setup_practical_routes() -> APIRouter:
         if not all_pages:
             raise HTTPException(status_code=400, detail="뜬 스캔이 없습니다 — ① 스캔 뜨기를 먼저 누르세요.")
         overwrite = bool(body.get("overwrite"))
+        text_only = bool(body.get("text_only"))      # 원문만 채우기 — 카드는 그대로
         try:
             pages = _parse_pages(str(body.get("pages") or ""), all_pages) if body.get("pages") else all_pages
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
-        if not overwrite:
+        if text_only:
+            pages = [p for p in pages if overwrite or not ((pread.load(src, p) or {}).get("ocr_text") or "").strip()]
+        elif not overwrite:
             pages = [p for p in pages if pread.load(src, p) is None]
         if not pages:
             raise HTTPException(status_code=400,
                                 detail="판독할 쪽이 없습니다 — 이미 다 읽었습니다(다시 읽기를 켜면 덮어씁니다).")
         try:
-            job = pread.start(src, pages, overwrite=overwrite)
+            job = pread.start(src, pages, overwrite=overwrite, text_only=text_only)
         except RuntimeError as e:
             raise HTTPException(status_code=409, detail=str(e)) from e
         return registry.view(job)

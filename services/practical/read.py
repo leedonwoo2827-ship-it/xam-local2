@@ -86,6 +86,12 @@ SYSTEM = """당신은 컴퓨터활용능력 **실기** 문제집 스캔 페이�
   `["{{p-1}}", "[A3:F9] 셀까지 문제를 보고 오타 없이 작성한다."]`. 그림 사이사이 단계가 있으면
   `["② 1행 머리글에서 …", "{{p-2}}", "③ [A4:A5], … 클릭한다."]` 처럼 끼운다.
 
+■ OCR 원문(`ocr_text`) — 이 쪽의 글자 **전문**
+- 쪽에 인쇄된 글자를 **빠짐없이, 읽는 순서대로**(왼쪽 단 위→아래, 그다음 오른쪽 단) 옮긴다. 필기 판독의 원문과 같다.
+  쪽 머리글·쪽 번호도 포함한다. 앞 쪽에서 이어진 문장도 그대로 적는다.
+- 그림·캡처 안의 글자(대화상자·시트 셀 값)는 옮기지 않는다 — 그림은 그림으로 남는다. 그 자리에 `[그림]` 한 줄.
+- 이것은 사람이 카드와 대조하는 **근거**다. 요약하거나 고치지 않는다.
+
 ■ 메모(`notes` · `note`)는 판독에 대한 말만
 - 인쇄된 본문(지시·해설 문장)을 메모에만 적지 않는다 — 메모는 화면·확정본에 실리지 않는다.
   본문은 반드시 `instructions` / `steps` 에 담는다.
@@ -136,11 +142,12 @@ SCHEMA: Dict[str, Any] = {
         "page_kind": {"type": "string", "enum": list(KINDS)},
         "round": {"type": ["integer", "null"]},
         "round_label": {"type": "string"},
+        "ocr_text": {"type": "string", "description": "이 쪽 글자 전문(읽는 순서대로)"},
         "problem_items": {"type": "array", "items": ITEM},
         "answer_entries": {"type": "array", "items": ENTRY},
         "notes": {"type": "string"},
     },
-    "required": ["page_kind", "problem_items", "answer_entries"],
+    "required": ["page_kind", "ocr_text", "problem_items", "answer_entries"],
 }
 
 
@@ -256,9 +263,43 @@ def page_table(src: str) -> list[dict]:
 
 
 # ── 판독 한 장 ───────────────────────────────────────────────────────────────
+TEXT_SYSTEM = """당신은 자격증 실기 문제집 스캔 페이지의 글자를 옮겨 적습니다.
+쪽에 인쇄된 글자를 **빠짐없이, 읽는 순서대로**(왼쪽 단 위→아래, 그다음 오른쪽 단) 옮깁니다.
+쪽 머리글·쪽 번호도 포함합니다. 원문자(①②)·▶ 같은 기호도 그대로 둡니다.
+그림·캡처 안의 글자(대화상자·시트 셀 값)는 옮기지 않고, 그 자리에 `[그림]` 한 줄만 둡니다.
+요약하거나 고치지 않습니다. 읽을 수 없는 글자는 `?` 로 둡니다."""
+TEXT_SCHEMA: Dict[str, Any] = {"type": "object",
+                               "properties": {"ocr_text": {"type": "string"}},
+                               "required": ["ocr_text"]}
+
+
+def read_text_only(src: str, page: int, *, model: str = "", effort: Optional[str] = None,
+                   on_activity: Optional[Callable[[str], None]] = None) -> dict:
+    """**원문만** 채운다 — 카드(문항·정답·그림)와 사람이 고친 것은 그대로 둔다(2026-11-09 지시:
+    "메모 말고 OCR 원문(페이지 판독)에 텍스트를"). 판독이 안 된 쪽이면 원문만 있는 초안을 만든다."""
+    png = project.scan_png(src, int(page))
+    if not os.path.isfile(png):
+        raise FileNotFoundError(f"스캔 이미지가 없습니다: {png}")
+    author = ClaudeAuthor(model=model, effort=effort, cwd=os.path.dirname(png),
+                          on_activity=on_activity, max_turns=6, max_buffer_size=32 * 1024 * 1024)
+    got = author.structured(system=TEXT_SYSTEM,
+                            prompt=f"다음 스캔 이미지의 글자를 옮기십시오.\n\n  {png}\n\nRead 로 이미지를 여십시오.",
+                            schema=TEXT_SCHEMA)
+    d = load(src, page) or {"src": src, "page": int(page), "page_kind": "기타",
+                             "problem_items": [], "answer_entries": []}
+    d["ocr_text"] = str(got.get("ocr_text") or "")
+    d["_cost_usd"] = round((d.get("_cost_usd") or 0) + author.last_cost_usd, 4)
+    save(src, page, d)
+    return {"page": int(page), "skipped": False, "kind": "원문", "round": d.get("round"),
+            "items": 0, "answers": 0, "cost_usd": round(author.last_cost_usd, 4), "notes": "",
+            "chars": len(d["ocr_text"])}
+
+
 def read_one(src: str, page: int, *, model: str = "", effort: Optional[str] = None,
              on_activity: Optional[Callable[[str], None]] = None,
-             overwrite: bool = False) -> dict:
+             overwrite: bool = False, text_only: bool = False) -> dict:
+    if text_only:
+        return read_text_only(src, page, model=model, effort=effort, on_activity=on_activity)
     png = project.scan_png(src, int(page))
     if not os.path.isfile(png):
         raise FileNotFoundError(f"스캔 이미지가 없습니다: {png} — 먼저 ① 스캔 뜨기를 누르세요.")
@@ -316,6 +357,7 @@ def read_one(src: str, page: int, *, model: str = "", effort: Optional[str] = No
         "round_label": str(got.get("round_label") or ""),
         "problem_items": got.get("problem_items") or [],
         "answer_entries": got.get("answer_entries") or [],
+        "ocr_text": str(got.get("ocr_text") or ""),
         "notes": str(got.get("notes") or ""),
         "_cost_usd": round(author.last_cost_usd, 4),
     }
@@ -331,7 +373,7 @@ STALL_LIMIT = 3
 
 
 def start(src: str, pages: list[int], *, model: str = "",
-          effort: Optional[str] = None, overwrite: bool = False) -> dict:
+          effort: Optional[str] = None, overwrite: bool = False, text_only: bool = False) -> dict:
     from services.jobs import registry
 
     pages = [int(p) for p in pages]
@@ -339,13 +381,13 @@ def start(src: str, pages: list[int], *, model: str = "",
         raise ValueError("판독할 쪽이 없습니다.")
     if not _LOCK.acquire(blocking=False):
         raise RuntimeError("이미 실기 판독이 돌고 있습니다 — 동시에 하나만 실행됩니다.")
-    label = f"실기 판독 · {src} p.{pages[0]}~{pages[-1]} ({len(pages)}장)"
+    label = (f"실기 {'원문' if text_only else '판독'} · {src} p.{pages[0]}~{pages[-1]} ({len(pages)}장)")
     job = registry.create("practical-read", label, [f"{src}:{p}" for p in pages])
     job["options"] = {"src": src, "overwrite": overwrite}
 
     def work(j: dict) -> None:
         try:
-            _run(j, src, pages, model=model, effort=effort, overwrite=overwrite)
+            _run(j, src, pages, model=model, effort=effort, overwrite=overwrite, text_only=text_only)
         finally:
             _LOCK.release()
 
@@ -354,7 +396,7 @@ def start(src: str, pages: list[int], *, model: str = "",
 
 
 def _run(job: dict, src: str, pages: list[int], *, model: str,
-         effort: Optional[str], overwrite: bool) -> None:
+         effort: Optional[str], overwrite: bool, text_only: bool = False) -> None:
     from services.jobs import registry
 
     cost, fails, n_items, n_ans = 0.0, 0, 0, 0
@@ -366,7 +408,7 @@ def _run(job: dict, src: str, pages: list[int], *, model: str,
         registry.item(job, key, status="running")
         job["current"] = f"p.{p}"
         try:
-            r = read_one(src, p, model=model, effort=effort, overwrite=overwrite,
+            r = read_one(src, p, model=model, effort=effort, overwrite=overwrite, text_only=text_only,
                          on_activity=lambda s, _p=p: registry.log(job, f"  p.{_p} {s}"))
         except Exception as e:                                   # noqa: BLE001
             fails += 1
@@ -387,7 +429,8 @@ def _run(job: dict, src: str, pages: list[int], *, model: str,
         cost += r["cost_usd"] or 0.0
         n_items += r["items"]
         n_ans += r["answers"]
-        what = (f"문항 {r['items']}개" if r["kind"] == "문제"
+        what = (f"원문 {r.get('chars', 0)}자" if r["kind"] == "원문"
+                else f"문항 {r['items']}개" if r["kind"] == "문제"
                 else f"정답 {r['answers']}개" if r["kind"] == "정답" else "기타 쪽")
         registry.item(job, key, status="done", output=f"{r['kind']} · {what}")
         registry.log(job, f"[판독] p.{p} → {r['kind']}"
