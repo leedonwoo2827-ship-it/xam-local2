@@ -29,6 +29,31 @@ def register_static_mime_types() -> None:
 
 register_static_mime_types()
 
+
+def disable_console_quick_edit() -> None:
+    """run.bat 창을 마우스로 눌러도 서버가 멈추지 않게 한다(Windows).
+
+    콘솔의 「빠른 편집」 모드에서는 창을 클릭하는 순간 글자 선택이 시작되고, 그동안 서버가
+    로그 한 줄을 쓰려다 **CPU 0 으로 멈춘다** — 화면은 빈 채로 몇 분씩 돈다(2026-11-09 실기 검수 중
+    대조완료 색이 늦게 칠해지고 p.18 이 2분간 안 뜬 원인). Esc 를 누르기 전까지 풀리지 않는다.
+    """
+    if os.name != "nt":
+        return
+    try:
+        import ctypes
+        k32 = ctypes.windll.kernel32
+        h = k32.GetStdHandle(-10)                    # STD_INPUT_HANDLE
+        mode = ctypes.c_uint32()
+        if not k32.GetConsoleMode(h, ctypes.byref(mode)):
+            return                                   # 콘솔이 아님(서비스·리다이렉트) — 할 일 없음
+        ENABLE_QUICK_EDIT_MODE, ENABLE_EXTENDED_FLAGS = 0x0040, 0x0080
+        k32.SetConsoleMode(h, (mode.value & ~ENABLE_QUICK_EDIT_MODE) | ENABLE_EXTENDED_FLAGS)
+    except Exception:
+        pass
+
+
+disable_console_quick_edit()
+
 from dotenv import load_dotenv
 
 # utf-8-sig: 메모장으로 저장한 .env 의 BOM 때문에 첫 키가 깨지는 흔한 문제 방지.
