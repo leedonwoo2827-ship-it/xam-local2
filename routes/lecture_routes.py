@@ -369,6 +369,13 @@ def setup_lecture_routes() -> APIRouter:
         registry.spawn(job, work)
         return registry.view(job)
 
+    @router.get("/api/lecture-job/running")
+    async def lecture_job_running():
+        """이론 노트 잡(해설 구조화 · 2부 자동 · 강의 노트)이 돌고 있으면 — 화면을 다시 열면 로그·타이머가 다시 붙는다."""
+        j = registry.running(KIND_JOB)
+        return {"id": j["id"] if j else None, "label": (j or {}).get("label") or "",
+                "auto": (j or {}).get("auto")}
+
     @router.get("/api/lecture-auto/running")
     async def lecture_auto_running():
         """화면을 다시 열었을 때 돌고 있는 자동 진행에 다시 붙는다."""

@@ -39,6 +39,14 @@ export const meta = {
 
 export async function mount(root, ctx) {
   if (ctx.panel) return mountPanel(root, ctx);
+  // ★ 2부 자동 진행(한 잡)이 돌고 있으면 알려 준다 — 그 진행 로그·타이머는 「해설 모아 노트 구조화」 화면에 붙는다
+  api("/api/lecture-job/running").then((r) => {
+    if (!r || !r.id || !(r.auto && r.auto.part2)) return;
+    const b = el("div", "field-hint");
+    b.style.cssText = "margin:0 0 10px;padding:8px 12px;border:1px solid #d9b;border-radius:8px";
+    b.innerHTML = `2부 자동 진행 중 — <b>${escapeHtml(r.label)}</b>. 진행 로그·타이머는 <a href="#/outline">해설 모아 노트 구조화</a> 화면에 있습니다.`;
+    root.prepend(b);
+  }).catch(() => {});
 
   const page = el("div", "page");
   page.innerHTML = `

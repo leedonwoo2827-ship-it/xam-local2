@@ -31,6 +31,10 @@ export async function mount(root, ctx) {
   page.appendChild(el("div", "lc-log", ""));
   page.appendChild(el("div", "ol-view", ""));
   await reload();
+  // ★ 화면을 떠났다 오면 돌고 있는 구조화·2부 자동 진행에 다시 붙는다(로그·타이머) — 2026-11-10 지시
+  api("/api/lecture-job/running").then((r) => {
+    if (r && r.id) follow(r.id, (r.auto && r.auto.part2) ? "단계" : "과목");
+  }).catch(() => {});
 }
 
 async function reload() {
