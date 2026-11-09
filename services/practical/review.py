@@ -127,10 +127,16 @@ def round_items(src: str, rnd: int) -> Dict[str, Any]:
         a["figures"] = [{"page": b["page"], "bbox": b["bbox"]} for b in a["blocks"]
                         if b.get("type") == "figure" and b.get("bbox")]
 
-    items = []
+    items, heads = [], []
     for k in sorted(order):
         ps = probs.get(k) or []
         a = ans.get(k)
+        # ★ 문항 0 = **묶음 머리** — 「문제2 계산작업」 아래 묶음 전체 결과 그림처럼 문항 하나가 아니라
+        #   묶음에 딸린 것(2026-11-09). 문항으로 세지 않고 빨간 표시도 달지 않는다. 그 묶음 문항들 앞에 놓인다.
+        if k[1] == 0 and k[0]:
+            heads.append({"part": k[0], "no": 0, "problems": ps, "answer": a, "flags": [],
+                          "verified": all(p.get("verified") for p in ps) and (not a or a["verified"])})
+            continue
         flags = []
         if not ps:
             flags.append("문제 없음")
@@ -148,7 +154,7 @@ def round_items(src: str, rnd: int) -> Dict[str, Any]:
         verified = bool(ps) and all(p.get("verified") for p in ps) and bool(a) and a["verified"]
         items.append({"part": k[0], "no": k[1], "problems": ps, "answer": a, "flags": flags,
                       "verified": verified})
-    return {"src": src, "round": rnd, "items": items,
+    return {"src": src, "round": rnd, "items": items, "heads": heads,
             "pages": [{"page": r["page"], "kind": r["kind"]} for r in rows]}
 
 

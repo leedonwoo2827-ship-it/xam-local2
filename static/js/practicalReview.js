@@ -710,13 +710,15 @@ function headButtons(head, list, i, x) {
   head.appendChild(del);
 }
 
+/* 「1-3」 — 문항 0 은 묶음 머리(묶음 전체 그림 · 2026-11-09) */
+const idText = (x) => `${x.part ?? "?"}-${x.no === 0 ? "머리" : (x.no ?? "?")}`;
 function idChip(x) {
-  const c = el("b", "oc-qid", `${x.part ?? "?"}-${x.no ?? "?"}`);
+  const c = el("b", "oc-qid", idText(x));
   c.style.cssText = "font-size:20px;font-weight:800;min-width:2.6em";
-  c.title = "묶음-문항 — 문제 카드와 정답 카드가 이 번호로 짝지어집니다";
+  c.title = "묶음-문항 — 문제 카드와 정답 카드가 이 번호로 짝지어집니다. 문항을 0 으로 두면 묶음 머리(묶음 전체 그림)";
   return c;
 }
-function refreshId(card, x) { const c = card.querySelector(".oc-qid"); if (c) c.textContent = `${x.part ?? "?"}-${x.no ?? "?"}`; }
+function refreshId(card, x) { const c = card.querySelector(".oc-qid"); if (c) c.textContent = idText(x); }
 
 function qCard(q, i) {
   const card = el("div", "oc-q" + (q.verified ? " verified" : ""));
@@ -789,7 +791,7 @@ function previewFoot(make) {
 
 function previewProblem(q) {
   const n = el("div");
-  n.innerHTML = `<div class="oc-pv-qno">${q.part ?? "?"}-${q.no ?? "?"}</div>`
+  n.innerHTML = `<div class="oc-pv-qno">${idText(q)}</div>`
     + `<p><b>${escapeHtml(q.lead || "")}</b></p>`;
   n.appendChild(linesWithAssets(q.instructions, q, S.page));   // 적힌 줄 그대로 + 이름표 자리에 자산
   return n;
@@ -797,7 +799,7 @@ function previewProblem(q) {
 
 function previewAnswer(a) {
   const n = el("div");
-  const h = [`<div class="oc-pv-qno">${a.part ?? "?"}-${a.no ?? "?"}</div>`,
+  const h = [`<div class="oc-pv-qno">${idText(a)}</div>`,
     `<p><b>${escapeHtml(a.title || "")}</b></p>`];
   // ★ 수식·설정값·코드 표는 미리보기에 그리지 않는다(2026-11-09 지시: "서식 지정 밑에 표는 OCR 검수에는
   //   안 보였으면"). 미리보기는 책 모양 — 제목 · 풀이 절차 · 그림만. 그 값들은 카드의 접힌 칸과 JSON 에 남는다.
@@ -946,12 +948,20 @@ async function drawRound() {
   }
   box.appendChild(rowEl);
   const items = S.rdata.items || [];
+  const heads = S.rdata.heads || [];
   const bad = items.filter((it) => it.flags.length).length;
   box.appendChild(el("div", "field-hint",
     `${String(S.round).padStart(2, "0")}회 — 문항 ${items.length}개`
     + (bad ? ` · 확인할 것 ${bad}개(빨간 표시) — 쪽 번호를 누르면 스캔, 고치는 것은 쪽 화면에서` : " · 표시된 문제 없음")));
   const list = $("#rv-items");
-  for (const it of items) list.appendChild(roundCard(it));
+  // 묶음 머리는 그 묶음 문항들 앞에
+  const shown = new Set();
+  for (const it of items) {
+    const h = heads.find((x) => x.part === it.part);
+    if (h && !shown.has(h.part)) { list.appendChild(roundCard(h)); shown.add(h.part); }
+    list.appendChild(roundCard(it));
+  }
+  heads.filter((h) => !shown.has(h.part)).forEach((h) => list.appendChild(roundCard(h)));
 }
 
 function roundChip(p, label) {
@@ -976,7 +986,7 @@ function roundCard(it) {
   if (it.flags.length) c.style.borderLeft = "4px solid var(--brand)";
   const p0 = it.problems[0] || {};
   const head = el("div", "card-title");
-  head.innerHTML = `문제${it.part || "?"}-${it.no || "?"} `
+  head.innerHTML = (it.no === 0 ? `문제${it.part} · 묶음 머리 ` : `문제${it.part || "?"}-${it.no || "?"} `)
     + `<span class="muted">${escapeHtml(PART_NAME[it.part] || p0.part_name || "")}</span>`
     + (p0.points != null ? ` <span class="muted">· ${p0.points}점</span>` : "")
     + it.flags.map((f) => ` <span class="status-chip err">${escapeHtml(f)}</span>`).join("")

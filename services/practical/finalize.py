@@ -75,8 +75,11 @@ def _md(rnd: int, it: Dict[str, Any], stem: str, src: str) -> tuple:
     from services.practical.review import TOKEN_RE
     imgs: List[str] = []
     p0 = (it["problems"] or [{}])[0]
-    out = [f"# {rnd:02d}회 문제{it['part']}-{it['no']}"
-           + (f" ({p0.get('points')}점)" if p0.get("points") is not None else ""), ""]
+    if not it["no"]:                                   # 묶음 머리
+        out = [f"# {rnd:02d}회 문제{it['part']} (묶음 머리)", ""]
+    else:
+        out = [f"# {rnd:02d}회 문제{it['part']}-{it['no']}"
+               + (f" ({p0.get('points')}점)" if p0.get("points") is not None else ""), ""]
     for qi, p in enumerate(it["problems"]):
         assets = p.get("assets") or {}
         cache: Dict[str, str] = {}
@@ -142,6 +145,16 @@ def finalize_round(src: str, rnd: int) -> dict:
         doc = {"round": rnd, "part": it["part"], "no": it["no"], "source_pdf": f"{src}.pdf",
                "problems": it["problems"], "answer": it.get("answer"), "flags": it["flags"],
                "verified": it.get("verified", False), "figures": figs, "answer_figures": afigs}
+        atomic_write_text(os.path.join(out_dir(), stem + ".json"), json.dumps(doc, ensure_ascii=False, indent=2))
+        atomic_write_text(os.path.join(out_dir(), stem + ".md"), md)
+        wrote.append(stem)
+    # 묶음 머리 — {RR}-{P}-00 : 책을 만들 때 그 묶음 문항들 앞에 놓는다
+    for h in data.get("heads") or []:
+        stem = f"{rnd:02d}-{h['part']}-00"
+        md, figs, afigs = _md(rnd, h, stem, src)
+        doc = {"round": rnd, "part": h["part"], "no": 0, "head": True, "source_pdf": f"{src}.pdf",
+               "problems": h["problems"], "answer": h.get("answer"), "verified": h.get("verified", False),
+               "figures": figs, "answer_figures": afigs}
         atomic_write_text(os.path.join(out_dir(), stem + ".json"), json.dumps(doc, ensure_ascii=False, indent=2))
         atomic_write_text(os.path.join(out_dir(), stem + ".md"), md)
         wrote.append(stem)
