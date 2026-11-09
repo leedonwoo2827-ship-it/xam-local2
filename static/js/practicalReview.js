@@ -829,15 +829,8 @@ function previewAnswer(a) {
   const n = el("div");
   const h = [`<div class="oc-pv-qno">${a.part ?? "?"}-${a.no ?? "?"}</div>`,
     `<p><b>${escapeHtml(a.title || "")}</b></p>`];
-  for (const f of a.formulas || []) {
-    h.push(`<p><code>${escapeHtml((f.cell ? "[" + f.cell + "] " : "") + f.formula)}</code></p>`);
-  }
-  if ((a.settings || []).length) {
-    h.push(`<table class="tbl"><tbody>` + a.settings.map((s) =>
-      `<tr><td>${escapeHtml(s.dialog || "")}</td><td>${escapeHtml(s.field || "")}</td><td><b>${escapeHtml(s.value || "")}</b></td></tr>`).join("")
-      + `</tbody></table>`);
-  }
-  if (a.code) h.push(`<pre class="pb-cmd">${escapeHtml(a.code)}</pre>`);
+  // ★ 수식·설정값·코드 표는 미리보기에 그리지 않는다(2026-11-09 지시: "서식 지정 밑에 표는 OCR 검수에는
+  //   안 보였으면"). 미리보기는 책 모양 — 제목 · 풀이 절차 · 그림만. 그 값들은 카드의 접힌 칸과 JSON 에 남는다.
   n.innerHTML = h.join("");
   n.appendChild(linesWithAssets(a.steps, a, S.page));   // 번호를 붙이지 않는다 — 적힌 줄 그대로
   return n;
@@ -1038,17 +1031,20 @@ function roundCard(it) {
   if (!a) {
     ans.appendChild(el("div", "muted", "정답 없음 — 정답 쪽의 종류·회차가 맞는지 쪽 화면에서 확인하세요."));
   } else {
-    const h = [`<div class="muted">정답 · ${escapeHtml(a.kinds.join("/"))}</div>`];
-    for (const f of a.formulas) h.push(`<div style="margin:3px 0"><code>${escapeHtml((f.cell ? f.cell + " : " : "") + f.formula)}</code></div>`);
-    if (a.settings.length) {
-      h.push(`<table class="tbl" style="margin:6px 0"><tbody>` + a.settings.map((s) =>
-        `<tr><td class="muted">${escapeHtml(s.dialog || "")}</td><td>${escapeHtml(s.field || "")}</td><td><code>${escapeHtml(s.value || "")}</code></td></tr>`).join("")
-        + `</tbody></table>`);
-    }
-    if (a.code) h.push(`<pre class="pb-cmd">${escapeHtml(a.code)}</pre>`);
+    // 회차 묶음도 책 모양이 먼저 — 풀이 절차를 펴 두고, 수식·설정값·코드는 접어 둔다(대조할 때만 편다)
+    const h = [`<div class="muted">정답 · ${escapeHtml(a.titles.slice(0, 1).join(""))}</div>`];
     if (a.steps.length) {
-      h.push(`<details><summary class="muted">풀이 절차</summary><div style="margin:4px 0 0 4px">`
-        + a.steps.map((s) => `<p style="margin:4px 0">${escapeHtml(String(s).replace(/\{\{b-\d+\}\}/g, "(그림 — 아래)"))}</p>`).join("") + `</div></details>`);
+      h.push(`<div style="margin:4px 0 0 4px">`
+        + a.steps.map((s) => `<p style="margin:4px 0">${escapeHtml(String(s).replace(/\{\{b-\d+\}\}/g, "(그림 — 아래)"))}</p>`).join("") + `</div>`);
+    }
+    if (a.formulas.length || a.settings.length || a.code) {
+      h.push(`<details><summary class="muted">수식 · 설정값 · 코드</summary>`
+        + a.formulas.map((f) => `<div style="margin:3px 0"><code>${escapeHtml((f.cell ? f.cell + " : " : "") + f.formula)}</code></div>`).join("")
+        + (a.settings.length ? `<table class="tbl" style="margin:6px 0"><tbody>` + a.settings.map((s) =>
+          `<tr><td class="muted">${escapeHtml(s.dialog || "")}</td><td>${escapeHtml(s.field || "")}</td><td><code>${escapeHtml(s.value || "")}</code></td></tr>`).join("")
+          + `</tbody></table>` : "")
+        + (a.code ? `<pre class="pb-cmd">${escapeHtml(a.code)}</pre>` : "")
+        + `</details>`);
     }
     ans.innerHTML = h.join("");
     for (const f of a.figures || []) {
