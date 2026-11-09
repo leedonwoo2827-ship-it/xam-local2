@@ -215,8 +215,11 @@ def _md_table(cols: List[str], rows: List[list]) -> List[str]:
     return out
 
 
-def _fig_md(f: dict) -> List[str]:
+def _fig_md(f: dict, img: str = "") -> List[str]:
     cap = f.get("caption") or f.get("id")
+    if img:                                     # 1부 빌드가 새로 그린 PNG 가 있으면 그것
+        alt = str(cap).replace("[", "(").replace("]", ")")   # 「[H4:H15]」 같은 대괄호가 그림 줄을 깬다
+        return [f"![{alt}]({img})", ""]
     if f.get("kind") == "table" and f.get("columns"):
         return [f"*〔그림 {f['id']}〕 {cap}*", ""] + _md_table(f["columns"], f.get("rows") or []) + [""]
     body = f.get("desc") or (json.dumps(f.get("chart"), ensure_ascii=False) if f.get("chart") else "")
@@ -224,7 +227,7 @@ def _fig_md(f: dict) -> List[str]:
             *([f"> {body}"] if body else []), ""]
 
 
-def _lines(lines: List[str], figs: Dict[str, dict], used: set) -> List[str]:
+def _lines(lines: List[str], figs: Dict[str, dict], used: set, imgs: Optional[Dict[str, str]] = None) -> List[str]:
     out, under = [], False
     for raw in lines or []:
         s = str(raw).strip()
@@ -232,7 +235,7 @@ def _lines(lines: List[str], figs: Dict[str, dict], used: set) -> List[str]:
         if m:
             used.add(m.group(1))
             f = figs.get(m.group(1))
-            out += [""] + (_fig_md(f) if f else [f"({s} — 없는 그림)", ""])
+            out += [""] + (_fig_md(f, (imgs or {}).get(m.group(1), "")) if f else [f"({s} — 없는 그림)", ""])
             continue
         if s[:1] and "\u2460" <= s[0] <= "\u2473":
             under = True
@@ -245,15 +248,18 @@ def _lines(lines: List[str], figs: Dict[str, dict], used: set) -> List[str]:
 def item_md(m: int, part: int, it: dict) -> str:
     figs = {f.get("id"): f for f in it.get("figures") or []}
     used: set = set()
+    stem = f"{m:02d}-{part}-{int(it.get('no') or 0):02d}"
+    imgs = {fid: f"images/{stem}-{fid}.png" for fid in figs
+            if os.path.isfile(os.path.join(round_dir(m), "images", f"{stem}-{fid}.png"))}
     head = (f"# {m:02d}회 문제{part} (묶음 머리)" if not it.get("no")
             else f"# {m:02d}회 문제{part}-{it['no']}" + (f" ({it['points']}점)" if it.get("points") else ""))
     out = [head, "", f"**{it.get('lead') or ''}**", ""]
-    out += _lines(it.get("instructions") or [], figs, used) + [""]
+    out += _lines(it.get("instructions") or [], figs, used, imgs) + [""]
     a = it.get("answer") or {}
-    a_lines = _lines(a.get("steps") or [], figs, used)
+    a_lines = _lines(a.get("steps") or [], figs, used, imgs)
     for fid, f in figs.items():                 # 자리를 안 정한 그림은 지문 끝에
         if fid not in used:
-            out += _fig_md(f)
+            out += _fig_md(f, imgs.get(fid, ""))
     out += ["## 정답 & 해설", ""]
     if a.get("title"):
         out += [f"**{a['title']}**", ""]

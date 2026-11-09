@@ -34,6 +34,11 @@ def _parse_pages(text: str, all_pages: list[int]) -> list[int]:
     return [p for p in all_pages if p in want]
 
 
+def paths_book() -> str:
+    from services.book import paths
+    return paths.book_dir()
+
+
 def setup_practical_routes() -> APIRouter:
     router = APIRouter(prefix="/api/practical", tags=["practical"])
 
@@ -242,6 +247,41 @@ def setup_practical_routes() -> APIRouter:
         except RuntimeError as e:
             raise HTTPException(status_code=409, detail=str(e)) from e
         return registry.view(job)
+
+    # ── 1부 빌드(실기) — 실습파일·그림·검증 ─────────────────────────────────
+    @router.get("/build/overview")
+    async def build_overview(rounds: str = "1-10"):
+        from services.practical import build as pb
+        try:
+            want = _parse_pages(rounds, list(range(1, 41)))
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        running = registry.running("practical-build")
+        return {"out_dir": os.path.join(paths_book(), "06", "practical"), "rows": pb.status(want),
+                "running": registry.view(running) if running else None}
+
+    @router.post("/build")
+    async def build_start(request: Request):
+        from services.practical import build as pb
+        b = await request.json() if await request.body() else {}
+        try:
+            want = _parse_pages(str(b.get("rounds") or "1-10"), list(range(1, 41)))
+            job = pb.start(want)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        except RuntimeError as e:
+            raise HTTPException(status_code=409, detail=str(e)) from e
+        return registry.view(job)
+
+    @router.post("/build/open")
+    async def build_open(round: int = 0):
+        """탐색기로 06/practical(/mNN) 를 연다 — 로컬 앱이라 서버가 곧 사용자 PC 다."""
+        from services.practical import build as pb
+        d = pb.out_dir(round) if round else os.path.join(paths_book(), "06", "practical")
+        if not os.path.isdir(d):
+            raise HTTPException(status_code=404, detail="아직 빌드하지 않았습니다.")
+        os.startfile(d)                                          # noqa: S606 — 로컬 전용
+        return {"ok": True, "dir": d}
 
     # ── 문항 교정(실기) — 02/practical 문항 ──────────────────────────────────
     @router.get("/edit/items")

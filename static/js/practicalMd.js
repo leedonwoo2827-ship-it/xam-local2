@@ -7,7 +7,7 @@
 
 import { escapeHtml, renderMarkdown } from "./util.js";
 
-const IMG = /^!\[([^\]]*)\]\(([^)]+)\)\s*$/;
+const IMG = /^!\[(.*)\]\((images\/[^)\s]+|[^)\s]+\.(?:png|jpe?g|svg))\)\s*$/;   // 설명에 [ ] 가 있어도(옛 원고) 끝의 (파일) 로 잡는다
 
 export function practicalMdHtml(md, which) {
   const out = [];

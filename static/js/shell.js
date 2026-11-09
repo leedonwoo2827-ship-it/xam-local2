@@ -38,6 +38,8 @@ const routes = [
   { re: /^\/practical-scan\/(.+)$/, nav: "sc", layer: "base", load: () => import("./practicalScan.js") },
   // 문항 교정(실기) — 02/practical 문항 고치기. 실기 폴더에서 왼쪽 「문항 교정」 이 여기로 온다.
   { re: /^\/practical-edit\/(.+)$/, nav: "q", layer: "base", load: () => import("./practicalEdit.js") },
+  // 1부 빌드(실기) — 실습파일·그림·검증. 실기 폴더에서 왼쪽 「1부 빌드」 가 여기로 온다(2026-11-09 결정).
+  { re: /^\/practical-build$/, nav: "p", layer: "base", load: () => import("./practicalBuild.js") },
   // 실기 문제 집필 — 필기 「문항 집필」 과 나눈 탭(2026-11-09). 실기 폴더에서만 왼쪽에 보인다.
   { re: /^\/practical-author$/, nav: "pa", layer: "base", load: () => import("./practicalAuthor.js") },
   { re: /^\/scan\/(.+)$/,       nav: "sc", layer: "base",  load: () => import("./scan.js") },
@@ -382,6 +384,7 @@ const PRACTICAL_NAV = [
   ["oc", "#/practical-review", "실기"],
   ["sc", "#/practical-scan", "01/practical"],
   ["q", "#/practical-edit", "02/practical"],
+  ["p", "#/practical-build", "실습파일"],
 ];
 const WRITTEN_HREF = {};
 
