@@ -311,6 +311,87 @@ def write_one(m: int, part: int, *, model: str = "", effort: Optional[str] = Non
     return {"wrote": wrote, "scenario": got.get("scenario") or "", "cost_usd": author.last_cost_usd}
 
 
+# ── 문항 교정 — 02/practical 문항 하나를 사람이 고친다 ─────────────────────
+STEM_RE = re.compile(r"(\d{2})-(\d)-(\d{2})")
+EDITABLE = ("points", "sheet", "lead", "instructions", "figures", "answer", "functions")
+
+
+def list_items(rounds: Optional[List[int]] = None) -> List[dict]:
+    rows = []
+    for d in sorted(glob.glob(os.path.join(out_root(), "m[0-9][0-9]"))):
+        m = int(os.path.basename(d)[1:])
+        if rounds and m not in rounds:
+            continue
+        for f in sorted(glob.glob(os.path.join(d, f"{m:02d}-[0-9]-[0-9][0-9].json"))):
+            stem = os.path.basename(f)[:-5]
+            try:
+                with open(f, encoding="utf-8") as fh:
+                    j = json.load(fh)
+            except (OSError, ValueError) as e:
+                rows.append({"id": stem, "error": str(e)})
+                continue
+            rows.append({"id": stem, "round": m, "part": j.get("part"), "no": j.get("no"),
+                         "points": j.get("points"), "reviewed": bool(j.get("reviewed")),
+                         "figures": len(j.get("figures") or []), "scenario": (j.get("scenario") or "")[:60],
+                         "functions": j.get("functions") or [], "preview": (j.get("lead") or "")[:160]})
+    return rows
+
+
+def _paths(stem: str) -> tuple:
+    mt = STEM_RE.fullmatch(stem or "")
+    if not mt:
+        raise ValueError("문항 id 는 NN-P-NN 입니다.")
+    m, p, n = int(mt.group(1)), int(mt.group(2)), int(mt.group(3))
+    return m, p, n, os.path.join(round_dir(m), stem)
+
+
+def read_item(stem: str) -> dict:
+    m, p, n, base = _paths(stem)
+    if not os.path.isfile(base + ".json"):
+        raise FileNotFoundError("아직 쓰지 않은 문항입니다.")
+    with open(base + ".json", encoding="utf-8") as fh:
+        j = json.load(fh)
+    md = open(base + ".md", encoding="utf-8").read() if os.path.isfile(base + ".md") else ""
+    return {"id": stem, "json": j, "md": md, "path": base + ".md"}
+
+
+def save_item(stem: str, patch: dict) -> dict:
+    """고친 칸만 받아 문항 파일 · 묶음 원본(part{P}.json) · MD 를 함께 다시 쓴다.
+    sheets(묶음 공용 시트 자료)를 받으면 그 묶음의 모든 문항 파일에 같이 넣는다."""
+    m, p, n, base = _paths(stem)
+    cur = read_item(stem)["json"]
+    for k in EDITABLE:
+        if k in patch:
+            cur[k] = patch[k]
+    if "reviewed" in patch:
+        cur["reviewed"] = bool(patch["reviewed"])
+    pj = os.path.join(round_dir(m), f"part{p}.json")
+    part = {}
+    if os.path.isfile(pj):
+        with open(pj, encoding="utf-8") as fh:
+            part = json.load(fh)
+    if "sheets" in patch:
+        part["sheets"] = patch["sheets"]
+    for it in part.get("items") or []:
+        if int(it.get("no") or 0) == n:
+            for k in EDITABLE:
+                if k in cur:
+                    it[k] = cur[k]
+            it["reviewed"] = cur.get("reviewed", False)
+    if part:
+        atomic_write_text(pj, json.dumps(part, ensure_ascii=False, indent=2))
+    if "sheets" in patch:                       # 같은 묶음의 다른 문항 파일에도
+        for f in glob.glob(os.path.join(round_dir(m), f"{m:02d}-{p}-[0-9][0-9].json")):
+            with open(f, encoding="utf-8") as fh:
+                o = json.load(fh)
+            o["sheets"] = patch["sheets"]
+            atomic_write_text(f, json.dumps(o, ensure_ascii=False, indent=2))
+        cur["sheets"] = patch["sheets"]
+    atomic_write_text(base + ".json", json.dumps(cur, ensure_ascii=False, indent=2))
+    atomic_write_text(base + ".md", item_md(m, p, cur))
+    return read_item(stem)
+
+
 # ── 잡 ────────────────────────────────────────────────────────────────────
 _LOCK = threading.Lock()
 STALL_LIMIT = 3

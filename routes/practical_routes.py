@@ -243,6 +243,49 @@ def setup_practical_routes() -> APIRouter:
             raise HTTPException(status_code=409, detail=str(e)) from e
         return registry.view(job)
 
+    # ── 문항 교정(실기) — 02/practical 문항 ──────────────────────────────────
+    @router.get("/edit/items")
+    async def edit_items(round: int = 0, q: str = "", unreviewed: int = 0):
+        from services.practical import author as pa
+        rows = pa.list_items([round] if round else None)
+        n, nr = len(rows), sum(1 for r in rows if r.get("reviewed"))
+        if unreviewed:
+            rows = [r for r in rows if not r.get("reviewed")]
+        if q:
+            rows = [r for r in rows if q in r["id"] or q in (r.get("preview") or "") or q in (r.get("scenario") or "")
+                    or any(q.upper() == str(f).upper() for f in r.get("functions") or [])]
+        return {"count": n, "reviewed": nr, "filtered": len(rows), "items": rows}
+
+    @router.get("/edit/item/{stem}")
+    async def edit_item(stem: str):
+        from services.practical import author as pa
+        try:
+            return pa.read_item(stem)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        except FileNotFoundError as e:
+            raise HTTPException(status_code=404, detail=str(e)) from e
+
+    @router.put("/edit/item/{stem}")
+    async def edit_save(stem: str, request: Request):
+        from services.practical import author as pa
+        b = await request.json()
+        if not isinstance(b, dict):
+            raise HTTPException(status_code=400, detail="JSON 객체를 보내세요.")
+        for k in ("instructions", "figures"):
+            if k in b and not isinstance(b[k], list):
+                raise HTTPException(status_code=400, detail=f"{k} 는 배열이어야 합니다.")
+        if "answer" in b and not isinstance(b["answer"], dict):
+            raise HTTPException(status_code=400, detail="answer 는 객체여야 합니다.")
+        if "sheets" in b and not isinstance(b["sheets"], list):
+            raise HTTPException(status_code=400, detail="sheets 는 배열이어야 합니다.")
+        try:
+            return pa.save_item(stem, b)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        except FileNotFoundError as e:
+            raise HTTPException(status_code=404, detail=str(e)) from e
+
     @router.get("/author/item")
     async def author_item(round: int, part: int, no: int):
         from services.practical import author as pa

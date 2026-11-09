@@ -36,6 +36,8 @@ const routes = [
   { re: /^\/practical-round$/, nav: "oc", layer: "base", load: () => import("./practicalReview.js") },
   // 구조화 MD로 정리(실기) — 확정본 01/practical 문항 보기. 실기 폴더에서 왼쪽 「구조화 MD로 정리」 가 여기로 온다.
   { re: /^\/practical-scan\/(.+)$/, nav: "sc", layer: "base", load: () => import("./practicalScan.js") },
+  // 문항 교정(실기) — 02/practical 문항 고치기. 실기 폴더에서 왼쪽 「문항 교정」 이 여기로 온다.
+  { re: /^\/practical-edit\/(.+)$/, nav: "q", layer: "base", load: () => import("./practicalEdit.js") },
   // 실기 문제 집필 — 필기 「문항 집필」 과 나눈 탭(2026-11-09). 실기 폴더에서만 왼쪽에 보인다.
   { re: /^\/practical-author$/, nav: "pa", layer: "base", load: () => import("./practicalAuthor.js") },
   { re: /^\/scan\/(.+)$/,       nav: "sc", layer: "base",  load: () => import("./scan.js") },
@@ -76,6 +78,7 @@ const routes = [
   { re: /^\/scan$/,      nav: "sc", layer: "panel", group: "scan",      load: () => import("./scan.js") },
   { re: /^\/practical-scan$/, nav: "sc", layer: "panel", group: "scan", load: () => import("./practicalScan.js") },
   { re: /^\/questions$/, nav: "q",  layer: "panel", group: "questions", load: () => import("./questions.js") },
+  { re: /^\/practical-edit$/, nav: "q", layer: "panel", group: "questions", load: () => import("./practicalEdit.js") },
   { re: /^\/video$/,     nav: "v",  layer: "panel", group: "video",     load: () => import("./video.js") },
 
   { re: /^\/precheck\/(.+)$/, nav: "v", layer: "panel", group: "video",   load: () => import("./video.js") },
@@ -378,6 +381,7 @@ window.addEventListener("hashchange", render);
 const PRACTICAL_NAV = [
   ["oc", "#/practical-review", "실기"],
   ["sc", "#/practical-scan", "01/practical"],
+  ["q", "#/practical-edit", "02/practical"],
 ];
 const WRITTEN_HREF = {};
 
