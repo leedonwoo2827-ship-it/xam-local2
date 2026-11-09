@@ -82,7 +82,9 @@ def setup_practical_routes() -> APIRouter:
             rnd = int((row or {}).get("round") or 0)
         if not rnd:
             raise HTTPException(status_code=400, detail="이 쪽의 회차를 모릅니다 — 회차를 먼저 넣으세요.")
-        return pfin.finalize_round(src, rnd)
+        # ★ 스레드에서 — 그림을 자르는 동안 다른 요청(쪽 열기·저장, 필기 화면)이 기다리지 않게
+        from starlette.concurrency import run_in_threadpool
+        return await run_in_threadpool(pfin.finalize_round, src, rnd)
 
     @router.post("/item-fix")
     async def item_fix(request: Request):

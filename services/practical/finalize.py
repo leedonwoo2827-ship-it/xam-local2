@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import threading
 from typing import Any, Dict, List
 
 from core.atomic_io import atomic_write_text
@@ -28,13 +29,28 @@ def out_dir() -> str:
     return os.path.join(paths.book_dir(), "01", "practical")
 
 
-def _crop(src: str, page: int, bbox: list, name: str) -> str:
-    from PIL import Image
+# ★ 자른 그림 장부 — {파일이름: [쪽, x, y, w, h]}. 확정은 회차 전체를 다시 쓰는데, 그림까지 매번 다시
+#   자르면 스캔 한 장(6417px · 13.7MB)을 여는 데 1.3초 × 회차 그림 40개 = 1분이 걸린다(2026-11-09:
+#   대조완료를 누를 때마다 서버가 1분씩 멈춰 다음 쪽이 안 뜨고 저장이 실패했다). 같은 영역이면 건너뛴다.
+_LEDGER = ".crops.json"
+_FIN_LOCK = threading.Lock()
+
+
+def _crop(src: str, page: int, bbox: list, name: str, ledger: dict, opened: dict) -> str:
     d = os.path.join(out_dir(), "images")
+    key = [int(page)] + [int(v) for v in bbox]
+    if ledger.get(name) == key and os.path.isfile(os.path.join(d, name)):
+        return f"images/{name}"
+    from PIL import Image
     os.makedirs(d, exist_ok=True)
-    x, y, w, h = bbox
-    with Image.open(project.scan_png(src, page)) as im:
-        im.crop((x, y, x + w, y + h)).save(os.path.join(d, name), format="PNG")
+    im = opened.get(page)
+    if im is None:                                   # 바로 앞 그림과 같은 쪽이면 다시 열지 않는다
+        opened.clear()                               # 한 장만 쥔다 — 펼친 스캔 한 장이 180MB
+        with Image.open(project.scan_png(src, page)) as f:
+            im = opened[page] = f.copy()
+    x, y, w, h = key[1:]
+    im.crop((x, y, x + w, y + h)).save(os.path.join(d, name), format="PNG")
+    ledger[name] = key
     return f"images/{name}"
 
 
@@ -70,7 +86,7 @@ def _lines_md(lines: List[str], token_re, lookup) -> List[str]:
     return out, used
 
 
-def _md(rnd: int, it: Dict[str, Any], stem: str, src: str) -> tuple:
+def _md(rnd: int, it: Dict[str, Any], stem: str, src: str, ledger: dict, opened: dict) -> tuple:
     """문항 하나의 원고 + 그린 그림 목록."""
     from services.practical.review import TOKEN_RE
     imgs: List[str] = []
@@ -90,7 +106,8 @@ def _md(rnd: int, it: Dict[str, Any], stem: str, src: str) -> tuple:
                 return [f"({{{{{aid}}}}} — 없는 자산)", ""]
             img = ""
             if a.get("type") == "figure" and a.get("bbox"):
-                img = cache.get(aid) or _crop(src, int(a["page"]), a["bbox"], f"{stem}-q{qi + 1}-{aid}.png")
+                img = cache.get(aid) or _crop(src, int(a["page"]), a["bbox"], f"{stem}-q{qi + 1}-{aid}.png",
+                                                ledger, opened)
                 cache[aid] = img
                 imgs.append(img)
             return _asset_md(a, img)
@@ -119,7 +136,7 @@ def _md(rnd: int, it: Dict[str, Any], stem: str, src: str) -> tuple:
                 return []
             img = ""
             if b.get("type") == "figure" and b.get("bbox"):
-                img = _crop(src, int(b["page"]), b["bbox"], f"{stem}-a{bid[2:]}.png")
+                img = _crop(src, int(b["page"]), b["bbox"], f"{stem}-a{bid[2:]}.png", ledger, opened)
                 aimgs.append(img)
             return _asset_md(b, img)
 
@@ -133,15 +150,36 @@ def _md(rnd: int, it: Dict[str, Any], stem: str, src: str) -> tuple:
 
 
 def finalize_round(src: str, rnd: int) -> dict:
+    # 대조완료를 연달아 누르면 확정이 겹친다 — 한 번에 하나씩(같은 그림 파일을 둘이 쓰지 않게)
+    with _FIN_LOCK:
+        return _finalize_round(src, rnd)
+
+
+def _finalize_round(src: str, rnd: int) -> dict:
     data = review.round_items(src, rnd)
-    os.makedirs(out_dir(), exist_ok=True)
+    os.makedirs(os.path.join(out_dir(), "images"), exist_ok=True)
+    lpath = os.path.join(out_dir(), "images", _LEDGER)
+    try:
+        with open(lpath, encoding="utf-8") as f:
+            ledger = json.load(f)
+    except (OSError, ValueError):
+        ledger = {}
+    opened: dict = {}
+    try:
+        return _write_round(src, rnd, data, ledger, opened)
+    finally:
+        opened.clear()
+        atomic_write_text(lpath, json.dumps(ledger, ensure_ascii=False))
+
+
+def _write_round(src: str, rnd: int, data: dict, ledger: dict, opened: dict) -> dict:
     wrote, skipped = [], []
     for it in data["items"]:
         if not it["problems"] or not it["part"] or not it["no"]:
             skipped.append(f"{it['part']}-{it['no']} ({', '.join(it['flags']) or '문제 없음'})")
             continue
         stem = f"{rnd:02d}-{it['part']}-{it['no']:02d}"
-        md, figs, afigs = _md(rnd, it, stem, src)
+        md, figs, afigs = _md(rnd, it, stem, src, ledger, opened)
         doc = {"round": rnd, "part": it["part"], "no": it["no"], "source_pdf": f"{src}.pdf",
                "problems": it["problems"], "answer": it.get("answer"), "flags": it["flags"],
                "verified": it.get("verified", False), "figures": figs, "answer_figures": afigs}
@@ -151,7 +189,7 @@ def finalize_round(src: str, rnd: int) -> dict:
     # 묶음 머리 — {RR}-{P}-00 : 책을 만들 때 그 묶음 문항들 앞에 놓는다
     for h in data.get("heads") or []:
         stem = f"{rnd:02d}-{h['part']}-00"
-        md, figs, afigs = _md(rnd, h, stem, src)
+        md, figs, afigs = _md(rnd, h, stem, src, ledger, opened)
         doc = {"round": rnd, "part": h["part"], "no": 0, "head": True, "source_pdf": f"{src}.pdf",
                "problems": h["problems"], "answer": h.get("answer"), "verified": h.get("verified", False),
                "figures": figs, "answer_figures": afigs}
