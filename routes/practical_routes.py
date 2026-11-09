@@ -138,9 +138,17 @@ def setup_practical_routes() -> APIRouter:
     @router.get("/page/{src}/{page}")
     async def get_page(src: str, page: int):
         d = pread.load(src, page)
+        png = project.scan_png(src, page)
+        size = None
+        if os.path.isfile(png):
+            from PIL import Image
+            with Image.open(png) as im:          # 머리만 읽는다 — 가볍다
+                size = list(im.size)
+        # ★ 화면에는 줄인 이미지를 준다(원본 6417px · 13.7MB). 드래그 좌표는 scan_size(원본)로 되돌린다.
         return {"src": src, "page": page, "read": d,
-                "scan": f"/api/ocr/scan/{src}/{page}",
-                "has_scan": os.path.isfile(project.scan_png(src, page))}
+                "scan": f"/api/ocr/scan/{src}/{page}?w=2400",
+                "scan_size": size,
+                "has_scan": size is not None}
 
     @router.post("/page/{src}/{page}")
     async def save_page(src: str, page: int, request: Request):

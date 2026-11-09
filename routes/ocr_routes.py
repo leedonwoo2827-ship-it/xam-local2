@@ -138,26 +138,61 @@ def setup_ocr_routes() -> APIRouter:
         return draft.remove(src, page)
 
     # ── 스캔 이미지 · 크롭 미리보기 ─────────────────────────────────────────
+    # ★ 아래 둘은 **`async def` 가 아니다.** 이미지를 여는 일은 무겁다 — 컴활2급 실기 스캔은 한 장이
+    #   6417×9506(13.7MB)이라 크롭 한 번에 1.2초였고, async 핸들러에서 하면 그동안 **서버 전체가 멈춘다**
+    #   (실측 2026-11-09: 그림이 많은 쪽을 열자 다른 요청이 45초씩 밀려 화면이 비었다).
+    #   일반 def 는 FastAPI 가 스레드 풀에서 돌리므로 다른 요청을 막지 않는다. 결과는 디스크에 캐시한다.
+    def _cache_dir(kind: str) -> str:
+        d = os.path.join(project.ocr_dir(), "data", "view_cache", kind)
+        os.makedirs(d, exist_ok=True)
+        return d
+
     @router.get("/scan/{src}/{page}")
-    async def scan_image(src: str, page: int):
+    def scan_image(src: str, page: int, w: int = 0):
+        """스캔 원본. `w` 를 주면 그 폭으로 줄인 JPEG(화면 보기용, 캐시) — 좌표는 원본 기준으로 쓴다."""
         p = project.scan_png(src, page)
         if not os.path.isfile(p):
             raise HTTPException(status_code=404, detail=(
                 f"스캔 이미지가 없습니다: {src} p.{page}. "
                 "`python -m services.ocr.pdfrender` 로 렌더하세요."))
-        return FileResponse(p, media_type="image/png")
+        if w <= 0:
+            return FileResponse(p, media_type="image/png")
+        w = max(400, min(int(w), 4000))
+        out = os.path.join(_cache_dir("scan"), f"{src}_p{int(page):03d}_w{w}.jpg")
+        if not os.path.isfile(out) or os.path.getmtime(out) < os.path.getmtime(p):
+            from PIL import Image
+            with Image.open(p) as im:
+                if im.width <= w:
+                    return FileResponse(p, media_type="image/png")
+                im = im.convert("RGB")
+                im.thumbnail((w, w * 10), Image.LANCZOS)
+                tmp = out + ".tmp"
+                im.save(tmp, format="JPEG", quality=85)
+                os.replace(tmp, out)
+        return FileResponse(out, media_type="image/jpeg")
 
     @router.get("/crop")
-    async def crop(src: str, page: int, x: int, y: int, w: int, h: int):
-        """드래그한 영역 미리보기. 확정 전이라 파일로 굳히지 않는다."""
+    def crop(src: str, page: int, x: int, y: int, w: int, h: int):
+        """드래그한 영역 미리보기. 같은 영역은 캐시에서 바로 준다(원본이 바뀌면 다시 자른다)."""
         p = project.scan_png(src, page)
         if not os.path.isfile(p):
             raise HTTPException(status_code=404, detail="스캔 이미지가 없습니다.")
+        out = os.path.join(_cache_dir("crop"), f"{src}_p{int(page):03d}_{x}_{y}_{w}_{h}.png")
+        if os.path.isfile(out) and os.path.getmtime(out) >= os.path.getmtime(p):
+            return FileResponse(out, media_type="image/png")
         from PIL import Image
-        img = Image.open(p)
-        buf = io.BytesIO()
-        img.crop((x, y, x + w, y + h)).save(buf, format="PNG")
-        return Response(buf.getvalue(), media_type="image/png")
+        with Image.open(p) as img:
+            buf = io.BytesIO()
+            img.crop((x, y, x + w, y + h)).save(buf, format="PNG")
+        data = buf.getvalue()
+        try:
+            tmp = out + ".tmp"
+            with open(tmp, "wb") as f:
+                f.write(data)
+            os.replace(tmp, out)
+        except OSError:
+            pass
+        return Response(data, media_type="image/png")
 
     @router.get("/figure/{name}")
     async def figure(name: str):

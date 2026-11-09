@@ -47,7 +47,7 @@ export const meta = {
     : isRound(ctx)
       ? [actionBtn("← 페이지 목록", () => ctx.navigate("/practical-review"), { iconName: "folder" })]
       : [
-        actionBtn("← 페이지 목록", () => ctx.navigate("/practical-review"), { iconName: "folder" }),
+        actionBtn("← 페이지 목록", async () => { if (await autoSave()) ctx.navigate("/practical-review"); }, { iconName: "folder" }),
         actionBtn("◀ 이전", () => gotoPage(-1), { id: "pr-prev-btn" }),
         pageLabel(ctx),
         actionBtn("다음 ▶", () => gotoPage(1), { id: "pr-next-btn" }),
@@ -237,6 +237,7 @@ async function openPage(src, n) {
   $("#oc-ocrtext").value = S.draft.notes || "";
   $("#oc-ocrmeta").textContent = `${src}.pdf p.${n}`;
   S.scanPage = n;
+  S.scanW = (d.scan_size || [])[0] || 0;   // 원본 폭 — 화면 이미지는 줄인 것(2400px)
   $("#oc-scan").src = d.scan;
   syncPageNav();
   syncHead();
@@ -266,13 +267,17 @@ async function gotoPage(delta) {
   const i = S.pages.findIndex((x) => x.page === S.page);
   const nx = i >= 0 ? S.pages[i + delta] : null;
   if (!nx) { toast(delta > 0 ? "마지막 쪽입니다." : "첫 쪽입니다."); return; }
-  if (S.dirty && !(await confirmModal({
-    title: "저장하지 않은 편집을 버릴까요?",
-    body: `<b>${escapeHtml(S.src)} p.${S.page}</b> 의 편집 내용이 사라집니다.`,
-    ok: "버리고 이동", cancel: "머무르기", danger: true,
-  }))) return;
-  S.dirty = false;
+  if (!(await autoSave())) return;
   S.ctx.navigate(`/practical-review/${encodeURIComponent(S.src)}/${nx.page}`);
+}
+
+/* ★ 쪽을 넘길 때 고친 것이 있으면 **알아서 저장**한다 — 묻지 않는다(2026-11-09 지시: "저장을 매번 누르고
+ *   넘겨야 하나"). 저장이 실패하면 넘어가지 않는다(고친 것을 잃지 않게). */
+async function autoSave() {
+  if (!S.dirty || !S.draft) return true;
+  const ok = await saveDraft(true);
+  if (ok) toast(`p.${S.page} 자동 저장했습니다.`);
+  return ok;
 }
 
 function onKey(e) {
@@ -813,7 +818,7 @@ function showScanPage(n) {
   const img = $("#oc-scan");
   if (!img) return;
   S.scanPage = Math.max(1, Number(n) || S.page);
-  img.src = `/api/ocr/scan/${encodeURIComponent(S.src)}/${S.scanPage}`;
+  img.src = `/api/ocr/scan/${encodeURIComponent(S.src)}/${S.scanPage}?w=2400`;
   S.pendingBox = null; S.pendingPage = 0;
   const sel = $("#oc-sel");
   if (sel) sel.style.display = "none";
@@ -864,7 +869,8 @@ function bindDrag() {
     if (!drag) return;
     drag = false;
     const r = img.getBoundingClientRect();
-    const scale = img.naturalWidth / r.width;   // 화면 좌표 → 원본 픽셀
+    // 화면 좌표 → **원본** 픽셀. 화면 이미지는 줄인 것이라 naturalWidth 가 아니라 원본 폭으로 나눈다
+    const scale = (S.scanW || img.naturalWidth) / r.width;
     const x = parseFloat(sel.style.left), y = parseFloat(sel.style.top);
     const w = parseFloat(sel.style.width), h = parseFloat(sel.style.height);
     if (w < 8 || h < 8) { sel.style.display = "none"; return; }
@@ -974,7 +980,7 @@ function roundChip(p, label) {
     const box = $("#rv-scan");
     box.className = ""; box.innerHTML = "";
     const img = el("img");
-    img.src = `/api/ocr/scan/${encodeURIComponent(S.src)}/${p}`;
+    img.src = `/api/ocr/scan/${encodeURIComponent(S.src)}/${p}?w=1600`;
     img.style.cssText = "width:100%;border:1px solid var(--hairline);border-radius:6px;max-height:82vh;object-fit:contain";
     box.appendChild(img);
   });
