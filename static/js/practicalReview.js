@@ -740,7 +740,9 @@ function headButtons(head, list, i, x) {
 }
 
 /* 「1-3」 — 문항 0 은 묶음 머리(묶음 전체 그림 · 2026-11-09) */
-const idText = (x) => `${x.part ?? "?"}-${x.no === 0 ? "머리" : (x.no ?? "?")}`;
+const idText = (x) => (x.no == null && !x.title && !x.lead)
+  ? "이어짐"                     // 앞 쪽 정답의 이어짐 — 번호를 넣으면 그 문항에 붙는다
+  : `${x.part ?? "?"}-${x.no === 0 ? "머리" : (x.no ?? "?")}`;
 function idChip(x) {
   const c = el("b", "oc-qid", idText(x));
   c.style.cssText = "font-size:20px;font-weight:800;min-width:2.6em";
