@@ -103,9 +103,12 @@ def _put(cell, v) -> None:
         cell.Value = v
     else:
         s = str(v)
-        if s.startswith("="):
-            s = "'" + s                       # 자료 칸에 수식 글자가 오면 글자로 둔다
-        cell.Formula = s
+        # ★ 「=C4*C5+C6」 처럼 시트 자료에 수식이 오면 **수식으로** 넣는다 — 시나리오·데이터 표·목표값 찾기
+        #   문항은 시트에 수식이 있어야 성립한다(05-3-02 실측: 글자로 넣었더니 결과 칸이 수식 글자가 됐다).
+        try:
+            cell.Formula = s
+        except Exception:                       # noqa: BLE001 — 엑셀이 못 받는 수식이면 글자로
+            cell.Formula = "'" + s
 
 
 def write_table(ws, t: dict) -> None:
@@ -143,8 +146,46 @@ def new_workbook(xl, sheets: List[dict]):
     return wb
 
 
+CRIT_RE = re.compile(r"\[([A-Z]{1,3}\d{1,7})(?::[A-Z]{1,3}\d{1,7})?\][^\n]{0,30}?(?:영역|셀)에[^\n]*조건")
+TOKLINE = re.compile(r"^\{\{(f-\d+)\}\}$")
+
+
+def apply_criteria(ws, it: dict) -> List[str]:
+    """「[K17:K18] 영역에 〈그림〉과 같이 조건을 입력한다」 + 바로 뒤 표 그림 → 그 표를 조건 칸에 쓴다.
+    ★ DSUM·DAVERAGE·고급 필터의 조건은 수험자가 **입력하는 값**이라 수식 목록에 없다(02-2-04 · 03-2-05 실측).
+      그림 설계의 표(columns·rows)가 곧 그 값이다."""
+    figs = {f.get("id"): f for f in it.get("figures") or []}
+    steps = [str(x).strip() for x in (it.get("answer") or {}).get("steps") or []]
+    done = []
+    for i, line in enumerate(steps):
+        m = CRIT_RE.search(line)
+        if not m:
+            continue
+        nxt = next((TOKLINE.match(x) for x in steps[i + 1:i + 3] if TOKLINE.match(x)), None)
+        f = figs.get(nxt.group(1)) if nxt else None
+        if not f or f.get("kind") != "table" or not f.get("columns"):
+            continue
+        cols = list(f["columns"])
+        rows = f.get("rows") or []
+        # 그림 표에 행 번호·열 머리(A·B…) 같은 화면 장식이 붙어 있으면 뗀다
+        if cols and str(cols[0]).strip() in ("", "행") and rows and all(isinstance(r, list) and r for r in rows):
+            cols, rows = cols[1:], [r[1:] for r in rows]
+        r0, c0 = split_cell(m.group(1))
+        if all(re.fullmatch(r"[A-Z]{1,3}", str(c).strip()) for c in cols):
+            cols = []                        # 머리 줄이 열 이름(K·L…)뿐이면 화면 장식 — 값은 rows 부터
+            r0 -= 1
+        for j, h in enumerate(cols):
+            _put(ws.Cells(r0, c0 + j), h)
+        for k, row in enumerate(rows, 1):
+            for j, v in enumerate(row or []):
+                _put(ws.Cells(r0 + k, c0 + j), v)
+        done.append(m.group(1))
+    return done
+
+
 def apply_formulas(ws, a: dict) -> List[str]:
-    """모범답안 수식 — 첫 셀에 넣고 채우기 영역으로 복사(채우기 핸들과 같은 상대 참조)."""
+    """모범답안 수식 — 첫 셀에 넣고 채우기 영역으로 복사(채우기 핸들과 같은 상대 참조).
+    ★ 「{=TABLE(…)}」(데이터 표)은 수식이 아니라 기능이다 — 넣지 않는다(그 문항은 사람 확인)."""
     done = []
     for f in a.get("formulas") or []:
         if not isinstance(f, dict) or not f.get("cell") or not str(f.get("formula") or "").startswith("="):
@@ -184,11 +225,33 @@ def _num(x) -> Optional[float]:
         return None
 
 
-def same(got, want) -> bool:
+def _decimals(w) -> Optional[int]:
+    """「1,246」 → 0, 「12.5%」 → 1(백분율), 「0.83」 → 2. 숫자 글자가 아니면 None."""
+    s = str(w).strip().replace(",", "")
+    m = re.fullmatch(r"-?\d+(?:\.(\d+))?(%?)", s)
+    if not m:
+        return None
+    d = len(m.group(1) or "")
+    return d + 2 if m.group(2) else d
+
+
+def same(got, want, text: str = "") -> bool:
+    """엑셀 값(got)·표시 글자(text) ↔ 집필이 적은 값(want).
+    ★ 집필은 결과를 **표시된 모양**으로 적기도 한다(「2,255」·「420건」·「2026년 3월 2일 월요일」) —
+      값으로도, 표시 글자로도 비교하고, 숫자 글자면 그 자릿수로 반올림해 비교한다."""
     g, w = _norm(got), want
+    if text and str(text).strip() == str(w).strip():
+        return True
     gn, wn = _num(g), _num(w)
     if gn is not None and wn is not None:
-        return abs(gn - wn) <= max(1e-4, abs(wn) * 1e-4) or round(gn, 2) == round(wn, 2)
+        if abs(gn - wn) <= max(1e-4, abs(wn) * 1e-4) or round(gn, 2) == round(wn, 2):
+            return True
+        d = _decimals(w) if isinstance(w, str) else None
+        if d is not None:
+            return round(gn, d) == round(wn, d)
+        if isinstance(w, (int, float)) and float(w).is_integer():
+            return round(gn) == wn             # 정수로 적었으면 표시 형식(#,##0)으로 반올림된 값
+        return False
     return str(g).strip() == str(w).strip()
 
 
@@ -196,21 +259,45 @@ def is_xl_error(v) -> bool:
     return isinstance(v, int) and v < -2146820000
 
 
+def covered(ws, a: dict) -> set:
+    """모범답안 수식이 닿는 셀(첫 셀 + 채우기 영역) — 대조는 여기서만 한다."""
+    out = set()
+    for f in a.get("formulas") or []:
+        if not isinstance(f, dict) or not f.get("cell") or not str(f.get("formula") or "").startswith("="):
+            continue
+        for ref in (f.get("cell"), f.get("fill")):
+            if not ref:
+                continue
+            try:
+                for c in ws.Range(str(ref)).Cells:
+                    out.add(str(c.Address).replace("$", ""))
+            except Exception:                   # noqa: BLE001
+                continue
+    return out
+
+
 def check_item(ws, it: dict) -> dict:
     a = it.get("answer") or {}
     res = a.get("results") or {}
-    cells = {k: v for k, v in res.items() if CELL_RE.match(str(k).strip().upper())}
+    cover = covered(ws, a)
+    cells = {k: v for k, v in res.items()
+             if CELL_RE.match(str(k).strip().upper()) and str(k).strip().upper().replace("$", "") in cover}
     out = {"no": it.get("no"), "sheet": it.get("sheet"), "checked": 0, "ok": 0, "fails": [], "status": ""}
     if not cells:
-        out["status"] = "사람 확인"          # 서식·필터·피벗·차트 — 값 대조가 없다
+        # 서식·필터·피벗·시나리오·통합·차트 — 수식이 아니라 **기능을 실행한 결과**라 값 대조를 하지 않는다
+        out["status"] = "사람 확인"
         return out
     new = any(n in json.dumps(a.get("formulas") or [], ensure_ascii=False).upper() for n in NEW_FUNCS)
     for k, want in cells.items():
         got = ws.Range(k).Value
+        try:
+            text = ws.Range(k).Text
+        except Exception:                       # noqa: BLE001
+            text = ""
         out["checked"] += 1
         if is_xl_error(got):
             out["fails"].append({"cell": k, "want": want, "got": "#오류", "why": "엑셀 오류"})
-        elif same(got, want):
+        elif same(got, want, text):
             out["ok"] += 1
         else:
             out["fails"].append({"cell": k, "want": want, "got": _norm(got)})
@@ -293,15 +380,24 @@ def build_round(m: int, *, log=lambda s: None) -> dict:
         wb.Close(False)
         wb = new_workbook(xl, sheets)
         names = [sh["name"] for sh in sheets]
+
+        def sheet_of(d, it):
+            sh = str(it.get("sheet") or "").strip()[:31]
+            if sh in names:
+                return sh
+            own = [str(s.get("name") or "").strip()[:31] for s in d.get("sheets") or []]
+            return own[0] if len(own) == 1 else sh    # 집필이 sheet 를 비웠으면 묶음 시트가 하나일 때 그것
+
         for d in parts:
             for it in d.get("items") or []:
-                sh = str(it.get("sheet") or "").strip()[:31]
+                sh = sheet_of(d, it)
                 if sh not in names:
                     continue
                 a = it.get("answer") or {}
                 # 결과값이 셀 주소로 적힌 문항만 수식을 넣는다 — 조건부 서식 수식 같은 것을 셀에 쓰면 자료가 지워진다
                 if any(CELL_RE.match(str(k).strip().upper()) for k in (a.get("results") or {})):
                     try:
+                        apply_criteria(wb.Worksheets(sh), it)
                         apply_formulas(wb.Worksheets(sh), a)
                     except Exception as e:      # noqa: BLE001
                         report["errors"].append(f"{d['part']}-{it.get('no')}: 수식 넣기 실패 — {e}")
@@ -310,7 +406,7 @@ def build_round(m: int, *, log=lambda s: None) -> dict:
             for it in d.get("items") or []:
                 if not it.get("no"):
                     continue
-                sh = str(it.get("sheet") or "").strip()[:31]
+                sh = sheet_of(d, it)
                 r = check_item(wb.Worksheets(sh), it) if sh in names else \
                     {"no": it.get("no"), "sheet": sh, "status": "시트 없음", "fails": [], "checked": 0, "ok": 0}
                 r["id"] = f"{m:02d}-{d['part']}-{int(it.get('no')):02d}"
