@@ -128,6 +128,46 @@ def setup_practical_routes() -> APIRouter:
             raise HTTPException(status_code=409, detail=str(e)) from e
         return registry.view(job)
 
+    # ── 실기 문제 집필 ──────────────────────────────────────────────────
+    @router.get("/author/overview")
+    async def author_overview(rounds: str = "1-10"):
+        from services.practical import author as pa
+        try:
+            want = _parse_pages(rounds, list(range(1, 41)))
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        running = registry.running("practical-author")
+        return {"sources": pa.sources_ready(), "src_dir": pa.src_dir(), "out_dir": pa.out_root(),
+                "rows": pa.status(want),
+                "running": registry.view(running) if running else None}
+
+    @router.post("/author")
+    async def author_start(request: Request):
+        """실기 집필 잡 — rounds 「1-10」, overwrite 면 쓴 묶음도 다시 쓴다."""
+        from services.practical import author as pa
+        b = await request.json() if await request.body() else {}
+        try:
+            want = _parse_pages(str(b.get("rounds") or "1-10"), list(range(1, 41)))
+            have = pa.sources_ready()
+            miss = sorted({pa.source_round(m) for m in want} - set(have))
+            if miss:
+                raise ValueError(f"확정본이 없는 바탕 회차가 있습니다: {miss} — OCR 검수에서 확정하세요.")
+            job = pa.start(want, overwrite=bool(b.get("overwrite")))
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        except RuntimeError as e:
+            raise HTTPException(status_code=409, detail=str(e)) from e
+        return registry.view(job)
+
+    @router.get("/author/item")
+    async def author_item(round: int, part: int, no: int):
+        from services.practical import author as pa
+        p = os.path.join(pa.round_dir(round), f"{round:02d}-{part}-{no:02d}.md")
+        if not os.path.isfile(p):
+            raise HTTPException(status_code=404, detail="아직 쓰지 않은 문항입니다.")
+        with open(p, encoding="utf-8") as f:
+            return {"md": f.read(), "path": p}
+
     @router.post("/pagemap")
     async def set_pagemap(request: Request):
         """③ 확인표에서 사람이 고친 쪽 종류·회차."""
