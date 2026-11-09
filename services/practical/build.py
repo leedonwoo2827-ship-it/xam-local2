@@ -12,7 +12,8 @@
   값으로 대조할 수 없는 문항은 「사람 확인」 으로 남긴다(거짓 통과를 만들지 않는다).
 ★ 이 PC 는 Office 2019 — 2021 전용 함수(XLOOKUP·FILTER·LET 등)가 나오면 #NAME? 이 되고,
   그것은 「검증 불가(2019)」 로 따로 표시한다(틀린 답으로 세지 않는다).
-★ 첫 판의 한계(정직하게): 차트 그림은 설계 글을 담은 카드로 그린다(실제 차트 렌더는 다음 판).
+★ 차트 그림은 설계(종류·범위·제목·범례·계열)대로 엑셀이 정답 파일에 차트를 만들어 PNG 로 내보낸다.
+  세부 서식(글꼴·색상표·쪼개진 요소·그림자)은 아직 옮기지 않는다 — 대화상자 그림은 설계 카드다.
 """
 from __future__ import annotations
 
@@ -359,6 +360,96 @@ def render_figs(m: int, items: List[Tuple[str, dict]], log) -> List[str]:
     return made
 
 
+
+# ── 차트 그림 — 설계대로 엑셀이 정답 파일에 차트를 만들고 PNG 로 내보낸다 ─────────────
+# (긴 이름부터 본다 — 「원형 대 가로 막대형」 이 「원형」 보다 먼저 걸려야 한다)
+CHART_TYPES = [
+    ("원형 대 가로 막대형", 71), ("원형 대 원형", 68), ("3차원 원형", -4102), ("도넛형", -4120), ("원형", 5),
+    ("3차원 묶은 세로 막대형", 54), ("3차원 누적 세로 막대형", 55), ("100% 기준 누적 세로 막대형", 53),
+    ("누적 세로 막대형", 52), ("묶은 세로 막대형", 51), ("3차원 묶은 가로 막대형", 60),
+    ("누적 가로 막대형", 58), ("묶은 가로 막대형", 57), ("표식이 있는 꺾은선형", 65), ("꺾은선형", 4),
+    ("표식이 있는 방사형", 81), ("방사형", -4151), ("분산형", -4169), ("영역형", 1), ("세로 막대형", 51), ("가로 막대형", 57),
+]
+LEGEND_POS = {"아래": -4107, "오른": -4152, "위": -4160, "왼": -4131}
+
+
+def _chart_type(name: str) -> int:
+    for k, v in CHART_TYPES:
+        if k in (name or ""):
+            return v
+    return 51
+
+
+def _ranges(spec_range: str, sheet: str) -> str:
+    """「차트작업!$A$3:$B$11」·「[B3:F3], [B7:F10]」·「'차트작업'!$B$3:$G$11」 → 「A3:B11」·「B3:F3,B7:F10」."""
+    s = re.sub(r"'?[^'!\[\],]*'?!", "", str(spec_range or ""))
+    parts = [x.strip().strip("[]").replace("$", "") for x in re.split(r"\]\s*,\s*\[|,", s)]
+    parts = [x.strip("[] ") for x in parts if re.fullmatch(r"[A-Z]{1,3}\d+(:[A-Z]{1,3}\d+)?", x.strip("[] "))]
+    return ",".join(parts)
+
+
+def draw_charts(wb, names: List[str], m: int, parts: List[dict], log) -> List[str]:
+    made = []
+    os.makedirs(img_dir(m), exist_ok=True)
+    for d in parts:
+        own = [str(x.get("name") or "").strip()[:31] for x in d.get("sheets") or []]
+        for it in d.get("items") or []:
+            for f in it.get("figures") or []:
+                if f.get("kind") != "chart" or not isinstance(f.get("chart"), dict):
+                    continue
+                spec = f["chart"]
+                sh = str(f.get("sheet") or it.get("sheet") or "").strip()[:31]
+                if sh not in names:
+                    sh = next((x for x in own if x in names), "")
+                rng = _ranges(spec.get("data_range") or "", sh)
+                if not sh or not rng:
+                    continue
+                stem = f"{m:02d}-{d['part']}-{int(it.get('no') or 0):02d}"
+                path = os.path.join(img_dir(m), f"{stem}-{f.get('id')}.png")
+                try:
+                    ws = wb.Worksheets(sh)
+                    co = ws.ChartObjects().Add(ws.Range("D3").Left + 300, ws.Range("D3").Top, 480, 300)
+                    ch = co.Chart
+                    ch.SetSourceData(ws.Range(rng))
+                    ch.ChartType = _chart_type(str(spec.get("type") or ""))
+                    for s_ in spec.get("series") or []:     # 혼합 — 계열마다 종류·보조 축
+                        if not isinstance(s_, dict) or not s_.get("name"):
+                            continue
+                        for k in range(1, ch.SeriesCollection().Count + 1):
+                            se = ch.SeriesCollection(k)
+                            if str(se.Name).strip() == str(s_["name"]).strip():
+                                if s_.get("type"):
+                                    se.ChartType = _chart_type(str(s_["type"]))
+                                if "보조" in str(s_.get("axis") or ""):
+                                    se.AxisGroup = 2
+                    t = spec.get("title")
+                    t = t.get("text") if isinstance(t, dict) else t
+                    if t:
+                        ch.HasTitle = True
+                        ch.ChartTitle.Text = str(t)
+                    lg = spec.get("legend")
+                    lg = (lg.get("position") if isinstance(lg, dict) else lg) or ""
+                    if "없음" in str(lg):
+                        ch.HasLegend = False
+                    else:
+                        for k, v in LEGEND_POS.items():
+                            if k in str(lg):
+                                ch.HasLegend = True
+                                ch.Legend.Position = v
+                    if spec.get("data_labels"):
+                        try:
+                            ch.ApplyDataLabels()
+                        except Exception:               # noqa: BLE001
+                            pass
+                    ch.Export(path)
+                    made.append(os.path.basename(path))
+                except Exception as e:                  # noqa: BLE001
+                    log(f"  차트 실패 {stem} {f.get('id')}: {e}")
+    if made:
+        log(f"  차트 {len(made)}장(엑셀)")
+    return made
+
+
 # ── 회차 하나 ─────────────────────────────────────────────────────────────
 def build_round(m: int, *, log=lambda s: None) -> dict:
     import pythoncom
@@ -370,6 +461,7 @@ def build_round(m: int, *, log=lambda s: None) -> dict:
     od = out_dir(m)
     os.makedirs(od, exist_ok=True)
     report = {"round": m, "built_at": dt.datetime.now().isoformat(timespec="seconds"), "items": [], "errors": []}
+    charts: List[str] = []
     pythoncom.CoInitialize()
     xl = w.DispatchEx("Excel.Application")
     xl.Visible = False
@@ -413,6 +505,7 @@ def build_round(m: int, *, log=lambda s: None) -> dict:
                 report["items"].append(r)
         for sh in names:
             wb.Worksheets(sh).Columns.AutoFit()
+        charts = draw_charts(wb, names, m, parts, log)
         wb.Worksheets(1).Activate()
         wb.SaveAs(os.path.join(od, f"m{m:02d}_정답.xlsx"), XL_XLSX)
         wb.Close(False)
@@ -427,9 +520,11 @@ def build_round(m: int, *, log=lambda s: None) -> dict:
     for d in parts:
         for it in d.get("items") or []:
             stem = f"{m:02d}-{d['part']}-{int(it.get('no') or 0):02d}"
-            figs += [(stem, f) for f in it.get("figures") or [] if f.get("id")]
+            figs += [(stem, f) for f in it.get("figures") or []
+                     if f.get("id") and f"{stem}-{f.get('id')}.png" not in charts]   # 엑셀이 그린 차트는 그대로
     try:
-        report["figures"] = render_figs(m, figs, log)
+        report["figures"] = render_figs(m, figs, log) + charts
+        report["charts"] = charts
     except Exception as e:                      # noqa: BLE001
         report["errors"].append(f"그림 그리기 실패 — {e}")
         report["figures"] = []
