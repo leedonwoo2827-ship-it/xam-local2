@@ -718,6 +718,8 @@ function headButtons(head, list, i, x) {
   cb.checked = !!x.verified;
   cb.addEventListener("change", async () => {
     x.verified = cb.checked;
+    // 색은 바로 바꾼다 — 저장·확정(회차 전체 다시 쓰기)이 끝나길 기다리면 몇 초 늦게 바뀐다
+    cb.closest(".oc-q")?.classList.toggle("verified", cb.checked);
     markDirty();
     if (await saveDraft(true)) await finalize(true);
   });
