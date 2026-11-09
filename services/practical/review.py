@@ -106,7 +106,7 @@ def round_items(src: str, rnd: int) -> Dict[str, Any]:
                 steps.append(TOKEN_RE.sub(_sub, str(line)))
             e = dict(e, steps=steps)
             if e.get("title"):
-                a["titles"].append(e["title"])
+                a["titles"].append(pread.white_circled(e["title"]))
             if e.get("kind") and e["kind"] not in a["kinds"]:
                 a["kinds"].append(e["kind"])
             for f in e.get("formulas") or []:

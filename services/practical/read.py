@@ -67,7 +67,8 @@ SYSTEM = """당신은 컴퓨터활용능력 **실기** 문제집 스캔 페이�
 정답·해설 하나 = 문제 번호 하나(「❶ 자료 입력」, 「① 변경ID(B3)」).
 - `part` / `no`: 어느 문항의 정답인지(문제1 의 ❷ 이면 part 1 · no 2). 쪽 위에 묶음 머리(「문제2 계산작업」)가
   없으면 앞에서 이어진 묶음 번호를 적는다.
-- `title`: 번호 줄 **그대로, 번호 기호까지**(예: `❶ 자료 입력`, `① 변경ID(B3)`).
+- `title`: 번호 줄 **그대로, 번호 기호까지**. 단 검은 원문자(❶❷❸…)는 **흰 원문자(①②③…)로** 옮긴다
+  (예: 인쇄 `❸ 조건부 서식` → `③ 조건부 서식`). 해설 줄(`steps`) 안의 기호는 인쇄된 그대로 둔다.
 - `steps`: 해설을 **한 줄에 하나씩, 인쇄된 그대로 — 줄머리 기호(①②…, ▶)까지.** 요약하지 않는다.
   수식이 문장 안에 인쇄돼 있으면 그 문장째로, 글자 하나 틀리지 않게 옮긴다(배열 수식의 `{ }` 도 그대로).
   기호가 없는 줄은 기호 없이 둔다. 앱이 번호를 붙이지 않으므로 인쇄된 번호만 남는다.
@@ -130,6 +131,12 @@ SCHEMA: Dict[str, Any] = {
     },
     "required": ["page_kind", "problem_items", "answer_entries"],
 }
+
+
+def white_circled(text: str) -> str:
+    """검은 원문자 ❶~❿ → 흰 원문자 ①~⑩. 정답 제목에만 쓴다 — 카드에 「1-3」 번호가 따로 있어서
+    제목은 흰 원문자로 통일한다(2026-11-09 지시). 해설 줄 안의 ❶ 은 다른 뜻(수식 풀이 번호)이라 두지 않는다."""
+    return "".join(chr(ord(c) - 0x2776 + 0x2460) if "❶" <= c <= "❿" else c for c in str(text))
 
 
 # ── 저장 위치 ────────────────────────────────────────────────────────────────
@@ -268,6 +275,8 @@ def read_one(src: str, page: int, *, model: str = "", effort: Optional[str] = No
         schema=SCHEMA)
 
     kind = got.get("page_kind") if got.get("page_kind") in KINDS else "기타"
+    for e in got.get("answer_entries") or []:          # 제목의 검은 원문자 → 흰 원문자(판독이 놓쳐도)
+        e["title"] = white_circled(e.get("title") or "")
     # 그림 좌표는 필기 판독과 같은 규칙으로 검증한다 — 못 믿을 값은 버린다(빈 칸이 낫다)
     from services.ocr.readpage import _bbox
     for x in (got.get("problem_items") or []) + (got.get("answer_entries") or []):

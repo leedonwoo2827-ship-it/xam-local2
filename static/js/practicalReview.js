@@ -229,6 +229,10 @@ async function openPage(src, n) {
   S.draft.answer_entries = S.draft.answer_entries || [];
   S.draft.problem_items.forEach((x) => ensureAssets(x, n));
   S.draft.answer_entries.forEach((x) => ensureAssets(x, n));
+  // 정답 제목의 검은 원문자(❶~❿)는 흰 원문자(①~⑩)로 — 카드에 「1-3」 번호가 따로 있다(2026-11-09 지시)
+  S.draft.answer_entries.forEach((x) => {
+    if (x.title) x.title = x.title.replace(/[❶-❿]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0x2776 + 0x2460));
+  });
   S.dirty = false;
   $("#oc-ocrtext").value = S.draft.notes || "";
   $("#oc-ocrmeta").textContent = `${src}.pdf p.${n}`;
