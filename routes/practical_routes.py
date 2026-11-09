@@ -283,6 +283,59 @@ def setup_practical_routes() -> APIRouter:
         os.startfile(d)                                          # noqa: S606 — 로컬 전용
         return {"ok": True, "dir": d}
 
+    # ── 3부 HTML 문제집(실기) — 시험지·해설·실습파일·대본 → 07/mNN ───────────────
+    @router.get("/ebook/overview")
+    async def ebook_overview(rounds: str = "1-10"):
+        from services.practical import ebook as pe
+        try:
+            want = _parse_pages(rounds, list(range(1, 41)))
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        running = registry.running("practical-actions")
+        return {"out_dir": os.path.join(paths_book(), "07"), "rows": pe.status(want),
+                "running": registry.view(running) if running else None}
+
+    @router.post("/ebook")
+    def ebook_build(body: dict):
+        """굽기 — sync def(Playwright PDF 는 asyncio 루프 안에서 못 돈다)."""
+        from services.practical import ebook as pe
+        try:
+            want = _parse_pages(str(body.get("rounds") or "1-10"), list(range(1, 41)))
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        out = []
+        for m in want:
+            if not os.path.isdir(os.path.join(paths_book(), "02", "practical", f"m{m:02d}")):
+                continue
+            try:
+                out.append(pe.build_round(m, pdf=bool(body.get("pdf", True))))
+            except Exception as e:                              # noqa: BLE001
+                out.append({"round": m, "error": str(e)})
+        return {"built": out}
+
+    @router.post("/ebook/open")
+    async def ebook_open(round: int = 0):
+        from services.practical import ebook as pe
+        d = pe.out_dir(round) if round else os.path.join(paths_book(), "07")
+        if not os.path.isdir(d):
+            raise HTTPException(status_code=404, detail="아직 굽지 않았습니다.")
+        os.startfile(d)                                          # noqa: S606 — 로컬 전용
+        return {"ok": True, "dir": d}
+
+    @router.post("/actions")
+    async def actions_start(request: Request):
+        """종합본 영상 입력 — 모범답안 → 녹화 조작 단계(lesson.yaml). 문항마다 Claude 1회."""
+        from services.practical import actions as pact
+        b = await request.json() if await request.body() else {}
+        try:
+            want = _parse_pages(str(b.get("rounds") or "6-10"), list(range(1, 41)))
+            job = pact.start(want, overwrite=bool(b.get("overwrite")))
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        except RuntimeError as e:
+            raise HTTPException(status_code=409, detail=str(e)) from e
+        return registry.view(job)
+
     # ── 문항 교정(실기) — 02/practical 문항 ──────────────────────────────────
     @router.get("/edit/items")
     async def edit_items(round: int = 0, q: str = "", unreviewed: int = 0):

@@ -267,8 +267,20 @@ def _print_page(fn, *a):
 
 @app.get("/print/")
 async def print_index():
+    from services.authoring import parts
+    if parts.is_practical():
+        # 실기 폴더 — 실기 인쇄본 목록(시험지 + 모범답안). 필기 인쇄본은 _rounds·06/ 을 전제한다.
+        from services.practical import ebook as pe
+        return _print_page(pe.print_html, 0)
     from services.export import printdoc
     return _print_page(printdoc.index_html)
+
+
+@app.get("/print/practical")
+async def print_practical(rd: int = 0):
+    """실기 인쇄본 — 구운 시험지·모범답안을 한 문서로. `?rd=3` 이면 3회."""
+    from services.practical import ebook as pe
+    return _print_page(pe.print_html, rd)
 
 
 @app.get("/print/questions")
