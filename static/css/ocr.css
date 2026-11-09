@@ -293,6 +293,7 @@
   src: local("Malgun Gothic"), local("맑은 고딕"), local("Segoe UI Symbol");
   unicode-range: U+2460-24FF;
   size-adjust: 135%;
+  font-weight: 100 900;   /* 모든 굵기를 이 면이 맡는다 — 브라우저가 억지로 굵게 만들지 않게 */
 }
 /* 검은 원문자(❶~❿)는 맑은 고딕에 없다 — 같은 이름으로 기호 글꼴을 따로 물린다 */
 @font-face {
@@ -300,6 +301,9 @@
   src: local("Segoe UI Symbol"), local("Segoe UI Emoji"), local("Malgun Gothic");
   unicode-range: U+2776-2793;
   size-adjust: 125%;
+  /* ★ 굵은 면이 없는 기호 글꼴이다. 굵은 글씨(미리보기 제목) 자리에서 브라우저가 가짜로 굵게 칠하면
+   *   검은 원 안의 흰 숫자가 메워져 ❸ 이 까만 점으로 보였다(2026-11-09 실측). 모든 굵기를 이 면이 맡게 한다. */
+  font-weight: 100 900;
 }
 .oc-page textarea, .oc-page input[type="text"], .oc-page select, .oc-page .oc-preview,
 .oc-page .oc-glyph, .oc-page .oc-q,
