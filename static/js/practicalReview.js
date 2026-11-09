@@ -545,7 +545,7 @@ function assetsBox(x, target, targetLabel) {
   addT.addEventListener("click", () => {
     const id = nextAssetId(x, "t");
     x.assets[id] = { type: "table", md: "" };
-    x[target] = (x[target] || []).concat(`{{${id}}}`);
+    putToken(x, target, id);
     markDirty(); renderCards();
   });
   const addP = el("button", "btn sm", "＋그림");
@@ -566,11 +566,11 @@ function assetsBox(x, target, targetLabel) {
     const bar = el("div", "oc-asset-bar");
     const tok = el("button", "oc-tok", `{{${id}}}`);
     tok.type = "button";
-    tok.title = `${targetLabel} 맨 끝에 이름표 한 줄 넣기 — 넣은 뒤 원하는 줄 다음으로 옮기세요`;
+    tok.title = `${targetLabel} 칸에서 마지막으로 커서를 둔 자리에 이름표 한 줄 넣기`;
     tok.addEventListener("click", () => {
-      x[target] = (x[target] || []).concat(`{{${id}}}`);
+      putToken(x, target, id);
       markDirty(); renderCards();
-      status(`${targetLabel}에 {{${id}}} 넣음 — 원하는 줄 다음으로 옮기세요`, false);
+      status(`${targetLabel}에 {{${id}}} 넣음`, false);
     });
     bar.appendChild(tok);
     bar.appendChild(el("span", "badge", a.type === "table" ? "자료 표" : "그림"));
@@ -636,13 +636,42 @@ function clearPending() {
 }
 
 /* [그림 추가] — 드래그한 영역으로 그림 자산을 만들고 이름표를 맨 끝 줄에 넣는다(옮기면 그 자리로) */
+/* ★ 이름표는 **커서 자리**에 넣는다(2026-11-09 지시: "그림 추가를 누르는 순간 마우스 커서가 있는데
+ *   이름표가 바로 그 위치에 될 수는 없을까요" · "늘 맨 밑에 생긴다"). 카드의 지문(정답은 풀이 절차)
+ *   칸을 기억해 두고, 버튼을 눌러 칸이 포커스를 잃어도 남아 있는 selectionStart 를 쓴다.
+ *     빈 줄에 커서 → 그 줄이 이름표 / 글 줄에 커서 → 그 줄 바로 다음 줄 / 칸을 누른 적 없음 → 맨 끝
+ *   WeakMap 이라 초안 JSON 에 섞이지 않는다. */
+const TA = new WeakMap();      // 카드 데이터 → 이름표를 넣을 textarea
+const CARET = new WeakMap();   // 카드 데이터 → 사람이 그 칸에 커서를 둔 적이 있는가
+function trackCaret(x, ta) {
+  TA.set(x, ta);
+  ["focus", "click", "keyup", "select"].forEach((ev) => ta.addEventListener(ev, () => CARET.set(x, true)));
+  return ta;
+}
+function putToken(x, target, id) {
+  const tok = `{{${id}}}`;
+  const ta = TA.get(x);
+  if (!ta || !CARET.get(x)) {                 // 커서를 둔 적이 없으면 맨 끝
+    x[target] = (x[target] || []).concat(tok);
+    return;
+  }
+  const v = ta.value;
+  const pos = Math.min(ta.selectionStart ?? v.length, v.length);
+  const ls = v.lastIndexOf("\n", pos - 1) + 1;              // 커서 줄의 시작
+  let le = v.indexOf("\n", pos); if (le < 0) le = v.length;  // 커서 줄의 끝
+  const nv = v.slice(ls, le).trim() === ""
+    ? v.slice(0, ls) + tok + v.slice(le)                     // 빈 줄 → 그 줄을 이름표로
+    : v.slice(0, le) + "\n" + tok + v.slice(le);             // 글 줄 → 바로 다음 줄에
+  x[target] = lines(nv);
+}
+
 function addFigure(x, target) {
   if (!takePending()) return;
   const id = nextAssetId(x, "p");
   const a = { type: "figure", bbox: S.pendingBox, note: "" };
   stampPage(a);
   x.assets[id] = a;
-  x[target] = (x[target] || []).concat(`{{${id}}}`);
+  putToken(x, target, id);
   clearPending();
   markDirty(); renderCards();
 }
@@ -698,7 +727,7 @@ function qCard(q, i) {
 
   card.appendChild(labeled("발문(지시 문장)", area(q.lead, "번호 줄의 문장 그대로", (v) => { q.lead = v; markDirty(); }, 2)));
   card.appendChild(labeled("지문(세부 지시사항 — 한 줄에 하나)",
-    area((q.instructions || []).join("\n"), "인쇄된 그대로 — ① ② 원문자, ▶ 기호까지", (v) => { q.instructions = lines(v); markDirty(); }, 5)));
+    trackCaret(q, area((q.instructions || []).join("\n"), "인쇄된 그대로 — ① ② 원문자, ▶ 기호까지", (v) => { q.instructions = lines(v); markDirty(); }, 5))));
   card.appendChild(labeled("지정 함수 (쉼표로)",
     input((q.functions || []).join(", "), "AND, YEAR, RIGHT", (v) => {
       q.functions = v.split(",").map((s) => s.trim()).filter(Boolean); markDirty();
@@ -732,7 +761,7 @@ function ansCard(a, i) {
   // ★ 지금은 **풀이 절차 + 그림**만 펴 둔다(2026-11-09 지시: "그 부분만 활성화 — 그림을 캡처해서 넣어야
   //   해서… 수식·설정값은 일단 닫아 둡시다"). 줄 수를 제목에 적지 않는다 — 판독이 나눈 줄 수는 뜻이 없다.
   card.appendChild(labeled("풀이 절차 (한 줄에 하나 · 그림은 이름표 줄로)",
-    area((a.steps || []).join("\n"), "한 줄에 하나", (v) => { a.steps = lines(v); markDirty(); }, 4)));
+    trackCaret(a, area((a.steps || []).join("\n"), "한 줄에 하나", (v) => { a.steps = lines(v); markDirty(); }, 4))));
   card.appendChild(assetsBox(a, "steps", "풀이 절차"));
   const more = el("details");
   more.appendChild(el("summary", null, "수식 · 설정값 · 코드"));
