@@ -50,11 +50,23 @@ def _terms() -> Dict[str, str]:
     ★ 발음대본은 이 앱에서 끝낸다 — 사전이 data-read 글자에 직접 들어가야 하류가 그대로 읽는다."""
     try:
         from services.render import lexicon
-        return dict(lexicon.read().get("rules") or {})
+        # ★ 품목 사전(exams/<pd>.json speech_dict)도 얹는다 — 실기 엑셀 용어(SUMIFS·Ctrl+Enter·#VALUE!)가
+        #   공용 사전에 없어서 낭독대본에 생으로 남았다(2026-11-09 조사). 품목이 이긴다.
+        return dict(lexicon.merged_rules() or {})
     except Exception:                                        # noqa: BLE001
         from services.authoring import parts
         d = (parts.active() or {}).get("speech_dict") or {}
         return d if isinstance(d, dict) else {}
+
+
+def _speech(text: str) -> str:
+    """자막 → 낭독대본. 실기 트랙이면 셀 주소·범위를 먼저 소리로 바꾼다(core.speak.speak_cells)."""
+    from core.speak import speak_cells, to_speech
+    from services.authoring import parts
+    t = text or ""
+    if parts.is_practical():
+        t = speak_cells(t)
+    return to_speech(t, _terms())
 
 
 def _author(log: Log, model: str = "", effort: Optional[str] = None):
@@ -224,9 +236,9 @@ def run(kind: str, key: str, stage: str, *, log: Log, cancelled: Callable[[], bo
         if stage == "read":
             from core.speak import to_speech
             h1 = doc["h1"]
-            h1["read"] = h1.get("read") or _diff(h1.get("say"), to_speech(h1.get("say") or "", _terms()))
+            h1["read"] = h1.get("read") or _diff(h1.get("say"), _speech(h1.get("say") or ""))
             h1["outro_read"] = h1.get("outro_read") or _diff(
-                h1.get("outro_say"), to_speech(h1.get("outro_say") or "", _terms()))
+                h1.get("outro_say"), _speech(h1.get("outro_say") or ""))
         prev = (doc.get("stages") or {}).get(stage, {})
         N.set_stage(doc, stage, "done", cost_usd=round(float(prev.get("cost_usd") or 0) + total, 4),
                     note=f"{changed}장")
@@ -275,7 +287,7 @@ def _section(doc, sec, stage, author, system, redo, log) -> int:
         todo = [s for s in sec["slides"] if s.get("say") and (redo or not s.get("read_done"))]
         if not todo:
             return 0
-        base = {s["id"]: to_speech(s["say"], _terms()) for s in todo}
+        base = {s["id"]: _speech(s["say"]) for s in todo}
         got = author.structured(system, _p_read(doc, sec, todo, base), S_READ)
         by = {g["id"]: g.get("read", "").strip() for g in got["slides"]}
         for s in todo:
@@ -439,6 +451,13 @@ def _longform_kit(doc, html) -> str:
     src_note = paths.summary_html(doc["key"])
     if os.path.isfile(src_note):
         shutil.copyfile(src_note, os.path.join(root, "notes", f"{s:02d}-summary_{doc['key']}.html"))
+    from services.authoring import parts as _P
+    if _P.is_practical():
+        # ★ 실기: _rounds 가 없다 — 집필 결과(02/practical/mNN) 를 rounds/ 아래 그대로 복사(2026-11-09)
+        src = os.path.join(paths.book_dir(), "02", "practical")
+        for m in sorted(os.listdir(src)) if os.path.isdir(src) else []:
+            if re.fullmatch(r"m\d{2}", m) and os.path.isdir(os.path.join(src, m)):
+                shutil.copytree(os.path.join(src, m), os.path.join(root, "rounds", m), dirs_exist_ok=True)
     rd = os.path.join(paths.book_dir(), "_rounds")
     for fn in sorted(os.listdir(rd)) if os.path.isdir(rd) else []:
         if re.fullmatch(r"m\d{2}\.json", fn):

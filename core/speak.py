@@ -281,3 +281,42 @@ def speak_numbers(text: str) -> str:
             " " if nxt and not nxt.isspace() and nxt not in ",.·)]%" else "")
 
     return _NUM_RE.sub(one, src)
+
+
+# ── 셀 주소 · 범위 (실기) ────────────────────────────────────────────────────
+#
+# ★ 실기 해설·이론은 셀 주소투성이다(2026-11-09: 해설 모아 요약이론은 오디오북이기도 하다).
+#   `A3:A10` 을 TTS 에 그대로 주면 「에이삼 콜론 에이십」·「에이 쓰리…」 로 갈린다.
+#   규칙: `A3` → 「에이삼」, `A3:A10` → 「에이삼부터 에이십」, `$A$1` → 「절대 참조 에이일」,
+#   `$A1`·`A$1` → 「혼합 참조 에이일」. 함수 이름(`LOG2(`)·키(`F4`)는 건드리지 않는다.
+# ★ 실기 트랙에서만 부른다(services/lecture/stages.py `_speech`). 필기 대본에는 걸지 않는다.
+_COL = {"A": "에이", "B": "비", "C": "씨", "D": "디", "E": "이", "F": "에프", "G": "지", "H": "에이치",
+        "I": "아이", "J": "제이", "K": "케이", "L": "엘", "M": "엠", "N": "엔", "O": "오", "P": "피",
+        "Q": "큐", "R": "알", "S": "에스", "T": "티", "U": "유", "V": "브이", "W": "더블유", "X": "엑스",
+        "Y": "와이", "Z": "지"}
+_CELL = r"(\$?)([A-Z]{1,3})(\$?)([1-9]\d{0,6})"
+_RANGE_RE = re.compile(r"(?<![A-Za-z0-9_$])" + _CELL + r"\s*:\s*" + _CELL + r"(?![0-9A-Za-z_(])")
+_CELL_RE = re.compile(r"(?<![A-Za-z0-9_$])" + _CELL + r"(?![0-9A-Za-z_(])")
+_KEYS = {f"F{i}" for i in range(1, 13)}
+
+
+def _cell(d1: str, col: str, d2: str, row: str) -> str:
+    said = "".join(_COL[c] for c in col) + sino(int(row))
+    if d1 and d2:
+        return "절대 참조 " + said
+    if d1 or d2:
+        return "혼합 참조 " + said
+    return said
+
+
+def speak_cells(text: str) -> str:
+    """셀 주소·범위를 소리로. 범위를 낱개보다 먼저 바꾼다."""
+    out = _RANGE_RE.sub(lambda m: _cell(*m.group(1, 2, 3, 4)) + "부터 "
+                        + _cell(*m.group(5, 6, 7, 8)) + _MARK, text or "")
+
+    def one(m: "re.Match[str]") -> str:
+        if not (m.group(1) or m.group(3)) and m.group(2) + m.group(4) in _KEYS:
+            return m.group(0)                       # F4 같은 키
+        return _cell(*m.group(1, 2, 3, 4)) + _MARK
+
+    return _CELL_RE.sub(one, out)

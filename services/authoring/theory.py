@@ -338,6 +338,23 @@ SYSTEM_TEMPLATE = """{머리}
 
 
 
+PRACTICAL_PARA = """  · ★ **실기(작업형) 해설이다.** 보기·정답 번호가 없고, 해설은 **조작 절차(메뉴 경로·대화상자 값)와
+    수식**이다. 절차를 문항마다 옮겨 적지 않는다 — **기능·함수 하나를 키워드 하나로** 묶어
+    「무엇을 하는가 → 어디서 여는가(메뉴 경로 한 줄) → 핵심 설정값·인수의 뜻 → 자주 틀리는 지점
+    (상대·절대·혼합 참조, 조건 범위와 합계 범위의 크기, 조건 쓰는 법, 표시 형식 코드)」 순으로 쓴다.
+    ✗ 나쁨: "[D26] 셀에 =INDEX(B15:B24,MATCH(MAX(D15:D24),D15:D24,0))을 입력한다."
+    ✓ 좋음: "INDEX — 범위에서 몇 번째 행의 값을 꺼낸다. MATCH 로 위치를 찾아 함께 쓴다.
+            예: =INDEX(B15:B24,MATCH(MAX(D15:D24),D15:D24,0)) — 최댓값이 있는 행의 이름."
+  · 원본 파일 이름·시트 이름·셀 주소는 **예시 안에서만** 쓴다. 개념 설명은 어느 시트에서도 통해야 한다.
+  · ★★ **이 노트는 오디오북으로도 듣는다.** 개념 설명 문장(`<p>`, `<li>` 의 앞부분)은 셀 주소·수식
+    기호 없이도 귀로 듣고 뜻이 통하게 쓴다. 수식·셀 주소·표시 형식 코드는 「예:」 뒤에 둔다.
+    ✗ 나쁨: "=SUMIF(A3:A10,"사과",C3:C10) 형태로 쓴다."
+    ✓ 좋음: "조건 범위에서 조건에 맞는 행만 골라 합계 범위의 값을 더한다. 예: =SUMIF(A3:A10,"사과",C3:C10)."
+  · 근거 문번의 M 은 파일의 question_no(회차 안 일련번호)를 그대로 쓴다 — `모의 N회 M번`.
+    (label 「문제2-3」 은 참고용이다. 문번 자리에 쓰지 않는다.)
+"""
+
+
 def system() -> str:
     """요약노트 시스템 프롬프트. **품목마다 다르다** — 시험정보에서 조립한다.
 
@@ -365,7 +382,14 @@ def system() -> str:
     pairs = [str(x) for x in (d.get("distractor_pairs") or [])][:2]
     dup = f" 예: {' , '.join(pairs)}." if pairs else ""
     n = int(d.get("choices") or 4)
-    return (SYSTEM_TEMPLATE.replace("{머리}", head)
+    tpl = SYSTEM_TEMPLATE
+    if str(d.get("format") or "") in ("task", "written"):
+        # ★ 실기(2026-11-09) — 보기·정답 번호 문단을 실기 문단으로 갈아 끼운다.
+        a = tpl.find("  · ★ **옳은 문장으로 쓴다.**")
+        b = tpl.find("  · ★ **\"함정\"", a)
+        if a >= 0 and b > a:
+            tpl = tpl[:a] + PRACTICAL_PARA + tpl[b:]
+    return (tpl.replace("{머리}", head)
             .replace("{키워드예시}", ex)
             .replace("{혼동쌍}", dup)
             .replace("{지선다}", str(n)))
@@ -1013,6 +1037,14 @@ def available_rounds(book_dir: str) -> List[str]:
       넘기는 동안 m09 를 집필 중일 수 있다). 있는 것으로 만들고, 회차가 늘면
       다시 부르면 된다 — 이론은 회차별이 아니라 **과목별**이므로 덮어쓰기가 맞다.
     """
+    from services.authoring import parts as _P
+    if _P.is_practical():                    # 실기: 02/practical/mNN 이 회차다
+        root = os.path.join(book_dir, "02", "practical")
+        try:
+            return sorted(n for n in os.listdir(root)
+                          if re.fullmatch(r"m\d{2}", n) and os.path.isdir(os.path.join(root, n)))
+        except OSError:
+            return []
     d = os.path.join(book_dir, "_rounds")
     try:
         names = sorted(os.listdir(d))
@@ -1059,7 +1091,12 @@ def source_view(book_dir: str) -> str:
     #   그래서 편마다 `_rounds/<편키>.json` 하나를 만든다. 그 편의 문항번호 범위에
     #   드는 문항만, 이론에 필요한 필드만 담는다 — 열 파일이 하나이고 크기도 작다.
     docs = {}
-    for rc in available_rounds(book_dir):
+    from services.authoring import parts as _P
+    if _P.is_practical():
+        # ★ 실기는 _rounds 가 없다 — 실기 집필 결과를 같은 모양으로(services/practical/feed.py)
+        from services.practical import feed as _feed
+        docs = {d["round_code"]: d for d in _feed.rounds(book_dir)}
+    for rc in ([] if docs else available_rounds(book_dir)):
         try:
             with open(os.path.join(book_dir, "_rounds", f"{rc}.json"),
                       encoding="utf-8") as f:
@@ -1067,7 +1104,6 @@ def source_view(book_dir: str) -> str:
         except (OSError, ValueError):
             continue
 
-    from services.authoring import parts as _P
 
     units = _P.theory_units()
     for key, _no, _pt, (lo, hi) in units:
@@ -1083,6 +1119,7 @@ def source_view(book_dir: str) -> str:
                 rows.append({
                     "round": d.get("round_label") or rc,
                     "question_no": qn,
+                    **({"label": q["label"]} if q.get("label") else {}),   # 실기: 「문제2-3」
                     "subject": q.get("subject") or "",
                     "difficulty": q.get("difficulty") or "",
                     "tags": q.get("tags") or [],

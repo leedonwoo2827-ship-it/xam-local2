@@ -234,6 +234,10 @@ def merged_rules() -> dict:
 _LATIN_RE = re.compile(r"(?<![A-Za-z])[A-Za-z][A-Za-z0-9&+.-]*[A-Za-z0-9](?![A-Za-z])")
 
 
+# 셀 주소(D13 · AB120) — 사전 후보가 아니다. 실기 낭독은 core.speak.speak_cells 가 규칙으로 읽는다.
+_CELLREF_RE = re.compile(r"[A-Z]{1,3}[1-9]\d{0,6}")
+
+
 def candidates(prefix: str = "", notes: bool = False) -> list[dict]:
     """낭독문에 있는데 **사전에 없는** 대문자 약어. 빈도가 큰 것부터.
 
@@ -275,7 +279,7 @@ def candidates(prefix: str = "", notes: bool = False) -> list[dict]:
                         t = sl.get("say") or ""
                         for m in _LATIN_RE.finditer(t):
                             w = m.group(0).strip(".-")
-                            if len(w) < 2 or w in rules or w.lower() in ("vs", "etc"):
+                            if len(w) < 2 or w in rules or w.lower() in ("vs", "etc") or _CELLREF_RE.fullmatch(w):
                                 continue
                             hits[w] += 1
                             where.setdefault(w, f"{'요약반' if kind == 'summary' else '종합반'} {sl.get('id')} … "

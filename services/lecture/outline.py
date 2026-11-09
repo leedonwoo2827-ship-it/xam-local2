@@ -48,6 +48,11 @@ def outline_md_path(key: str) -> str:
 
 
 def _rounds() -> List[Dict[str, Any]]:
+    # ★ 실기 폴더는 _rounds 가 없다 — 실기 집필 결과(02/practical)를 같은 모양으로 받아 온다(2026-11-09)
+    from services.authoring import parts as _P
+    if _P.is_practical():
+        from services.practical import feed
+        return feed.rounds(paths.book_dir())
     d = os.path.join(paths.book_dir(), "_rounds")
     out = []
     for fn in sorted(os.listdir(d)) if os.path.isdir(d) else []:
