@@ -677,11 +677,20 @@ function headButtons(head, list, i, x) {
   head.appendChild(del);
 }
 
+function idChip(x) {
+  const c = el("b", "oc-qid", `${x.part ?? "?"}-${x.no ?? "?"}`);
+  c.style.cssText = "font-size:20px;font-weight:800;min-width:2.6em";
+  c.title = "묶음-문항 — 문제 카드와 정답 카드가 이 번호로 짝지어집니다";
+  return c;
+}
+function refreshId(card, x) { const c = card.querySelector(".oc-qid"); if (c) c.textContent = `${x.part ?? "?"}-${x.no ?? "?"}`; }
+
 function qCard(q, i) {
   const card = el("div", "oc-q" + (q.verified ? " verified" : ""));
   const head = el("div", "oc-q-head");
-  head.appendChild(numField("문항", q.no, (v) => { q.no = v; markDirty(); }, 56));
-  head.appendChild(numField("묶음", q.part, (v) => { q.part = v; markDirty(); }, 46));
+  head.appendChild(idChip(q));
+  head.appendChild(numField("묶음", q.part, (v) => { q.part = v; markDirty(); refreshId(card, q); }, 46));
+  head.appendChild(numField("문항", q.no, (v) => { q.no = v; markDirty(); refreshId(card, q); }, 56));
   head.appendChild(numField("배점", q.points, (v) => { q.points = v; markDirty(); }, 52));
   if (q.part && PART_NAME[q.part]) head.appendChild(el("span", "muted", PART_NAME[q.part]));
   headButtons(head, S.draft.problem_items, i, q);
@@ -708,8 +717,9 @@ function qCard(q, i) {
 function ansCard(a, i) {
   const card = el("div", "oc-q" + (a.verified ? " verified" : ""));
   const head = el("div", "oc-q-head");
-  head.appendChild(numField("문항", a.no, (v) => { a.no = v; markDirty(); }, 56));
-  head.appendChild(numField("묶음", a.part, (v) => { a.part = v; markDirty(); }, 46));
+  head.appendChild(idChip(a));
+  head.appendChild(numField("묶음", a.part, (v) => { a.part = v; markDirty(); refreshId(card, a); }, 46));
+  head.appendChild(numField("문항", a.no, (v) => { a.no = v; markDirty(); refreshId(card, a); }, 56));
   const k = el("select");
   for (const x of ANS_KINDS) { const o = el("option", null, x); o.value = x; if (x === a.kind) o.selected = true; k.appendChild(o); }
   k.addEventListener("change", () => { a.kind = k.value; markDirty(); });
@@ -719,7 +729,14 @@ function ansCard(a, i) {
   card.appendChild(head);
 
   card.appendChild(labeled("제목", input(a.title, "문제2 계산작업 ❶ …", (v) => { a.title = v; markDirty(); })));
-  card.appendChild(labeled("수식 (한 줄에 하나 · 「셀 : 수식」)",
+  // ★ 지금은 **풀이 절차 + 그림**만 펴 둔다(2026-11-09 지시: "그 부분만 활성화 — 그림을 캡처해서 넣어야
+  //   해서… 수식·설정값은 일단 닫아 둡시다"). 줄 수를 제목에 적지 않는다 — 판독이 나눈 줄 수는 뜻이 없다.
+  card.appendChild(labeled("풀이 절차 (한 줄에 하나 · 그림은 이름표 줄로)",
+    area((a.steps || []).join("\n"), "한 줄에 하나", (v) => { a.steps = lines(v); markDirty(); }, 4)));
+  card.appendChild(assetsBox(a, "steps", "풀이 절차"));
+  const more = el("details");
+  more.appendChild(el("summary", null, "수식 · 설정값 · 코드"));
+  more.appendChild(labeled("수식 (한 줄에 하나 · 「셀 : 수식」)",
     area((a.formulas || []).map((f) => (f.cell ? f.cell + " : " : "") + f.formula).join("\n"),
       "D11 : =AVERAGEIFS(…)", (v) => {
         a.formulas = lines(v).map((s) => {
@@ -728,7 +745,7 @@ function ansCard(a, i) {
         });
         markDirty();
       }, 3, true)));
-  card.appendChild(labeled("설정값 (한 줄에 하나 · 「대화상자 › 항목 = 값」)",
+  more.appendChild(labeled("설정값 (한 줄에 하나 · 「대화상자 › 항목 = 값」)",
     area((a.settings || []).map((s) => [s.dialog, s.field].filter(Boolean).join(" › ") + " = " + (s.value || "")).join("\n"),
       "고급 필터 › 목록 범위 = $A$3:$H$28", (v) => {
         a.settings = lines(v).map((s) => {
@@ -738,17 +755,9 @@ function ansCard(a, i) {
           return { dialog: fld === undefined ? "" : dlg, field: fld === undefined ? dlg : fld, value: m[2] };
         });
         markDirty();
-      }, 4)));
-  const dc = el("details");
-  dc.open = !!a.code;
-  dc.appendChild(el("summary", null, "코드 (VBA·매크로)"));
-  dc.appendChild(area(a.code, "Sub …", (v) => { a.code = v; markDirty(); }, 6, true));
-  card.appendChild(dc);
-  const ds = el("details");
-  ds.appendChild(el("summary", null, `풀이 절차 ${(a.steps || []).length}줄`));
-  ds.appendChild(area((a.steps || []).join("\n"), "한 줄에 하나", (v) => { a.steps = lines(v); markDirty(); }, 6));
-  card.appendChild(ds);
-  card.appendChild(assetsBox(a, "steps", "풀이 절차"));
+      }, 3)));
+  more.appendChild(labeled("코드 (VBA·매크로)", area(a.code, "Sub …", (v) => { a.code = v; markDirty(); }, 3, true)));
+  card.appendChild(more);
   if (a.note) card.appendChild(el("div", "field-hint", "메모: " + a.note));
   card.appendChild(previewFoot(() => previewAnswer(a)));
   return card;
@@ -789,7 +798,8 @@ function previewProblem(q) {
 
 function previewAnswer(a) {
   const n = el("div");
-  const h = [`<h4>${escapeHtml(a.title || "")}</h4>`];
+  const h = [`<div class="oc-pv-qno">${a.part ?? "?"}-${a.no ?? "?"}</div>`,
+    `<p><b>${escapeHtml(a.title || "")}</b></p>`];
   for (const f of a.formulas || []) {
     h.push(`<p><code>${escapeHtml((f.cell ? "[" + f.cell + "] " : "") + f.formula)}</code></p>`);
   }
@@ -1008,7 +1018,7 @@ function roundCard(it) {
     }
     if (a.code) h.push(`<pre class="pb-cmd">${escapeHtml(a.code)}</pre>`);
     if (a.steps.length) {
-      h.push(`<details><summary class="muted">풀이 절차 ${a.steps.length}줄</summary><ol style="margin:4px 0 0 18px">`
+      h.push(`<details><summary class="muted">풀이 절차</summary><ol style="margin:4px 0 0 18px">`
         + a.steps.map((s) => `<li>${escapeHtml(String(s).replace(/\{\{b-\d+\}\}/g, "(그림 — 아래)"))}</li>`).join("") + `</ol></details>`);
     }
     ans.innerHTML = h.join("");
