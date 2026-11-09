@@ -64,6 +64,8 @@ const routes = [
   { re: /^\/ebook$/,            nav: "eb", layer: "base",  load: () => import("./ebook.js") },
   { re: /^\/summary$/,          nav: "s",  layer: "base",  load: () => import("./summary.js") },
   { re: /^\/summary\/(.+)$/,    nav: "s",  layer: "base",  load: () => import("./summary.js") },
+  // 2부 현황판 — 묶음 × 단계 표, 체크한 칸만 진행(2026-11-10 지시: "2부를 대시보드처럼 4칸으로")
+  { re: /^\/part2$/, nav: "p2b", layer: "base", load: () => import("./part2.js") },
   // v2 — 이론 묶음. 해설 구조화 · 요약반/종합반 강의 노트 · 듣기 검수(새 탭으로 여는 검수자 화면)
   { re: /^\/outline$/,           nav: "ol", layer: "base",  load: () => import("./outline.js") },
   { re: /^\/outline\/(.+)$/,     nav: "ol", layer: "base",  load: () => import("./outline.js") },

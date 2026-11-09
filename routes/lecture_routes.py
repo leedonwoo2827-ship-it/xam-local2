@@ -266,16 +266,27 @@ def setup_lecture_routes() -> APIRouter:
         for k in keys:
             _need("summary", k)
         factor = int(b.get("factor") or common.DEFAULT_FACTOR)
-        full = bool(b.get("full", True))
-        redo_theory = bool(b.get("redo_theory"))
+        # ★ 2부 현황판(2026-11-10): 행(묶음)·열(단계)을 골라 돌린다. 다 고르면 전체 진행.
+        steps = [x for x in (b.get("stages") or ["outline", "theory", "summary", "full"])
+                 if x in ("outline", "theory", "summary", "full")]
+        if "full" in b and "stages" not in b and not b.get("full"):
+            steps = [x for x in steps if x != "full"]
+        if not steps:
+            raise HTTPException(status_code=400, detail="돌릴 단계를 고르세요.")
+        redo = bool(b.get("redo"))
+        redo_theory = bool(b.get("redo_theory")) or redo
+        if redo:
+            b["redo_outline"] = True
         _busy()
-        kinds = ["summary", "full"] if full else ["summary"]
-        units = ([f"{k}:outline" for k in keys] + [f"{k}:theory" for k in keys]
+        kinds = [x for x in ("summary", "full") if x in steps]
+        full = "full" in kinds
+        units = ([f"{k}:outline" for k in keys if "outline" in steps] + [f"{k}:theory" for k in keys if "theory" in steps]
                  + [f"{k}:{kd}:{st}" for k in keys for kd in kinds for st in notes.STAGES[kd] if st != "listen"])
         names = {k: (common.subject(k).get("label") or f"{common.subject(k).get('no', '')}과목") for k in keys}
-        job = registry.create(KIND_JOB, f"2부 자동 · {' · '.join(names.values())} · 구조화→이론→"
-                                        + ("요약반→종합반" if full else "요약반"), units)
-        job["auto"] = {"kinds": kinds, "keys": keys, "factor": factor, "part2": True}
+        sl = {"outline": "구조화", "theory": "이론", "summary": "요약반", "full": "종합반"}
+        job = registry.create(KIND_JOB, f"2부 자동 · {' · '.join(names.values())} · "
+                                        + "→".join(sl[x] for x in steps), units)
+        job["auto"] = {"kinds": kinds, "keys": keys, "factor": factor, "part2": True, "stages": steps}
 
         def work(j):
             import shutil
@@ -283,7 +294,7 @@ def setup_lecture_routes() -> APIRouter:
             stop = lambda: bool(j.get("cancel_requested"))          # noqa: E731
             ok = {k: True for k in keys}
             # ① 해설 모으기 · 구조화 · 승인 — 묶음마다 차례로
-            for k in keys:
+            for k in (keys if "outline" in steps else []):
                 if stop():
                     break
                 o = outline.read_outline(k)
@@ -303,9 +314,9 @@ def setup_lecture_routes() -> APIRouter:
                     registry.item(j, f"{k}:outline", status="error", error=str(e))
                     registry.log(j, f"[{names[k]}] (문제) 구조화 — {e}", force=True)
             # ② 이론 요약 노트 — 한 폴더를 같이 써서 프롬프트 캐시를 살린다(theory_routes 와 같은 이유)
-            view = theory.source_view(_paths.book_dir()) if not stop() else ""
+            view = theory.source_view(_paths.book_dir()) if (not stop() and "theory" in steps) else ""
             try:
-                for k in keys:
+                for k in (keys if "theory" in steps else []):
                     if stop():
                         break
                     if not ok[k]:
@@ -355,7 +366,8 @@ def setup_lecture_routes() -> APIRouter:
                     errs.append(f"{names[k]}: {e}")
                     registry.log(j, f"[{names[k]}] (문제) {type(e).__name__}: {e}", force=True)
 
-            ts = [threading.Thread(target=guard, args=(k,), daemon=True) for k in keys if ok[k] and not stop()]
+            ts = [threading.Thread(target=guard, args=(k,), daemon=True)
+                  for k in keys if kinds and ok[k] and not stop()]
             for t in ts:
                 t.start()
             for t in ts:
@@ -368,6 +380,59 @@ def setup_lecture_routes() -> APIRouter:
 
         registry.spawn(job, work)
         return registry.view(job)
+
+    @router.get("/api/part2/board")
+    async def part2_board():
+        """2부 현황판 — 행 = 묶음(과목), 열 = 해설 구조화 · 이론 요약 · 요약반 · 종합반. 모델을 부르지 않는다."""
+        from services.authoring import theory
+        rows = []
+        for s in common.subjects():
+            k = s["key"]
+            o = outline.summary(k)
+            oc = "approved" if (o["outline"] or {}).get("approved") else "done" if o["outline"] else                  "partial" if o["collected"] else "todo"
+            cells = {"outline": {"state": oc, "text": ("승인됨" if oc == "approved" else "구조화됨 · 미승인" if oc == "done"
+                                                       else f"해설 {o['collected']['n']}개 모음" if oc == "partial" else "없음")},
+                     "theory": {"state": "approved" if theory.is_done(k) else "todo",
+                                "text": "있음" if theory.is_done(k) else "없음"}}
+            for kd in ("summary", "full"):
+                d = notes.load(kd, k)
+                if not d:
+                    cells[kd] = {"state": "todo", "text": "없음"}
+                    continue
+                sv = [x for x in notes.stage_view(d) if x["stage"] != "listen"]
+                okn = sum(1 for x in sv if x["status"] == "approved" or (x["stage"] == "build" and x["status"] == "done"))
+                nxt = next((x["label"] for x in sv if not (x["status"] == "approved" or (x["stage"] == "build" and x["status"] == "done"))), "")
+                cells[kd] = {"state": "approved" if okn == len(sv) else "partial",
+                             "text": "빌드 완료" if okn == len(sv) else f"{okn}/{len(sv)} · 다음 {nxt}",
+                             "slides": len(notes.slides(d))}
+            rows.append({**s, "cells": cells})
+        j = registry.running(KIND_JOB)
+        run = None
+        if j:
+            items = j.get("items") or {}
+            run = {"id": j["id"], "label": j.get("label"), "auto": j.get("auto"),
+                   "running": [u for u, it in items.items() if (it or {}).get("status") == "running"],
+                   "errors": [u for u, it in items.items() if (it or {}).get("status") == "error"]}
+        return {"rows": rows, "running": run}
+
+    @router.post("/api/part2/open")
+    async def part2_open(col: str, key: str):
+        """현황판 칸의 결과 폴더를 탐색기로 연다(로컬 앱 — 서버가 곧 사용자 PC)."""
+        from services.book import paths as _paths
+        _need("summary", key)
+        if col == "outline":
+            d = outline.outline_dir()
+        elif col == "theory":
+            d = os.path.dirname(_paths.summary_html(key))
+        elif col in ("summary", "full"):
+            built = os.path.join(_paths.book_dir(), "04-2", "lecture", col, key)
+            d = built if os.path.isdir(built) else common.kind_dir(col)
+        else:
+            raise HTTPException(status_code=400, detail="col 은 outline · theory · summary · full")
+        if not os.path.isdir(d):
+            raise HTTPException(status_code=404, detail="아직 결과 폴더가 없습니다.")
+        os.startfile(d)                                          # noqa: S606 — 로컬 전용
+        return {"ok": True, "dir": d}
 
     @router.get("/api/lecture-job/running")
     async def lecture_job_running():
