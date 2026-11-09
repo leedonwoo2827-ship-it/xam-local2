@@ -39,7 +39,10 @@ def subjects() -> List[Dict[str, object]]:
     from services.authoring import parts, theory
 
     names = parts.subjects_map()
-    return [{"key": k, "no": int(no), "name": names.get(int(no), "")}
+    prac = parts.is_practical()
+    # ★ label — 실기는 과목이 아니라 묶음이다(「문제1」). 화면·상태판이 「1과목」 대신 이것을 쓴다(2026-11-09).
+    return [{"key": k, "no": int(no), "name": names.get(int(no), ""),
+             "label": f"문제{int(no)}" if prac else f"{int(no)}과목"}
             for k, no in theory.keys()]
 
 

@@ -43,7 +43,7 @@ async function reload() {
     const c = it.collected, o = it.outline;
     const card = el("div", "card ol-card" + (it.key === S.key ? " on" : "")
       + (o && o.approved ? " state-done" : o ? " state-part" : ""));
-    card.innerHTML = `<div class="ol-h"><b>${it.no}과목 · ${escapeHtml(it.name)}</b>
+    card.innerHTML = `<div class="ol-h"><b>${it.label || it.no + "과목"} · ${escapeHtml(it.name)}</b>
         ${o && o.approved ? '<span class="lc-chip s-approved">승인됨</span>' : ""}</div>
       <div class="muted">해설 ${c ? `${c.n}개 · ${c.rounds}회차 · ${c.chars.toLocaleString()}자` : "아직 안 모음"}</div>
       <div class="muted">구조 ${o ? `대단원 ${o.topics} · 소단원 ${o.items} · 출처 ${o.refs}${o.cost_usd ? ` · $${o.cost_usd}` : ""}` : "아직 없음"}</div>`;

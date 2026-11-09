@@ -93,7 +93,7 @@ def _reflect() -> List[Dict[str, Any]]:
 
     out: List[Dict[str, Any]] = []
     for s in common.subjects():
-        key, name = s["key"], f"{s['no']}과목"
+        key, name = s["key"], (s.get("label") or f"{s['no']}과목")
         o = outline.read_outline(key)
         sh = paths.summary_html(key)
         if o and o.get("approved") and os.path.isfile(sh):
@@ -187,7 +187,7 @@ def _theory(focus: str = "") -> List[Dict[str, Any]]:
 
     out: List[Dict[str, Any]] = []
     for s in common.subjects():
-        key, name = s["key"], f"{s['no']}과목"
+        key, name = s["key"], (s.get("label") or f"{s['no']}과목")
         if focus and key != focus:
             continue
         o = outline.summary(key)
@@ -229,7 +229,7 @@ def compute(route: str = "") -> Dict[str, Any]:
         try:
             from services.lecture import common
             s = common.subject(m.group(2))
-            n = _note_next(m.group(1), m.group(2), f"{s['no']}과목")
+            n = _note_next(m.group(1), m.group(2), (s.get("label") or f"{s['no']}과목"))
             if n:
                 n["here"] = True
                 nxt.append(n)

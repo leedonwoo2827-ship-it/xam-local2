@@ -54,7 +54,7 @@ export async function mount(root, ctx) {
   list.items.forEach((it) => {
     const a = el("a", "lc-tab" + (it.key === S.key ? " on" : ""));
     a.href = `#/lecture/${S.kind}/${it.key}`;
-    a.innerHTML = `${it.no}과목 · ${escapeHtml(it.name)} <b>${it.exists ? (it.slides || 0) + "장" : "없음"}</b>`;
+    a.innerHTML = `${it.label || it.no + "과목"} · ${escapeHtml(it.name)} <b>${it.exists ? (it.slides || 0) + "장" : "없음"}</b>`;
     tabs.appendChild(a);
   });
   page.appendChild(tabs);
@@ -87,7 +87,7 @@ function emptyState() {
   const box = el("div", "card lc-empty");
   const subj = S.data.subject || {};
   if (S.kind === "summary") {
-    box.innerHTML = `<h3>${subj.no}과목 요약반 노트가 아직 없습니다</h3>
+    box.innerHTML = `<h3>${subj.label || subj.no + "과목"} 요약반 노트가 아직 없습니다</h3>
       <p class="muted">${S.data.summary_ready
         ? "이론 요약 노트를 장(h3) 단위로 잘라 노트 뼈대를 만듭니다. 모델을 부르지 않습니다."
         : "먼저 [이론 요약 노트] 를 만들어야 합니다 — 이 노트는 그 요약노트에서 시작합니다."}</p>`;
@@ -96,7 +96,7 @@ function emptyState() {
     b.addEventListener("click", () => init({}));
     box.appendChild(b);
   } else {
-    box.innerHTML = `<h3>${subj.no}과목 종합반 노트가 아직 없습니다</h3>
+    box.innerHTML = `<h3>${subj.label || subj.no + "과목"} 종합반 노트가 아직 없습니다</h3>
       <p class="muted">승인된 요약반 노트(자막·낭독·SVG)를 복사해 시작합니다. 배수만큼 장을 늘리는 것은 다음의 「내용 n배 확장」 단계입니다.</p>`;
     const row = el("div", "row");
     const sel = el("select", "lc-factor");
@@ -225,7 +225,7 @@ async function watch(id) {
 async function autoAll() {
   const list = await api(`/api/lecture/summary`);
   const keys = list.items.map((i) => i.key);
-  const body = `<p>${list.items.map((i) => `<b>${i.no}과목</b>`).join(" · ")}을 <b>동시에</b> 돌립니다.
+  const body = `<p>${list.items.map((i) => `<b>${i.label || i.no + "과목"}</b>`).join(" · ")}을 <b>동시에</b> 돌립니다.
       단계마다 <b>자동 승인</b>하고 노트 빌드까지 갑니다(듣기 검수는 건너뜁니다).</p>
     <p>요약반: 노트 만들기 → 자막대본 → 낭독대본 → SVG → 노트 빌드</p>
     <p><label><input type="checkbox" id="lc-auto-full" checked> 이어서 <b>종합반</b>
