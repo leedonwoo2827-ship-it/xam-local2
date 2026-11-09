@@ -14,9 +14,38 @@
 """
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from services.practical import read as pread
+
+
+TOKEN_RE = re.compile(r"\{\{([tp]-\d+)\}\}")
+
+
+def assets_of(x: dict, page: int) -> Dict[str, dict]:
+    """카드의 자산(이름표 → 자료 표/그림). 옛 판독의 figure_table · figure_bbox 도 t-1 · p-1 로 읽는다.
+
+    화면(practicalReview.js 의 ensureAssets)과 같은 규칙이다. 그림의 쪽은 없으면 카드의 쪽.
+    """
+    out = {k: dict(v) for k, v in (x.get("assets") or {}).items() if isinstance(v, dict)}
+
+    def nid(prefix: str) -> str:
+        n = 1
+        while f"{prefix}-{n}" in out:
+            n += 1
+        return f"{prefix}-{n}"
+
+    if x.get("figure_table"):
+        out[nid("t")] = {"type": "table", "md": x["figure_table"]}
+    if x.get("figure_bbox"):
+        out[nid("p")] = {"type": "figure", "bbox": x["figure_bbox"], "note": x.get("figure") or "",
+                         "page": x.get("figure_page") or page}
+    for a in out.values():
+        if a.get("type") == "figure":
+            a.setdefault("page", page)
+            a["page"] = int(a.get("page") or page)
+    return out
 
 
 def _key(part: Optional[int], no: Optional[int]) -> Tuple[int, int]:
@@ -38,7 +67,8 @@ def round_items(src: str, rnd: int) -> Dict[str, Any]:
             part = it.get("part") or last_part
             last_part = part
             k = _key(part, it.get("no"))
-            probs.setdefault(k, []).append(dict(it, part=part, page=r["page"], idx=idx))
+            probs.setdefault(k, []).append(dict(it, part=part, page=r["page"], idx=idx,
+                                                assets=assets_of(it, r["page"])))
             if k not in order:
                 order.append(k)
 
@@ -56,10 +86,25 @@ def round_items(src: str, rnd: int) -> Dict[str, Any]:
             last_part, last_key = (k[0] or part), k
             a = ans.setdefault(k, {"titles": [], "kinds": [], "formulas": [], "settings": [],
                                    "code": "", "steps": [], "notes": [], "pages": [], "figures": [],
-                                   "verified": True})
+                                   "blocks": [], "verified": True})
             a["verified"] = a["verified"] and bool(e.get("verified"))
-            if e.get("figure_bbox"):
-                a["figures"].append({"page": r["page"], "bbox": e["figure_bbox"]})
+            # ★ 정답 조각마다 이름표가 p-1 부터라 합치면 겹친다 — 합친 정답의 블록 번호 {{b-N}} 로 바꾼다.
+            #   이름표가 없는 자산은 「맨 끝」 블록(tail)으로 남긴다.
+            ea = assets_of(e, r["page"])
+            remap: Dict[str, str] = {}
+            for aid, asset in ea.items():
+                remap[aid] = f"b-{len(a['blocks'])}"
+                a["blocks"].append(dict(asset, tail=True))
+            steps = []
+            for line in e.get("steps") or []:
+                def _sub(m):
+                    b = remap.get(m.group(1))
+                    if b is None:
+                        return m.group(0)
+                    a["blocks"][int(b[2:])]["tail"] = False
+                    return "{{" + b + "}}"
+                steps.append(TOKEN_RE.sub(_sub, str(line)))
+            e = dict(e, steps=steps)
             if e.get("title"):
                 a["titles"].append(e["title"])
             if e.get("kind") and e["kind"] not in a["kinds"]:
@@ -77,6 +122,10 @@ def round_items(src: str, rnd: int) -> Dict[str, Any]:
                 a["pages"].append(r["page"])
             if k not in order:
                 order.append(k)
+
+    for a in ans.values():
+        a["figures"] = [{"page": b["page"], "bbox": b["bbox"]} for b in a["blocks"]
+                        if b.get("type") == "figure" and b.get("bbox")]
 
     items = []
     for k in sorted(order):

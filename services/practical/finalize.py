@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from typing import Any, Dict, List
 
 from core.atomic_io import atomic_write_text
@@ -37,29 +38,69 @@ def _crop(src: str, page: int, bbox: list, name: str) -> str:
     return f"images/{name}"
 
 
-def _md(rnd: int, it: Dict[str, Any], figs: List[str], afigs: List[str]) -> str:
+BLOCK_RE = re.compile(r"\{\{(b-\d+)\}\}")
+
+
+def _asset_md(asset: dict, img: str) -> List[str]:
+    if asset.get("type") == "table":
+        return [(asset.get("md") or "").strip(), ""]
+    if img:
+        return [f"![{asset.get('note') or '그림'}]({img})", ""]
+    return []
+
+
+def _lines_md(lines: List[str], token_re, lookup) -> List[str]:
+    """줄을 인쇄된 그대로 쓰고, 이름표 줄은 그 자리에 자산을 펼친다.
+    원문자 항목 아래 딸린 ▶ 줄만 들여쓴다. 앱이 기호를 덧붙이지 않는다."""
+    out, under, used = [], False, set()
+    for raw in lines or []:
+        s = str(raw).strip()
+        text = token_re.sub("", s).strip()
+        if text[:1] and ("\u2460" <= text[0] <= "\u2473" or "\u2776" <= text[0] <= "\u277f"):
+            under = True
+        elif text and not text.startswith(("▶", "※")):
+            under = False
+        for k, part in enumerate(token_re.split(s)):
+            if k % 2 == 1:
+                used.add(part)
+                out += [""] + lookup(part)
+            elif part.strip():
+                out.append(("&emsp;" if under and part.strip().startswith(("▶", "※")) else "")
+                           + part.strip() + "  ")
+    return out, used
+
+
+def _md(rnd: int, it: Dict[str, Any], stem: str, src: str) -> tuple:
+    """문항 하나의 원고 + 그린 그림 목록."""
+    from services.practical.review import TOKEN_RE
+    imgs: List[str] = []
     p0 = (it["problems"] or [{}])[0]
     out = [f"# {rnd:02d}회 문제{it['part']}-{it['no']}"
            + (f" ({p0.get('points')}점)" if p0.get("points") is not None else ""), ""]
-    for p in it["problems"]:
+    for qi, p in enumerate(it["problems"]):
+        assets = p.get("assets") or {}
+        cache: Dict[str, str] = {}
+
+        def look(aid, assets=assets, cache=cache, qi=qi):
+            a = assets.get(aid)
+            if not a:
+                return [f"({{{{{aid}}}}} — 없는 자산)", ""]
+            img = ""
+            if a.get("type") == "figure" and a.get("bbox"):
+                img = cache.get(aid) or _crop(src, int(a["page"]), a["bbox"], f"{stem}-q{qi + 1}-{aid}.png")
+                cache[aid] = img
+                imgs.append(img)
+            return _asset_md(a, img)
+
         out += [f"**{p.get('lead') or ''}**", ""]
-        # ★ 적힌 줄을 **그대로** 쓴다 — 목록 기호(- )나 ▶ 를 앱이 덧붙이지 않는다(2026-11-08 지시:
-        #   "강제로는 제가 넣을 테니 기본값은 빼 주세요"). 원문자 항목 아래 딸린 ▶ 줄만 들여쓴다.
-        #   줄 끝 공백 두 칸 = 마크다운 줄바꿈.  지정 함수는 JSON 에만 둔다(본문에 줄을 만들지 않는다).
-        under = False
-        for s in (p.get("instructions") or []):
-            s = str(s).strip()
-            if s[:1] and ("①" <= s[0] <= "⑳" or "❶" <= s[0] <= "❿"):
-                under = True
-            elif not s.startswith(("▶", "※")):
-                under = False
-            out.append(("&emsp;" if under and s.startswith(("▶", "※")) else "") + s + "  ")
-        out.append("")
-        if p.get("figure_table"):
-            out += [p["figure_table"].strip(), ""]
-    out += [f"![그림]({f})" for f in figs] + ([""] if figs else [])
+        body, used = _lines_md(p.get("instructions") or [], TOKEN_RE, look)
+        out += body + [""]
+        for aid in assets:                      # 이름표가 없는 자산은 맨 끝에
+            if aid not in used:
+                out += look(aid)
     a = it.get("answer")
     out += ["## 정답", ""]
+    aimgs: List[str] = []
     if not a:
         out += ["(정답 없음)", ""]
     else:
@@ -71,10 +112,26 @@ def _md(rnd: int, it: Dict[str, Any], figs: List[str], afigs: List[str]) -> str:
                     for s in a["settings"]]
         if a["code"]:
             out += ["", "```vb", a["code"], "```"]
+        blocks = a.get("blocks") or []
+
+        def blook(bid):
+            b = blocks[int(bid[2:])] if int(bid[2:]) < len(blocks) else None
+            if not b:
+                return []
+            img = ""
+            if b.get("type") == "figure" and b.get("bbox"):
+                img = _crop(src, int(b["page"]), b["bbox"], f"{stem}-a{bid[2:]}.png")
+                aimgs.append(img)
+            return _asset_md(b, img)
+
         if a["steps"]:
-            out += ["", "### 풀이 절차", ""] + [f"{i}. {s}" for i, s in enumerate(a["steps"], 1)]
-        out += [""] + [f"![결과]({f})" for f in afigs]
-    return "\n".join(out).rstrip() + "\n"
+            out += ["", "### 풀이 절차", ""]
+            body, _ = _lines_md(a["steps"], BLOCK_RE, blook)
+            out += body
+        for i, b in enumerate(blocks):
+            if b.get("tail"):
+                out += [""] + blook(f"b-{i}")
+    return "\n".join(out).rstrip() + "\n", imgs, aimgs
 
 
 def finalize_round(src: str, rnd: int) -> dict:
@@ -86,18 +143,11 @@ def finalize_round(src: str, rnd: int) -> dict:
             skipped.append(f"{it['part']}-{it['no']} ({', '.join(it['flags']) or '문제 없음'})")
             continue
         stem = f"{rnd:02d}-{it['part']}-{it['no']:02d}"
-        figs = []
-        for k, p in enumerate(it["problems"]):
-            if p.get("figure_bbox"):
-                figs.append(_crop(src, int(p.get("figure_page") or p["page"]), p["figure_bbox"],
-                                  f"{stem}-q{k + 1}.png"))
-        afigs = []
-        for k, f in enumerate((it.get("answer") or {}).get("figures") or []):
-            afigs.append(_crop(src, f["page"], f["bbox"], f"{stem}-a{k + 1}.png"))
+        md, figs, afigs = _md(rnd, it, stem, src)
         doc = {"round": rnd, "part": it["part"], "no": it["no"], "source_pdf": f"{src}.pdf",
                "problems": it["problems"], "answer": it.get("answer"), "flags": it["flags"],
                "verified": it.get("verified", False), "figures": figs, "answer_figures": afigs}
         atomic_write_text(os.path.join(out_dir(), stem + ".json"), json.dumps(doc, ensure_ascii=False, indent=2))
-        atomic_write_text(os.path.join(out_dir(), stem + ".md"), _md(rnd, it, figs, afigs))
+        atomic_write_text(os.path.join(out_dir(), stem + ".md"), md)
         wrote.append(stem)
     return {"round": rnd, "dir": out_dir(), "wrote": wrote, "skipped": skipped}

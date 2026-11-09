@@ -227,6 +227,8 @@ async function openPage(src, n) {
   S.draft = d.read || { page_kind: "기타", problem_items: [], answer_entries: [] };
   S.draft.problem_items = S.draft.problem_items || [];
   S.draft.answer_entries = S.draft.answer_entries || [];
+  S.draft.problem_items.forEach((x) => ensureAssets(x, n));
+  S.draft.answer_entries.forEach((x) => ensureAssets(x, n));
   S.dirty = false;
   $("#oc-ocrtext").value = S.draft.notes || "";
   $("#oc-ocrmeta").textContent = `${src}.pdf p.${n}`;
@@ -444,27 +446,205 @@ function numField(label, value, onInput, width) {
 }
 function lines(v) { return (v || "").split("\n").map((s) => s.trim()).filter(Boolean); }
 
-function figBlock(x) {
-  const w = el("div");
+/* ══ 자산 — 필기와 같은 토큰 방식 ══════════════════════════════════════════
+ * 자산마다 이름표가 있다: 자료 표 {{t-1}} · 그림 {{p-1}}. 지문(정답은 풀이 절차) 줄 사이에
+ * 이름표 한 줄을 두면 **그 자리에** 펼쳐진다. 이름표를 두지 않은 자산은 맨 끝에 붙는다
+ * (2026-11-09: "원숫자 2 다음에 나와야 한다든지 할 때 어떻게 하는 법이 있나요").
+ * 옛 판독의 figure_table · figure_bbox 는 불러올 때 t-1 · p-1 로 옮긴다(이름표 없음 = 맨 끝). */
+const TOKEN_RE = /\{\{([tp]-\d+)\}\}/g;
+
+function ensureAssets(x, page) {
+  x.assets = x.assets && typeof x.assets === "object" ? x.assets : {};
   if (x.figure_table) {
-    const tb = el("div", "tbl-md");
-    tb.innerHTML = renderMarkdown(x.figure_table);
-    tb.querySelectorAll("table").forEach((t) => t.classList.add("tbl"));
-    w.appendChild(tb);
+    x.assets[nextAssetId(x, "t")] = { type: "table", md: x.figure_table };
+    delete x.figure_table;
   }
   if (x.figure_bbox) {
-    const [bx, by, bw, bh] = x.figure_bbox;
-    const pg = Number(x.figure_page) || S.page;
-    const img = el("img");
-    img.src = `/api/ocr/crop?src=${encodeURIComponent(S.src)}&page=${pg}&x=${bx}&y=${by}&w=${bw}&h=${bh}`;
-    img.alt = "그림";
-    img.style.cssText = "max-width:100%;border:1px solid var(--hairline);border-radius:6px;margin-top:6px";
-    w.appendChild(img);
-    w.appendChild(el("div", "field-hint", `그림 영역 p.${pg} · ${x.figure_bbox.join(",")}`));
-  } else if (x.figure && !x.figure_table) {
-    w.appendChild(el("div", "field-hint", "그림 영역 미지정 — 스캔에서 드래그한 뒤 [그림 추가] 를 누르세요."));
+    const a = { type: "figure", bbox: x.figure_bbox, note: x.figure || "" };
+    const pg = Number(x.figure_page) || 0;
+    if (pg && pg !== Number(page)) a.page = pg;
+    x.assets[nextAssetId(x, "p")] = a;
+    delete x.figure_bbox;
+    delete x.figure_page;
+  }
+}
+
+function nextAssetId(x, prefix) {
+  let n = 1;
+  while ((x.assets || {})[`${prefix}-${n}`]) n += 1;
+  return `${prefix}-${n}`;
+}
+
+function cropSrc(a, page) {
+  const [bx, by, bw, bh] = a.bbox;
+  const pg = Number(a.page) || Number(page) || S.page;
+  return `/api/ocr/crop?src=${encodeURIComponent(S.src)}&page=${pg}&x=${bx}&y=${by}&w=${bw}&h=${bh}`;
+}
+
+/* 자산 하나를 보이는 모양으로 */
+function assetNode(a, page) {
+  const w = el("div");
+  w.style.margin = "8px 0";
+  if (a.type === "table") {
+    w.className = "tbl-md";
+    w.innerHTML = renderMarkdown(a.md || "");
+    w.querySelectorAll("table").forEach((t) => t.classList.add("tbl"));
+  } else if (a.type === "figure") {
+    if (a.bbox) {
+      const img = el("img");
+      img.src = cropSrc(a, page);
+      img.alt = a.note || "그림";
+      img.style.cssText = "max-width:100%;border:1px solid var(--hairline);border-radius:6px";
+      w.appendChild(img);
+    } else {
+      w.appendChild(el("div", "field-hint", "그림 영역 미지정"));
+    }
   }
   return w;
+}
+
+/* 줄 목록 + 자산 → 화면. 이름표 줄은 그 자리에 자산을 펼치고, 남은 자산은 맨 끝에.
+ * 인쇄된 기호를 그대로 쓰고, 원문자(①~⑳) 항목 아래 딸린 ▶ 줄만 들여쓴다(앱이 기호를 붙이지 않는다). */
+const CIRCLED_RE = /^[\u2460-\u2473\u2776-\u277F]/;
+function linesWithAssets(list, x, page, opts = {}) {
+  const box = el("div");
+  const assets = x.assets || {};
+  const used = new Set();
+  let under = false;
+  (list || []).forEach((raw, idx) => {
+    const s = String(raw || "").trim();
+    const parts = s.split(TOKEN_RE);          // [글, id, 글, id, …]
+    const textOnly = parts.filter((_, k) => k % 2 === 0).join("").trim();
+    if (CIRCLED_RE.test(textOnly)) under = true;
+    else if (textOnly && !textOnly.startsWith("▶") && !textOnly.startsWith("※")) under = false;
+    const indent = under && (textOnly.startsWith("▶") || textOnly.startsWith("※"));
+    parts.forEach((part, k) => {
+      if (k % 2 === 1) {
+        if (assets[part]) { box.appendChild(assetNode(assets[part], page)); used.add(part); }
+        else box.appendChild(el("div", "field-hint", `{{${part}}} — 없는 자산`));
+        return;
+      }
+      if (!part.trim()) return;
+      const pEl = el(opts.ordered ? "div" : "p", null, (opts.ordered ? `${idx + 1}. ` : "") + part.trim());
+      pEl.style.margin = "6px 0";
+      if (indent) pEl.style.paddingLeft = "1.6em";
+      box.appendChild(pEl);
+    });
+  });
+  Object.keys(assets).filter((id) => !used.has(id)).forEach((id) => box.appendChild(assetNode(assets[id], page)));
+  return box;
+}
+
+/* 자산 상자 — 필기 「자산(표/SQL박스/그림)」 와 같은 모양. target: 이름표를 넣을 줄 목록 칸 이름 */
+function assetsBox(x, target, targetLabel) {
+  const box = el("div", "oc-assets");
+  const head = el("div", "oc-assets-head");
+  head.appendChild(el("span", null, "자산(자료 표/그림)"));
+  const addT = el("button", "btn sm", "＋표");
+  addT.type = "button";
+  addT.addEventListener("click", () => {
+    const id = nextAssetId(x, "t");
+    x.assets[id] = { type: "table", md: "" };
+    x[target] = (x[target] || []).concat(`{{${id}}}`);
+    markDirty(); renderCards();
+  });
+  const addP = el("button", "btn sm", "＋그림");
+  addP.type = "button";
+  addP.addEventListener("click", () => addFigure(x, target));
+  head.append(addT, addP);
+  head.appendChild(el("span", "field-hint",
+    `이름표 {{t-1}} · {{p-1}} 를 ${targetLabel} 줄 사이에 한 줄로 두면 그 자리에 펼쳐집니다 · 이름표가 없는 자산은 맨 끝에 붙습니다`));
+  box.appendChild(head);
+
+  const ids = Object.keys(x.assets || {});
+  if (!ids.length) { box.appendChild(el("span", "field-hint", "자산 없음")); return box; }
+  const placed = new Set();
+  (x[target] || []).forEach((l) => String(l).replace(TOKEN_RE, (_, id) => { placed.add(id); return ""; }));
+  ids.forEach((id) => {
+    const a = x.assets[id];
+    const row = el("div", "oc-asset");
+    const bar = el("div", "oc-asset-bar");
+    const tok = el("button", "oc-tok", `{{${id}}}`);
+    tok.type = "button";
+    tok.title = `${targetLabel} 맨 끝에 이름표 한 줄 넣기 — 넣은 뒤 원하는 줄 다음으로 옮기세요`;
+    tok.addEventListener("click", () => {
+      x[target] = (x[target] || []).concat(`{{${id}}}`);
+      markDirty(); renderCards();
+      status(`${targetLabel}에 {{${id}}} 넣음 — 원하는 줄 다음으로 옮기세요`, false);
+    });
+    bar.appendChild(tok);
+    bar.appendChild(el("span", "badge", a.type === "table" ? "자료 표" : "그림"));
+    bar.appendChild(el("span", "muted", placed.has(id) ? "· 이름표 자리에 펼침" : "· 맨 끝에 붙음"));
+    const del = el("button", "btn sm", "✕");
+    del.type = "button";
+    del.title = "이 자산 삭제 (이름표 줄도 지웁니다)";
+    del.addEventListener("click", () => {
+      delete x.assets[id];
+      const tk = new RegExp("\\{\\{" + id + "\\}\\}", "g");
+      x[target] = (x[target] || []).map((l) => String(l).replace(tk, "").trim()).filter(Boolean);
+      markDirty(); renderCards();
+    });
+    bar.appendChild(del);
+    row.appendChild(bar);
+    if (a.type === "table") {
+      row.appendChild(area(a.md || "", "| 코드 | 이름 | …", (v) => { a.md = v; markDirty(); }, 4, true));
+    } else {
+      const fr = el("div", "oc-figrow");
+      if (a.bbox) { const img = el("img"); img.src = cropSrc(a, S.page); fr.appendChild(img); }
+      else fr.appendChild(el("span", "muted", "영역 미지정"));
+      const setb = el("button", "btn sm", "영역지정(드래그 후)");
+      setb.type = "button";
+      setb.addEventListener("click", () => {
+        if (!takePending()) return;
+        a.bbox = S.pendingBox;
+        stampPage(a);
+        clearPending();
+        markDirty(); renderCards();
+      });
+      fr.appendChild(setb);
+      if (a.page && Number(a.page) !== Number(S.page)) {
+        const gob = el("button", "btn sm", `p.${a.page} 보기`);
+        gob.type = "button";
+        gob.addEventListener("click", () => { if (!S.showScan) toggleScan(); showScanPage(Number(a.page)); });
+        fr.appendChild(el("span", "status-chip info", `다른 면 p.${a.page}`));
+        fr.appendChild(gob);
+      }
+      fr.appendChild(input(a.note || "", "설명", (v) => { a.note = v; markDirty(); }));
+      row.appendChild(fr);
+    }
+    box.appendChild(row);
+  });
+  return box;
+}
+
+/* 드래그한 영역이 있는지 — 없으면 무엇이 없는지 그대로 말한다(필기와 같은 문구) */
+function takePending() {
+  if (S.pendingBox) return true;
+  if (!S.showScan) { toggleScan(); toast("스캔을 켰습니다 — 그림을 감싸도록 드래그한 뒤 다시 누르세요."); }
+  else toast("드래그한 영역이 없습니다 — 왼쪽 스캔에서 그림을 감싸도록 드래그한 뒤 다시 누르세요.", "err");
+  return false;
+}
+function stampPage(a) {
+  const pg = Number(S.pendingPage) || 0;
+  if (pg && pg !== Number(S.page)) a.page = pg; else delete a.page;
+}
+function clearPending() {
+  S.pendingBox = null; S.pendingPage = 0;
+  const sel = $("#oc-sel");
+  if (sel) sel.style.display = "none";
+  syncPageNav();
+}
+
+/* [그림 추가] — 드래그한 영역으로 그림 자산을 만들고 이름표를 맨 끝 줄에 넣는다(옮기면 그 자리로) */
+function addFigure(x, target) {
+  if (!takePending()) return;
+  const id = nextAssetId(x, "p");
+  const a = { type: "figure", bbox: S.pendingBox, note: "" };
+  stampPage(a);
+  x.assets[id] = a;
+  x[target] = (x[target] || []).concat(`{{${id}}}`);
+  clearPending();
+  markDirty(); renderCards();
 }
 
 function headButtons(head, list, i, x) {
@@ -488,27 +668,9 @@ function headButtons(head, list, i, x) {
   head.appendChild(save);
   const fig = el("button", "btn sm", "그림 추가");
   fig.type = "button";
-  fig.title = "스캔에서 드래그한 영역을 이 카드의 그림으로";
-  fig.addEventListener("click", () => {
-    if (!S.pendingBox) {
-      if (!S.showScan) { S.showScan = true; applyLayout(); }
-      toast("먼저 왼쪽 스캔에서 그림 영역을 드래그하세요.");
-      return;
-    }
-    x.figure_bbox = S.pendingBox;
-    if (S.pendingPage && S.pendingPage !== S.page) x.figure_page = S.pendingPage; else delete x.figure_page;
-    S.pendingBox = null;
-    $("#oc-sel").style.display = "none";
-    syncPageNav();
-    markDirty(); renderCards();
-  });
+  fig.title = "스캔에서 드래그한 영역을 이 카드의 그림 자산으로 — 이름표를 옮기면 그 자리에 나옵니다";
+  fig.addEventListener("click", () => addFigure(x, x.instructions !== undefined || list === S.draft.problem_items ? "instructions" : "steps"));
   head.appendChild(fig);
-  if (x.figure_bbox) {
-    const rm = el("button", "btn sm", "그림 빼기");
-    rm.type = "button";
-    rm.addEventListener("click", () => { delete x.figure_bbox; delete x.figure_page; markDirty(); renderCards(); });
-    head.appendChild(rm);
-  }
   const del = el("button", "btn sm", "삭제");
   del.type = "button";
   del.addEventListener("click", () => { list.splice(i, 1); markDirty(); renderCards(); });
@@ -537,19 +699,7 @@ function qCard(q, i) {
       q.ranges = v.split(",").map((s) => s.trim()).filter(Boolean); markDirty();
     })));
   card.appendChild(labeled("그림 설명", input(q.figure, "입력할 자료 표 · 결과 그림 등", (v) => { q.figure = v; markDirty(); })));
-  // 자산 — 필기의 「자산(표/SQL박스/그림)」 자리. 실기는 자료 표와 그림이다
-  const ab = el("div", "oc-assets");
-  const ah = el("div", "oc-assets-head");
-  ah.appendChild(el("span", null, "자산(자료 표/그림)"));
-  ah.appendChild(el("span", "field-hint", "그림은 스캔에서 드래그 → [그림 추가]"));
-  ab.appendChild(ah);
-  const det = el("details");
-  det.open = !!q.figure_table;
-  det.appendChild(el("summary", null, "자료 표 (마크다운)"));
-  det.appendChild(area(q.figure_table, "| 코드 | 이름 | …", (v) => { q.figure_table = v; markDirty(); }, 6, true));
-  ab.appendChild(det);
-  ab.appendChild(figBlock(q));
-  card.appendChild(ab);
+  card.appendChild(assetsBox(q, "instructions", "지문"));
   if (q.note) card.appendChild(el("div", "field-hint", "메모: " + q.note));
   card.appendChild(previewFoot(() => previewProblem(q)));
   return card;
@@ -598,12 +748,7 @@ function ansCard(a, i) {
   ds.appendChild(el("summary", null, `풀이 절차 ${(a.steps || []).length}줄`));
   ds.appendChild(area((a.steps || []).join("\n"), "한 줄에 하나", (v) => { a.steps = lines(v); markDirty(); }, 6));
   card.appendChild(ds);
-  const ab = el("div", "oc-assets");
-  const ah = el("div", "oc-assets-head");
-  ah.appendChild(el("span", null, "자산(결과 그림)"));
-  ah.appendChild(el("span", "field-hint", "스캔에서 드래그 → [그림 추가]"));
-  ab.append(ah, figBlock(a));
-  card.appendChild(ab);
+  card.appendChild(assetsBox(a, "steps", "풀이 절차"));
   if (a.note) card.appendChild(el("div", "field-hint", "메모: " + a.note));
   card.appendChild(previewFoot(() => previewAnswer(a)));
   return card;
@@ -634,26 +779,11 @@ function previewFoot(make) {
   return wrap;
 }
 
-/* 지시사항 줄 — 인쇄된 기호를 그대로 쓴다. 원문자(①~⑳) 항목 아래의 ▶ 줄은 그 항목에 딸린 것이라 들여쓴다.
- * 기호 없는 줄에 ▶ 를 붙이지 않는다(2026-11-08: "원숫자들이 없이 ▶ 이게 강제화되어 있는 듯"). */
-const CIRCLED_RE = /^[①-⑳❶-❿]/;
-function instrHtml(list) {
-  let underCircled = false;
-  return (list || []).map((raw) => {
-    const s = String(raw || "").trim();
-    if (CIRCLED_RE.test(s)) underCircled = true;
-    else if (!s.startsWith("▶") && !s.startsWith("※")) underCircled = false;
-    const indent = underCircled && (s.startsWith("▶") || s.startsWith("※"));
-    return `<p style="margin:6px 0${indent ? ";padding-left:1.6em" : ""}">${escapeHtml(s)}</p>`;
-  }).join("");
-}
-
 function previewProblem(q) {
   const n = el("div");
   n.innerHTML = `<div class="oc-pv-qno">${q.part ?? "?"}-${q.no ?? "?"}</div>`
-    + `<p><b>${escapeHtml(q.lead || "")}</b></p>`
-    + instrHtml(q.instructions);   // 적힌 줄만 — 기호·함수 줄을 앱이 덧붙이지 않는다(사람이 넣는다)
-  n.appendChild(figBlock(q));
+    + `<p><b>${escapeHtml(q.lead || "")}</b></p>`;
+  n.appendChild(linesWithAssets(q.instructions, q, S.page));   // 적힌 줄 그대로 + 이름표 자리에 자산
   return n;
 }
 
@@ -669,9 +799,8 @@ function previewAnswer(a) {
       + `</tbody></table>`);
   }
   if (a.code) h.push(`<pre class="pb-cmd">${escapeHtml(a.code)}</pre>`);
-  if ((a.steps || []).length) h.push(`<ol>${a.steps.map((s) => `<li>${escapeHtml(s)}</li>`).join("")}</ol>`);
   n.innerHTML = h.join("");
-  n.appendChild(figBlock(a));
+  n.appendChild(linesWithAssets(a.steps, a, S.page, { ordered: true }));
   return n;
 }
 
@@ -855,12 +984,10 @@ function roundCard(it) {
     const sec = el("div");
     sec.style.margin = "6px 0 10px";
     sec.innerHTML = `<div><b>${escapeHtml(p.lead || "")}</b></div>`
-      + `<div style="margin:4px 0 0 4px">${instrHtml(p.instructions)}</div>`
+
       + ((p.functions || []).length ? `<div class="muted">지정 함수: ${escapeHtml(p.functions.join(", "))}</div>` : "");
-    const keep = S.page;
-    S.page = p.page;                     // figBlock 이 쪽 번호를 기본값으로 쓴다
-    sec.appendChild(figBlock(p));
-    S.page = keep;
+    ensureAssets(p, p.page);
+    sec.appendChild(linesWithAssets(p.instructions, p, p.page));
     const tools = el("div", "qz-foot");
     tools.appendChild(roundChip(p.page, "문제"));
     sec.appendChild(tools);
@@ -882,7 +1009,7 @@ function roundCard(it) {
     if (a.code) h.push(`<pre class="pb-cmd">${escapeHtml(a.code)}</pre>`);
     if (a.steps.length) {
       h.push(`<details><summary class="muted">풀이 절차 ${a.steps.length}줄</summary><ol style="margin:4px 0 0 18px">`
-        + a.steps.map((s) => `<li>${escapeHtml(s)}</li>`).join("") + `</ol></details>`);
+        + a.steps.map((s) => `<li>${escapeHtml(String(s).replace(/\{\{b-\d+\}\}/g, "(그림 — 아래)"))}</li>`).join("") + `</ol></details>`);
     }
     ans.innerHTML = h.join("");
     for (const f of a.figures || []) {

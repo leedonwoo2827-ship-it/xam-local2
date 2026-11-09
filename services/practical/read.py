@@ -60,6 +60,8 @@ SYSTEM = """당신은 컴퓨터활용능력 **실기** 문제집 스캔 페이�
 - `figure_bbox`: 그 그림·표가 있는 영역의 **픽셀 좌표 `[x, y, w, h]`**(페이지 PNG 기준, 왼쪽 위가 0,0).
   화면이 이 영역을 잘라 문항 밑에 붙인다. 차트처럼 표로 옮길 수 없는 그림은 특히 꼭 넣는다.
   좌표를 정할 수 없으면 넣지 않는다 — 엉뚱하게 잘린 그림보다 빈 칸이 낫다.
+- **그림·표의 자리:** 자료 표나 그림이 지시사항 줄 **사이**에 인쇄돼 있으면, `instructions` 의 그 자리에
+  이름표 한 줄을 넣는다 — 자료 표는 `{{t-1}}`, 그림은 `{{p-1}}`. 맨 끝에 있으면 넣지 않아도 된다.
 - `spans_next`: 이 문항이 다음 쪽으로 이어지면 true — 다음 쪽의 나머지 지시까지 여기서 완성한다.
 - 이 쪽의 **첫 문항이 앞 쪽에서 이어져 온 것이면 담지 않는다.** `notes` 에만 적는다.
 
@@ -74,6 +76,7 @@ SYSTEM = """당신은 컴퓨터활용능력 **실기** 문제집 스캔 페이�
 - `code`: VBA·매크로 코드 본문(들여쓰기 유지).
 - `steps`: 해설의 풀이 절차를 한 줄에 하나씩. **느슨해도 된다** — 요지만 옮긴다.
 - `figure_bbox`: 정답 결과 화면(완성된 표·차트·대화상자 캡처) 중 **대표 하나**의 픽셀 좌표 `[x, y, w, h]`.
+  그 그림이 풀이 절차 줄 사이에 있으면 `steps` 의 그 자리에 `{{p-1}}` 한 줄을 넣는다.
 
 ■ 지어내지 않는다
 - 인쇄돼 있지 않은 배점·함수·정답을 채우지 않는다. 빈 칸이 오답보다 낫다 — 사람이 검수한다.
@@ -280,10 +283,15 @@ def read_one(src: str, page: int, *, model: str = "", effort: Optional[str] = No
     from services.ocr.readpage import _bbox
     for x in (got.get("problem_items") or []) + (got.get("answer_entries") or []):
         bb = _bbox(x.get("figure_bbox"), size)
+        # 판독의 표·그림을 자산(이름표)으로 — 검수 화면·확정과 같은 모양(t-1 · p-1)
+        assets = {}
+        if x.get("figure_table"):
+            assets["t-1"] = {"type": "table", "md": x.pop("figure_table")}
+        x.pop("figure_bbox", None)
         if bb:
-            x["figure_bbox"] = bb
-        else:
-            x.pop("figure_bbox", None)
+            assets["p-1"] = {"type": "figure", "bbox": bb, "note": x.get("figure") or ""}
+        if assets:
+            x["assets"] = assets
     d = {
         "src": src, "page": int(page),
         "page_kind": kind,
