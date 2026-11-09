@@ -57,26 +57,34 @@ SYSTEM = """당신은 컴퓨터활용능력 **실기** 문제집 스캔 페이�
 - `ranges`: 지시에 나온 셀·영역 주소(`B3:B40`, `A30`) 그대로.
 - `figure`: 결과 그림·입력 자료 표가 있으면 무엇인지 한 줄로(예: "입력할 자료 표 6행×6열",
   "피벗 테이블 결과 그림"). 표 자료는 `figure_table` 에 마크다운 표로 옮긴다(셀 안 `|` 는 `\\|`).
-- `figure_bbox`: 그 그림·표가 있는 영역의 **픽셀 좌표 `[x, y, w, h]`**(페이지 PNG 기준, 왼쪽 위가 0,0).
-  화면이 이 영역을 잘라 문항 밑에 붙인다. 차트처럼 표로 옮길 수 없는 그림은 특히 꼭 넣는다.
-  좌표를 정할 수 없으면 넣지 않는다 — 엉뚱하게 잘린 그림보다 빈 칸이 낫다.
-- **그림·표의 자리:** 자료 표나 그림이 지시사항 줄 **사이**에 인쇄돼 있으면, `instructions` 의 그 자리에
-  이름표 한 줄을 넣는다 — 자료 표는 `{{t-1}}`, 그림은 `{{p-1}}`. 맨 끝에 있으면 넣지 않아도 된다.
+- `figures`: 이 문항에 딸린 **그림(표 캡처 · 결과 그림 · 차트)을 인쇄된 순서대로 모두**,
+  각각 `{"bbox": [x, y, w, h], "note": "무엇인지"}` 로. bbox 는 페이지 PNG 의 **픽셀 좌표**(왼쪽 위 0,0)이고
+  그림의 테두리를 넉넉히 감싼다. 좌표를 정할 수 없으면 bbox 를 빼고 note 만 둔다 — 사람이 영역을 지정한다.
+- **그림의 자리 — 이름표:** `figures` 의 첫째는 `{{p-1}}`, 둘째는 `{{p-2}}` … 다. `instructions` 에서
+  그 그림이 **인쇄된 자리에 이름표 한 줄**을 넣는다(그림 앞 줄과 뒤 줄 사이). 맨 끝에 있어도 넣는다.
+  자료 표를 `figure_table` 로 옮겼으면 그 자리에는 `{{t-1}}` 을 넣는다(같은 표의 그림 이름표와 겹치지 않게
+  둘 중 하나만 — 책처럼 보이려면 그림 `{{p-N}}` 을 쓴다).
 - `spans_next`: 이 문항이 다음 쪽으로 이어지면 true — 다음 쪽의 나머지 지시까지 여기서 완성한다.
 - 이 쪽의 **첫 문항이 앞 쪽에서 이어져 온 것이면 담지 않는다.** `notes` 에만 적는다.
 
 ■ `정답` 쪽 → `answer_entries`
 정답·해설 하나 = 문제 번호 하나(「문제2 계산작업 01. 변경ID(B3)」).
-- `part` / `no` / `title`: 어느 문항의 정답인지. `title` 은 번호 줄 그대로.
+- `part` / `no` / `title`: 어느 문항의 정답인지. `title` 은 번호 줄 **그대로, 번호 기호까지**
+  (예: `❶ 자료 입력`, `① 변경ID(B3)`).
 - `kind`: `수식` · `설정` · `코드` · `절차` · `그림` 중 정답의 주된 모양.
 - `formulas`: 수식이 인쇄돼 있으면 `{"cell": "B3", "formula": "=IF(…)"}`. 배열 수식의 `{ }` 는
   그대로 둔다. **문자 하나 틀리지 않게** 옮긴다 — 이것이 정답이다.
 - `settings`: 대화상자 캡처에서 **강조(굵은 상자)된 값**을 `{"dialog": "고급 필터",
   "field": "목록 범위", "value": "$A$3:$H$28"}` 로. 강조가 없어도 정답으로 보이는 입력값은 담는다.
 - `code`: VBA·매크로 코드 본문(들여쓰기 유지).
-- `steps`: 해설의 풀이 절차를 한 줄에 하나씩. **느슨해도 된다** — 요지만 옮긴다.
-- `figure_bbox`: 정답 결과 화면(완성된 표·차트·대화상자 캡처) 중 **대표 하나**의 픽셀 좌표 `[x, y, w, h]`.
-  그 그림이 풀이 절차 줄 사이에 있으면 `steps` 의 그 자리에 `{{p-1}}` 한 줄을 넣는다.
+- `steps`: 해설 문장을 **한 줄에 하나씩, 인쇄된 그대로 — 줄머리 기호(①②…, ▶)까지.** 요약하지 않는다.
+  기호가 없는 줄은 기호 없이 둔다. 앱이 번호를 붙이지 않으므로 인쇄된 번호만 남는다.
+- `figures`: 이 정답에 딸린 **캡처(결과 화면 · 대화상자 · 차트)를 인쇄된 순서대로 모두**,
+  `{"bbox": [x, y, w, h], "note": "무엇인지"}` 로. 「정답」 표시가 붙은 결과 화면도 그림이다.
+- **그림의 자리 — 이름표:** 첫째 그림은 `{{p-1}}`, 둘째는 `{{p-2}}` … `steps` 에서 그 그림이 **인쇄된
+  자리에 이름표 한 줄**을 넣는다. 예: 결과 화면이 맨 위, 그 아래 설명 한 줄이면
+  `["{{p-1}}", "[A3:F9] 셀까지 문제를 보고 오타 없이 작성한다."]`. 그림 사이사이 단계가 있으면
+  `["② 1행 머리글에서 …", "{{p-2}}", "③ [A4:A5], … 클릭한다."]` 처럼 끼운다.
 
 ■ 지어내지 않는다
 - 인쇄돼 있지 않은 배점·함수·정답을 채우지 않는다. 빈 칸이 오답보다 낫다 — 사람이 검수한다.
@@ -98,7 +106,10 @@ ITEM = {
         "ranges": {"type": "array", "items": {"type": "string"}},
         "figure": {"type": "string"},
         "figure_table": {"type": "string"},
-        "figure_bbox": {"type": "array", "items": {"type": "integer"}},
+        "figures": {"type": "array", "items": {
+            "type": "object",
+            "properties": {"bbox": {"type": "array", "items": {"type": "integer"}},
+                           "note": {"type": "string"}}}},
         "spans_next": {"type": "boolean"},
         "note": {"type": "string"},
     },
@@ -123,7 +134,10 @@ ENTRY = {
             "required": ["value"]}},
         "code": {"type": "string"},
         "steps": {"type": "array", "items": {"type": "string"}},
-        "figure_bbox": {"type": "array", "items": {"type": "integer"}},
+        "figures": {"type": "array", "items": {
+            "type": "object",
+            "properties": {"bbox": {"type": "array", "items": {"type": "integer"}},
+                           "note": {"type": "string"}}}},
         "note": {"type": "string"},
     },
     "required": ["title", "kind"],
@@ -274,7 +288,7 @@ def read_one(src: str, page: int, *, model: str = "", effort: Optional[str] = No
         prompt=(f"다음 스캔 이미지를 판독하십시오.\n\n  {png}\n\n"
                 + (f"이어지는 쪽(참고용 — 걸친 문항을 완성할 때만 봅니다):\n\n  {nxt}\n\n" if nxt else "")
                 + f"이 쪽은 `{src}` 의 {page}쪽입니다. "
-                + (f"이미지 크기는 {size[0]}×{size[1]} 픽셀입니다(figure_bbox 의 좌표계). " if size[0] else "")
+                + (f"이미지 크기는 {size[0]}×{size[1]} 픽셀입니다(figures 의 bbox 좌표계). " if size[0] else "")
                 + "Read 로 이미지를 열어 보고, 그 안에 실제로 인쇄된 것만 담으십시오."),
         schema=SCHEMA)
 
@@ -282,14 +296,22 @@ def read_one(src: str, page: int, *, model: str = "", effort: Optional[str] = No
     # 그림 좌표는 필기 판독과 같은 규칙으로 검증한다 — 못 믿을 값은 버린다(빈 칸이 낫다)
     from services.ocr.readpage import _bbox
     for x in (got.get("problem_items") or []) + (got.get("answer_entries") or []):
-        bb = _bbox(x.get("figure_bbox"), size)
-        # 판독의 표·그림을 자산(이름표)으로 — 검수 화면·확정과 같은 모양(t-1 · p-1)
+        # 판독의 표·그림을 자산(이름표)으로 — 검수 화면·확정과 같은 모양(t-1 · p-1 · p-2 …).
+        # ★ 좌표가 못 믿을 값이면 **영역만 비운 자산**으로 남긴다 — 이름표 자리는 맞으니
+        #   사람은 드래그 한 번으로 채운다(자산을 버리면 이름표 줄이 「없는 자산」 이 된다).
         assets = {}
         if x.get("figure_table"):
             assets["t-1"] = {"type": "table", "md": x.pop("figure_table")}
+        figs = x.pop("figures", None) or []
+        if not figs and x.get("figure_bbox"):              # 옛 모양(하나)도 받는다
+            figs = [{"bbox": x.get("figure_bbox"), "note": x.get("figure") or ""}]
         x.pop("figure_bbox", None)
-        if bb:
-            assets["p-1"] = {"type": "figure", "bbox": bb, "note": x.get("figure") or ""}
+        for k, f in enumerate(figs, 1):
+            a = {"type": "figure", "note": str((f or {}).get("note") or "")}
+            bb = _bbox((f or {}).get("bbox"), size)
+            if bb:
+                a["bbox"] = bb
+            assets[f"p-{k}"] = a
         if assets:
             x["assets"] = assets
     d = {
