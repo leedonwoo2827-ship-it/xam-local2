@@ -6,7 +6,7 @@
  */
 "use strict";
 
-import { api, el, escapeHtml, toast, renderMarkdown } from "./util.js";
+import { api, el, escapeHtml, toast, renderMarkdown, confirmModal } from "./util.js";
 import { pollJob } from "./store.js";
 import { actionBtn } from "./panel.js";
 import { jobClock } from "./jobclock.js";
@@ -17,7 +17,7 @@ export const meta = {
   title: "해설 모아 노트 구조화",
   subtitle: "우리 모의고사 해설을 과목 → 항목 → 상세로 모으고 중복을 정돈합니다. 승인한 목차를 이론 요약 노트가 따릅니다.",
   actions: () => [
-    actionBtn("노트 빌드 — 전 과목 구조화", () => structure(S.items.map((i) => i.key)), { primary: true, iconName: "sparkles" }),
+    actionBtn("전 과목 자동 진행", () => autoAll(), { primary: true, iconName: "sparkles" }),
   ],
 };
 
@@ -88,10 +88,23 @@ async function show() {
   view.appendChild(card);
 }
 
-async function structure(keys) {
+/* ★ [전 과목 자동 진행] — 2부 네 화면(구조화 · 이론 요약 · 요약반 · 종합반)이 같은 버튼·같은 확인창을 쓴다
+ *   (2026-11-10 지시: "가급적 4개가 실행이 통일"). 해설 모으기 → 구조화 → 자동 승인까지. */
+async function autoAll() {
+  const items = S.items || [];
+  const body = `<p>${items.map((i) => `<b>${escapeHtml(i.label || i.no + "과목")}</b>`).join(" · ")}을 차례로 돌립니다.
+      단계마다 <b>자동 승인</b>합니다.</p>
+    <p>해설 모으기 → 노트 구조화(Claude) → 승인</p>
+    <p class="muted">묶음(과목) 하나에 4~5분. 중간에 멈춰도 끝난 것은 남고, 다시 누르면 다시 만듭니다.
+      승인한 목차를 [이론 요약 노트] 가 따릅니다.</p>`;
+  if (!(await confirmModal({ title: "해설 구조화를 자동으로 끝까지 할까요?", body, ok: "자동 진행 시작" }))) return;
+  structure(items.map((i) => i.key), true);
+}
+
+async function structure(keys, autoApprove = false) {
   try {
     const job = await api("/api/outline/structure", {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ keys }),
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ keys, approve: autoApprove }),
     });
     const box = S.root.querySelector(".lc-log");
     box.classList.add("on");

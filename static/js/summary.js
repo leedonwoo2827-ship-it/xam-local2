@@ -32,7 +32,8 @@ export const meta = {
     actionBtn("발행될 HTML 보기", () => {
       if (S.key) location.hash = "#/preview/" + encodeURIComponent(S.key);
     }, { iconName: "external" }),
-    actionBtn("저장", () => save(), { primary: true, iconName: "check" }),
+    actionBtn("저장", () => save(), { iconName: "check" }),
+    actionBtn("전 과목 자동 진행", () => autoAll(), { primary: true, iconName: "sparkles" }),
   ]),
 };
 
@@ -324,6 +325,33 @@ function renderTheory(job) {
     pre.textContent = job.log.lines.slice(-8).join("\n");
     box.appendChild(pre);
   }
+}
+
+/* ★ [전 과목 자동 진행] — 2부 네 화면이 같은 버튼·같은 확인창(2026-11-10 지시). 고르지 않고 전 편을 돌린다.
+ *   이미 있는 편은 건너뛰고, 「다시 만들기」 를 켜면 덮어쓴다(기존 파일은 .bak). */
+async function autoAll() {
+  if (!S.th || S.th.unavailable) {
+    toast("이론 집필 계층이 없습니다: " + ((S.th && S.th.unavailable) || "상태 미확인"), "err");
+    return;
+  }
+  if (S.job) { toast("이미 돌고 있습니다."); return; }
+  const items = S.th.items || [];
+  const have = items.filter((i) => i.exists);
+  const body = `<p>${items.map((i) => `<b>${escapeHtml(i.label || i.key)}</b>${i.exists ? ' <span class="dim">(있음)</span>' : ""}`).join(" · ")}을 차례로 집필합니다.</p>
+    <p>소스 <b>${(S.th.rounds || []).length}회차</b> 해설 → (승인한 목차가 있으면 그대로) → 요약 이론 HTML</p>
+    ${have.length ? `<p><label><input type="checkbox" id="th-auto-redo"> 이미 있는 ${have.length}편도 <b>다시 만들기</b>(덮어씀 · .bak 남김)</label></p>` : ""}
+    <p class="muted">편 하나에 10~15분. 중간에 멈춰도 끝난 편은 남고, 다시 누르면 남은 편부터 갑니다.</p>`;
+  if (!(await confirmModal({ title: "이론 요약 노트를 자동으로 끝까지 만들까요?", body, ok: "자동 진행 시작" }))) return;
+  const redo = !!(document.querySelector("#th-auto-redo") || {}).checked;
+  const keys = items.filter((i) => redo || !i.exists).map((i) => i.key);
+  if (!keys.length) { toast("모든 편이 이미 있습니다 — 다시 만들려면 「다시 만들기」 를 켜세요."); return; }
+  let r;
+  try {
+    r = await api("/api/theory/draft", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ keys, redo }) });
+  } catch (e) { toast("시작하지 못했습니다: " + e.message, "err"); return; }
+  toast(`자동 진행을 시작했습니다 — ${r.keys.join(" · ")}`);
+  attach(r.job);
 }
 
 async function startTheory() {

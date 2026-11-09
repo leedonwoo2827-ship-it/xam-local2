@@ -82,6 +82,7 @@ def setup_lecture_routes() -> APIRouter:
         """모은 해설을 Claude 가 과목→항목→상세로 구조화한다(잡). keys 를 비우면 전 과목."""
         b = await _body(request)
         keys = b.get("keys") or [s["key"] for s in common.subjects()]
+        auto = bool(b.get("approve"))          # [전 과목 자동 진행] — 구조화 뒤 자동 승인
         for k in keys:
             _need("summary", k)
         _busy()
@@ -97,8 +98,11 @@ def setup_lecture_routes() -> APIRouter:
                 try:
                     outline.collect(k)
                     d = outline.structure(k, log=lambda s, j=j: registry.log(j, s))
+                    if auto:
+                        outline.approve(k, True)
                     registry.item(j, k, status="done",
-                                  output=f"대단원 {len(d['topics'])}개 · ${d['cost_usd']:.3f}")
+                                  output=f"대단원 {len(d['topics'])}개 · ${d['cost_usd']:.3f}"
+                                         + (" · 자동 승인" if auto else ""))
                 except Exception as e:                       # noqa: BLE001
                     registry.item(j, k, status="error", error=str(e))
                     registry.log(j, f"[{k}] (문제) {e}", force=True)

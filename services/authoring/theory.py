@@ -79,6 +79,9 @@ def unit_label(key: str) -> str:
     if not u:
         return str(key)
     no, (i, n), _rng = u
+    from services.authoring import parts
+    if parts.is_practical():                 # 실기 — 과목이 아니라 묶음(2026-11-10)
+        return f"문제{no} · {parts.subjects_map().get(no, '')}"
     return f"{no}과목" if n <= 1 else f"{no}과목 {i}편"
 
 
