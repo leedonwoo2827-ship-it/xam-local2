@@ -99,19 +99,15 @@ def _md(rnd: int, it: Dict[str, Any], stem: str, src: str) -> tuple:
             if aid not in used:
                 out += look(aid)
     a = it.get("answer")
-    out += ["## 정답", ""]
+    out += ["## 정답 & 해설", ""]
     aimgs: List[str] = []
     if not a:
         out += ["(정답 없음)", ""]
     else:
-        for f in a["formulas"]:
-            out.append(f"- `{(f.get('cell') + ' : ') if f.get('cell') else ''}{f['formula']}`")
-        if a["settings"]:
-            out += ["", "| 대화상자 | 항목 | 값 |", "|---|---|---|"]
-            out += [f"| {s.get('dialog') or ''} | {s.get('field') or ''} | {(s.get('value') or '').replace('|', chr(92) + '|')} |"
-                    for s in a["settings"]]
-        if a["code"]:
-            out += ["", "```vb", a["code"], "```"]
+        # ★ 원본을 똑같이 옮긴 것만 — 제목 · 해설 · 그림(2026-11-09 지시). 수식·설정값·코드 표를
+        #   따로 만들지 않는다. 해설 문장 안에 인쇄된 수식은 그 문장째로 이미 들어 있다.
+        if a.get("titles"):
+            out += [f"**{a['titles'][0]}**", ""]
         blocks = a.get("blocks") or []
 
         def blook(bid):
@@ -125,7 +121,6 @@ def _md(rnd: int, it: Dict[str, Any], stem: str, src: str) -> tuple:
             return _asset_md(b, img)
 
         if a["steps"]:
-            out += ["", "### 풀이 절차", ""]
             body, _ = _lines_md(a["steps"], BLOCK_RE, blook)
             out += body
         for i, b in enumerate(blocks):

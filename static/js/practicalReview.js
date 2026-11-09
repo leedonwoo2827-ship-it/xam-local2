@@ -8,8 +8,9 @@
  *   머리줄 · 단축키(Ctrl+S 저장 · Ctrl+Enter 확정 · Alt+←/→ 쪽) · 카드 머리(문항·묶음·배점 ·
  *   대조완료 · 저장 · 그림 추가 · 삭제) · 미리보기 · 확정(MD 저장)이 필기와 같다.
  *   카드 안만 다르다: 보기(①~④)·정답 번호 대신
- *     문제 쪽: 발문=지시 문장 · 지문=세부 지시사항 · 지정 함수 · 셀 영역 · 자산(자료 표 · 그림)
- *     정답 쪽: 수식 · 대화상자 설정값 · 코드 · 풀이 절차 · 결과 그림
+ *     문제 쪽: 발문=지시 문장 · 지문=세부 지시사항 · 자산(그림 · 자료 표)
+ *     정답 쪽: 제목 · 해설(인쇄된 그대로) · 그림
+ *   ★ 원본을 **똑같이 옮기는 데만** 쓴다 — 변형·증폭용 값(함수·영역·수식·설정값)은 생성 단계에서 뽑는다.
  *   확정은 01/practical/{회차}-{묶음}-{번호}.md (+ .json) — 필기 01/*.md 와 섞지 않는다.
  */
 "use strict";
@@ -20,7 +21,6 @@ import { hydrateIcons } from "./icons.js";
 import { actionBtn } from "./panel.js";
 
 const KINDS = ["문제", "정답", "기타"];
-const ANS_KINDS = ["수식", "설정", "코드", "절차", "그림"];
 const PART_NAME = { 1: "기본작업", 2: "계산작업", 3: "분석작업", 4: "기타작업" };
 
 const S = {
@@ -728,15 +728,9 @@ function qCard(q, i) {
   card.appendChild(labeled("발문(지시 문장)", area(q.lead, "번호 줄의 문장 그대로", (v) => { q.lead = v; markDirty(); }, 2)));
   card.appendChild(labeled("지문(세부 지시사항 — 한 줄에 하나)",
     trackCaret(q, area((q.instructions || []).join("\n"), "인쇄된 그대로 — ① ② 원문자, ▶ 기호까지", (v) => { q.instructions = lines(v); markDirty(); }, 5))));
-  card.appendChild(labeled("지정 함수 (쉼표로)",
-    input((q.functions || []).join(", "), "AND, YEAR, RIGHT", (v) => {
-      q.functions = v.split(",").map((s) => s.trim()).filter(Boolean); markDirty();
-    })));
-  card.appendChild(labeled("셀·영역 (쉼표로)",
-    input((q.ranges || []).join(", "), "A3:H28, A30", (v) => {
-      q.ranges = v.split(",").map((s) => s.trim()).filter(Boolean); markDirty();
-    })));
-  card.appendChild(labeled("그림 설명", input(q.figure, "입력할 자료 표 · 결과 그림 등", (v) => { q.figure = v; markDirty(); })));
+  // ★ OCR 검수는 **원본을 똑같이 옮기는 데만** 쓴다(2026-11-09 지시: "추후 문제 변경·증폭을 위한 값들은
+  //   없애고 일단 똑같이 들어가는 데만"). 지정 함수 · 셀 영역 · 그림 설명 칸을 뺐다 — 그런 값은
+  //   생성 단계에서 확정본을 읽어 뽑는다.
   card.appendChild(assetsBox(q, "instructions", "지문"));
   if (q.note) card.appendChild(el("div", "field-hint", "메모: " + q.note));
   card.appendChild(previewFoot(() => previewProblem(q)));
@@ -749,44 +743,16 @@ function ansCard(a, i) {
   head.appendChild(idChip(a));
   head.appendChild(numField("묶음", a.part, (v) => { a.part = v; markDirty(); refreshId(card, a); }, 46));
   head.appendChild(numField("문항", a.no, (v) => { a.no = v; markDirty(); refreshId(card, a); }, 56));
-  const k = el("select");
-  for (const x of ANS_KINDS) { const o = el("option", null, x); o.value = x; if (x === a.kind) o.selected = true; k.appendChild(o); }
-  k.addEventListener("change", () => { a.kind = k.value; markDirty(); });
-  const kl = el("label", "oc-inline"); kl.append(el("span", null, "종류"), k);
-  head.appendChild(kl);
   headButtons(head, S.draft.answer_entries, i, a);
   card.appendChild(head);
 
   card.appendChild(labeled("제목", input(a.title, "문제2 계산작업 ❶ …", (v) => { a.title = v; markDirty(); })));
-  // ★ 지금은 **풀이 절차 + 그림**만 펴 둔다(2026-11-09 지시: "그 부분만 활성화 — 그림을 캡처해서 넣어야
-  //   해서… 수식·설정값은 일단 닫아 둡시다"). 줄 수를 제목에 적지 않는다 — 판독이 나눈 줄 수는 뜻이 없다.
-  card.appendChild(labeled("풀이 절차 (한 줄에 하나 · 그림은 이름표 줄로)",
-    trackCaret(a, area((a.steps || []).join("\n"), "한 줄에 하나", (v) => { a.steps = lines(v); markDirty(); }, 4))));
-  card.appendChild(assetsBox(a, "steps", "풀이 절차"));
-  const more = el("details");
-  more.appendChild(el("summary", null, "수식 · 설정값 · 코드"));
-  more.appendChild(labeled("수식 (한 줄에 하나 · 「셀 : 수식」)",
-    area((a.formulas || []).map((f) => (f.cell ? f.cell + " : " : "") + f.formula).join("\n"),
-      "D11 : =AVERAGEIFS(…)", (v) => {
-        a.formulas = lines(v).map((s) => {
-          const m = s.match(/^([A-Z]{1,3}\$?\d+(?::\$?[A-Z]{1,3}\$?\d+)?)\s*:\s*(.+)$/);
-          return m ? { cell: m[1], formula: m[2] } : { formula: s };
-        });
-        markDirty();
-      }, 3, true)));
-  more.appendChild(labeled("설정값 (한 줄에 하나 · 「대화상자 › 항목 = 값」)",
-    area((a.settings || []).map((s) => [s.dialog, s.field].filter(Boolean).join(" › ") + " = " + (s.value || "")).join("\n"),
-      "고급 필터 › 목록 범위 = $A$3:$H$28", (v) => {
-        a.settings = lines(v).map((s) => {
-          const m = s.match(/^(.*?)\s*=\s*(.*)$/);
-          if (!m) return { value: s };
-          const [dlg, fld] = m[1].split("›").map((x) => x.trim());
-          return { dialog: fld === undefined ? "" : dlg, field: fld === undefined ? dlg : fld, value: m[2] };
-        });
-        markDirty();
-      }, 3)));
-  more.appendChild(labeled("코드 (VBA·매크로)", area(a.code, "Sub …", (v) => { a.code = v; markDirty(); }, 3, true)));
-  card.appendChild(more);
+  // ★ 원본을 똑같이 옮기는 데만 — 제목 · 해설(인쇄된 그대로) · 그림. 수식·설정값·코드·종류 칸은 뺐다
+  //   (2026-11-09 지시). 해설 문장 안에 수식이 인쇄돼 있으면 그 문장째로 옮긴다.
+  //   줄 수를 제목에 적지 않는다 — 판독이 나눈 줄 수는 뜻이 없다.
+  card.appendChild(labeled("해설 (한 줄에 하나 · 그림은 이름표 줄로)",
+    trackCaret(a, area((a.steps || []).join("\n"), "인쇄된 그대로 — ① ② 원문자, ▶ 기호까지", (v) => { a.steps = lines(v); markDirty(); }, 4))));
+  card.appendChild(assetsBox(a, "steps", "해설"));
   if (a.note) card.appendChild(el("div", "field-hint", "메모: " + a.note));
   card.appendChild(previewFoot(() => previewAnswer(a)));
   return card;
@@ -1015,9 +981,7 @@ function roundCard(it) {
   for (const p of it.problems) {
     const sec = el("div");
     sec.style.margin = "6px 0 10px";
-    sec.innerHTML = `<div><b>${escapeHtml(p.lead || "")}</b></div>`
-
-      + ((p.functions || []).length ? `<div class="muted">지정 함수: ${escapeHtml(p.functions.join(", "))}</div>` : "");
+    sec.innerHTML = `<div><b>${escapeHtml(p.lead || "")}</b></div>`;
     ensureAssets(p, p.page);
     sec.appendChild(linesWithAssets(p.instructions, p, p.page));
     const tools = el("div", "qz-foot");
@@ -1031,20 +995,11 @@ function roundCard(it) {
   if (!a) {
     ans.appendChild(el("div", "muted", "정답 없음 — 정답 쪽의 종류·회차가 맞는지 쪽 화면에서 확인하세요."));
   } else {
-    // 회차 묶음도 책 모양이 먼저 — 풀이 절차를 펴 두고, 수식·설정값·코드는 접어 둔다(대조할 때만 편다)
+    // 회차 묶음도 원본 모양 그대로 — 제목 · 해설 · 그림
     const h = [`<div class="muted">정답 · ${escapeHtml(a.titles.slice(0, 1).join(""))}</div>`];
     if (a.steps.length) {
       h.push(`<div style="margin:4px 0 0 4px">`
         + a.steps.map((s) => `<p style="margin:4px 0">${escapeHtml(String(s).replace(/\{\{b-\d+\}\}/g, "(그림 — 아래)"))}</p>`).join("") + `</div>`);
-    }
-    if (a.formulas.length || a.settings.length || a.code) {
-      h.push(`<details><summary class="muted">수식 · 설정값 · 코드</summary>`
-        + a.formulas.map((f) => `<div style="margin:3px 0"><code>${escapeHtml((f.cell ? f.cell + " : " : "") + f.formula)}</code></div>`).join("")
-        + (a.settings.length ? `<table class="tbl" style="margin:6px 0"><tbody>` + a.settings.map((s) =>
-          `<tr><td class="muted">${escapeHtml(s.dialog || "")}</td><td>${escapeHtml(s.field || "")}</td><td><code>${escapeHtml(s.value || "")}</code></td></tr>`).join("")
-          + `</tbody></table>` : "")
-        + (a.code ? `<pre class="pb-cmd">${escapeHtml(a.code)}</pre>` : "")
-        + `</details>`);
     }
     ans.innerHTML = h.join("");
     for (const f of a.figures || []) {
