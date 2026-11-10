@@ -1,5 +1,7 @@
 /* HTML 문제집 제작 (실기) — 회차마다 시험지 · 모범답안 해설 · 실습파일 · 대본을 07/mNN 에 굽고,
- * 종합본 영상용 녹화 대본(조작 단계 → lesson.yaml)을 뽑는다.
+ * 종합본 영상용 녹화 대본(07/mNN/rec)은 6~10회분을 이미 뽑았다 — 이 화면에서는 단추를 뗐다
+ *   (2026-11-10 지시: "이미 만드신 거… 지우셔도 될 것 같은데, 헷갈리듯". 녹화는 따로 만드는 실기 종합반 에이전트 몫).
+ *   다시 뽑아야 하면 POST /api/practical/actions {rounds, overwrite} 는 그대로 살아 있다.
  *
  * ★ 실기 폴더에서 왼쪽 「HTML 문제집 제작」 이 여기로 온다(2026-11-09 계획). 필기 ebook.js 는 그대로.
  * ★ 실습파일은 1부 빌드 결과(06/practical)를 복사한다 — 빌드를 먼저 하세요.
@@ -17,7 +19,7 @@ const R = { ov: null, rounds: "1-10", busy: false, live: false };
 
 export const meta = {
   title: () => "HTML 문제집 제작 (실기)",
-  subtitle: () => "시험지 · 모범답안 해설(HTML·PDF) · 실습파일 · 대본 → 07/mNN · 종합본 녹화 대본",
+  subtitle: () => "시험지 · 모범답안 해설(HTML·PDF) · 실습파일 · 대본 → 07/mNN",
   actions: () => [
     actionBtn("폴더 열기", () => openDir(0), { iconName: "folder" }),
     actionBtn("새로고침", () => load(), { iconName: "refresh" }),
@@ -28,10 +30,9 @@ export async function mount(root) {
   const page = el("div", "page");
   page.innerHTML = `
     <div class="card"><div class="card-title">① 굽기 — 시험지·해설 HTML/PDF · 실습파일 · 문항 대본</div><div id="px-run"></div></div>
-    <div class="card"><div class="card-title">② 종합본 녹화 대본 — 모범답안을 녹화 조작 단계로(문항마다 Claude 1회)</div><div id="px-rec"></div></div>
     <div class="card" id="px-logcard" hidden><div class="card-title">진행</div><div class="vd-env" id="px-head"></div>
       <pre class="log-pane" id="px-log" style="max-height:30vh"></pre></div>
-    <div class="card"><div class="card-title">③ 회차별 결과</div><div id="px-rows"></div></div>`;
+    <div class="card"><div class="card-title">② 회차별 결과</div><div id="px-rows"></div></div>`;
   root.appendChild(page);
   hydrateIcons(page);
   await load();
@@ -41,7 +42,7 @@ export async function mount(root) {
 async function load() {
   try { R.ov = await api(`/api/practical/ebook/overview?rounds=${encodeURIComponent(R.rounds)}`); }
   catch (e) { toast("불러오지 못했습니다: " + e.message, "err"); return; }
-  renderRun(); renderRec(); renderRows();
+  renderRun(); renderRows();
 }
 
 function renderRun() {
@@ -66,24 +67,6 @@ function renderRun() {
   f.append(inp, btn);
   box.appendChild(f);
   box.appendChild(el("div", "field-hint", "회차당 10초 안팎(PDF 2개). 1부 빌드를 먼저 하면 실습파일과 새 그림이 같이 들어갑니다."));
-}
-
-function renderRec() {
-  const box = $("#px-rec"); if (!box) return;
-  box.innerHTML = "";
-  const f = el("div", "qz-foot");
-  const inp = el("input", "input");
-  inp.value = "6-10"; inp.style.minWidth = "200px"; inp.title = "종합본은 6~10회(사용자 결정 2026-11-09)";
-  const ow = el("label", "muted"); const cb = el("input"); cb.type = "checkbox";
-  ow.append(cb, document.createTextNode(" 이미 뽑은 문항도 다시"));
-  const btn = el("button", "btn primary", "녹화 대본 뽑기");
-  btn.type = "button"; btn.disabled = R.live;
-  btn.addEventListener("click", () => startRec(inp.value.trim() || "6-10", cb.checked));
-  f.append(inp, btn, ow);
-  box.appendChild(f);
-  box.appendChild(el("div", "field-hint",
-    "07/mNN/rec/ 에 문항마다 조작 단계(actions.json)와 녹화 허브용 lesson.yaml 을 씁니다. "
-    + "종합본(6~10회)이 기본입니다. 문항 하나에 30초~1분, 10회(120문항)면 1~2시간입니다."));
 }
 
 function renderRows() {
@@ -124,18 +107,8 @@ function logLine(text) {
   pre.appendChild(el("span", null, text + "\n")); pre.scrollTop = pre.scrollHeight;
 }
 
-async function startRec(rounds, overwrite) {
-  let job;
-  try {
-    job = await api("/api/practical/actions", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ rounds, overwrite }) });
-  } catch (e) { toast("시작하지 못했습니다: " + e.message, "err"); return; }
-  logLine(`[녹화 대본] 시작 — ${job.total_count || "?"}문항`);
-  await follow(job);
-}
-
 async function follow(job) {
-  R.live = true; renderRec();
+  R.live = true;
   const head = $("#px-head");
   const badge = el("span", "status-chip", "진행 중");
   const prog = el("span", "status-chip", "");
