@@ -189,8 +189,13 @@ function draw(page) {
   left.appendChild(jsonArea("결과값 — {셀: 값} (실습파일 검증에 씁니다)", a.results || {}, 4, (v) => { a.results = v; P.answer = a; }));
   left.appendChild(jsonArea("그림 설계 — [{id, kind table|chart|dialog, caption, columns, rows, chart, desc}]", j.figures || [], 8,
     (v) => { P.figures = v; }));
+  // ★ 제공 차트(2026-11-12 녹화 회신) — 차트 문항은 지시를 적용하기 전 차트가 문제 파일에 있어야 한다
+  if (j.given_chart || /차트/.test(j.sheet || "")) {
+    left.appendChild(jsonArea("제공 차트 (지시 적용 전) — {range, type, title, legend}", j.given_chart || {}, 3,
+      (v) => { P.given_chart = v; }, "문제 파일에 이 차트를 그립니다. 「원형으로 변경」이면 원형이 아닌 종류, 「7월 계열 추가」면 7월이 빠진 범위."));
+  }
   left.appendChild(jsonArea("시트 자료 (묶음 공용 — 고치면 같은 묶음 문항 전부에 들어갑니다)", j.sheets || [], 10,
-    (v) => { P.sheets = v; }, "표마다 anchor(시작 셀) · columns · rows. 셀 주소는 지시사항·수식과 맞아야 합니다."));
+    (v) => { P.sheets = v; }, "표마다 anchor(머리글 행) · columns · rows(계산 칸은 \"=D4*E4\" 수식) · title_cell(제목 셀) · styles([{range, font_color, fill}]) · input(수험자가 입력하는 표: all·body·data — 문제 파일에서 비움)."));
 
   right.appendChild(el("div", "card-title", "원고 미리보기 (저장하면 갱신)"));
   const prev = el("div", "pr-page md-body");

@@ -87,7 +87,8 @@ function renderRows() {
     tr.innerHTML = `<td><b>${String(r.round).padStart(2, "0")}회</b></td>`
       + `<td>${r.written ? '<span class="status-chip ok">완료</span>' : '<span class="muted">—</span>'}</td>`
       + `<td class="muted">${escapeHtml((r.built_at || "").replace("T", " "))}</td>`
-      + `<td>${sum || '<span class="muted">—</span>'}${(r.errors || []).length ? ` <span class="status-chip err">오류 ${r.errors.length}</span>` : ""}</td>`
+      + `<td>${sum || '<span class="muted">—</span>'}${(r.errors || []).length ? ` <span class="status-chip err">오류 ${r.errors.length}</span>` : ""}`
+      + `${(r.source_checks || []).length ? ` <span class="status-chip warn" title="지시와 문제 파일이 안 맞는 곳 — 대조 보기에서 목록">원천 점검 ${r.source_checks.length}</span>` : ""}</td>`
       + `<td class="muted">${r.figures || ""}</td><td class="muted">${(r.files || []).map(escapeHtml).join("<br>")}</td><td></td>`;
     const cell = tr.lastChild;
     if (r.built_at) {
@@ -114,7 +115,14 @@ function detail(r) {
   }).join("");
   box.innerHTML = `<h3 style="margin:16px 0 6px">${String(r.round).padStart(2, "0")}회 문항별 대조</h3>`
     + `<table class="data-table"><thead><tr><th>문항</th><th>시트</th><th>결과</th><th>칸</th><th>어긋난 곳</th></tr></thead><tbody>${rows}</tbody></table>`
-    + ((r.errors || []).length ? `<div class="field-hint" style="color:#b33">${r.errors.map(escapeHtml).join("<br>")}</div>` : "");
+    + ((r.errors || []).length ? `<div class="field-hint" style="color:#b33">${r.errors.map(escapeHtml).join("<br>")}</div>` : "")
+    // ★ 원천 점검(2026-11-12 녹화 회신) — 수식 없는 결과 셀 · 제공 차트 없음 · 지시 범위 ≠ 표 위치 · 빈 연동 셀 · 색 없음
+    + ((r.source_checks || []).length
+      ? `<h3 style="margin:16px 0 6px">원천 점검 ${r.source_checks.length}건 — 「문항 교정」에서 고친 뒤 다시 빌드</h3>`
+        + `<table class="data-table"><thead><tr><th>문항</th><th>종류</th><th>내용</th></tr></thead><tbody>`
+        + r.source_checks.map((c) => `<tr><td><b>${escapeHtml(c.id)}</b></td><td>${escapeHtml(c.kind)}</td><td class="small">${escapeHtml(c.msg)}</td></tr>`).join("")
+        + `</tbody></table>`
+      : `<div class="field-hint">원천 점검 0건 — 지시와 문제 파일이 맞습니다.</div>`);
   box.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 

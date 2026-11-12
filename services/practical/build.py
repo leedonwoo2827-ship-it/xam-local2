@@ -112,10 +112,74 @@ def _put(cell, v) -> None:
             cell.Formula = "'" + s
 
 
+COLOR_RGB = {"빨강": (255, 0, 0), "노랑": (255, 255, 0), "파랑": (0, 112, 192), "초록": (0, 176, 80),
+             "녹색": (0, 176, 80), "주황": (255, 192, 0), "검정": (0, 0, 0), "흰색": (255, 255, 255),
+             "회색": (191, 191, 191), "자주": (112, 48, 160), "연한 녹색": (146, 208, 80), "하늘색": (0, 176, 240)}
+
+
+def _bgr(c) -> Optional[int]:
+    """「#FF0000」·「빨강」·(255,0,0) → 엑셀 색 값(BGR 정수)."""
+    if c is None or c == "":
+        return None
+    if isinstance(c, (list, tuple)) and len(c) == 3:
+        r, g, b = (int(x) for x in c)
+    else:
+        s = str(c).strip()
+        m = re.fullmatch(r"#?([0-9A-Fa-f]{6})", s)
+        if m:
+            r, g, b = int(m.group(1)[0:2], 16), int(m.group(1)[2:4], 16), int(m.group(1)[4:6], 16)
+        else:
+            rgb = next((v for k, v in sorted(COLOR_RGB.items(), key=lambda kv: -len(kv[0])) if k in s), None)
+            if not rgb:
+                return None
+            r, g, b = rgb
+    return r + g * 256 + b * 65536
+
+
+def apply_styles(ws, styles) -> None:
+    """★ 2026-11-12 녹화 회신: 「글꼴 색이 빨강인 데이터를 위로」 같은 문항은 그 색이 문제 파일에 있어야 성립한다.
+    styles = [{range, font_color, fill, bold}] — 원문 그림의 서식 중 지시에 쓰이는 것."""
+    for s in styles or []:
+        if not isinstance(s, dict) or not s.get("range"):
+            continue
+        try:
+            rg = ws.Range(str(s["range"]).replace(" ", ""))
+        except Exception:                       # noqa: BLE001
+            continue
+        fc, fl = _bgr(s.get("font_color")), _bgr(s.get("fill"))
+        if fc is not None:
+            rg.Font.Color = fc
+        if fl is not None:
+            rg.Interior.Color = fl
+        if s.get("bold"):
+            rg.Font.Bold = True
+
+
+INPUT_KEEP = {"all": (), "body": ("title",), "data": ("title", "columns")}
+
+
+def for_problem(t: dict) -> Optional[dict]:
+    """★ 수험자가 **입력하는** 자료(기본작업-1)는 문제 파일에 넣지 않는다(실제 시험처럼 빈 시트).
+    input: "all" = 전부 입력(빈 시트) · "body" = 제목만 미리 · "data" = 제목·머리글 미리, 자료 행만 입력.
+    2026-11-12: 1부 빌드가 입력할 자료까지 문제 파일에 채워 두고 있었다."""
+    mode = str(t.get("input") or "").strip()
+    if mode not in INPUT_KEEP:
+        return t
+    keep = INPUT_KEEP[mode]
+    if not keep:
+        return None
+    return {**t, "rows": [], "columns": t.get("columns") if "columns" in keep else [],
+            "title": t.get("title") if "title" in keep else "", "styles": []}
+
+
 def write_table(ws, t: dict) -> None:
     r0, c0 = split_cell(t.get("anchor") or "A1")
     title = str(t.get("title") or "").strip()
-    if title:
+    tc = str(t.get("title_cell") or "").strip().upper().replace("$", "")
+    if title and CELL_RE.match(tc):
+        # ★ 제목 자리를 집필이 정했으면 그대로(「차트 제목은 [B2] 셀과 연동」 — 02·09회 녹화 회신)
+        _put(ws.Range(tc), title)
+    elif title:
         # 「[표1] …」·「<…>」 같은 표 머리는 표 바로 위, 시트 제목은 A1
         if re.match(r"^[\[<(]", title) and r0 > 1:
             _put(ws.Cells(r0 - 1, c0), title)
@@ -131,9 +195,17 @@ def write_table(ws, t: dict) -> None:
     for i, row in enumerate(rows, 1):
         for j, v in enumerate(row or []):
             _put(ws.Cells(r0 + i, c0 + j), v)
+    apply_styles(ws, t.get("styles"))
 
 
-def new_workbook(xl, sheets: List[dict]):
+def table_box(t: dict) -> Tuple[int, int, int, int]:
+    """표 하나가 차지하는 (머리글 행, 첫 열, 끝 행, 끝 열)."""
+    r0, c0 = split_cell(t.get("anchor") or "A1")
+    ncol = max([len(t.get("columns") or [])] + [len(r or []) for r in t.get("rows") or []] + [1])
+    return r0, c0, r0 + len(t.get("rows") or []), c0 + ncol - 1
+
+
+def new_workbook(xl, sheets: List[dict], problem: bool = False):
     wb = xl.Workbooks.Add()
     while wb.Worksheets.Count < max(1, len(sheets)):
         wb.Worksheets.Add(After=wb.Worksheets(wb.Worksheets.Count))
@@ -141,7 +213,9 @@ def new_workbook(xl, sheets: List[dict]):
         ws = wb.Worksheets(i)
         ws.Name = sh["name"]
         for t in sh["tables"]:
-            write_table(ws, t)
+            t2 = for_problem(t) if problem else t
+            if t2 is not None:
+                write_table(ws, t2)
         ws.Columns.AutoFit()
     wb.Worksheets(1).Activate()
     return wb
@@ -174,6 +248,11 @@ def apply_criteria(ws, it: dict) -> List[str]:
         r0, c0 = split_cell(m.group(1))
         if all(re.fullmatch(r"[A-Z]{1,3}", str(c).strip()) for c in cols):
             cols = []                        # 머리 줄이 열 이름(K·L…)뿐이면 화면 장식 — 값은 rows 부터
+            r0 -= 1
+        elif cols and r0 > 1 and str(ws.Cells(r0 - 1, c0).Value or "").strip() == str(cols[0]).strip():
+            # ★ 조건 칸 바로 위에 같은 머리글이 이미 있다(통합 [표4] 「강좌명」 아래 [G15:G17]) — 머리글을 또 쓰면
+            #   한 줄 밀린다(04·09-3-02, 2026-11-12 녹화 회신). 값만 지시 칸부터.
+            cols = []
             r0 -= 1
         for j, h in enumerate(cols):
             _put(ws.Cells(r0, c0 + j), h)
@@ -391,27 +470,91 @@ def _ranges(spec_range: str, sheet: str) -> str:
     return ",".join(parts)
 
 
-def draw_charts(wb, names: List[str], m: int, parts: List[dict], log) -> List[str]:
+def chart_box(ws, sheet: Optional[dict]) -> Tuple[float, float, float, float]:
+    """차트 자리 — 그 시트 표들의 오른쪽 한 칸 띄우고 3행부터. 문제(제공 차트)·정답(결과 차트)이 **같은 자리**."""
+    last = max([table_box(t)[3] for t in (sheet or {}).get("tables") or []] + [3])
+    return ws.Cells(3, last + 2).Left, ws.Cells(3, 1).Top, 480, 300
+
+
+def _style_chart(ch, spec: dict) -> None:
+    t = spec.get("title")
+    t = t.get("text") if isinstance(t, dict) else t
+    # 「4월 … 비율(돋움, 15, 진한 파랑)」 — 설계에 서식 메모가 붙어 온다. 제목 글에는 넣지 않는다(08-4-02)
+    t = re.sub(r"\s*\([^()]*,[^()]*\)\s*$", "", str(t or "")).strip()
+    if t:
+        ch.HasTitle = True
+        ch.ChartTitle.Text = str(t)
+    elif "title" in spec:
+        ch.HasTitle = False
+    lg = spec.get("legend")
+    lg = (lg.get("position") if isinstance(lg, dict) else lg) or ""
+    if "없음" in str(lg):
+        ch.HasLegend = False
+    else:
+        for k, v in LEGEND_POS.items():
+            if k in str(lg):
+                ch.HasLegend = True
+                ch.Legend.Position = v
+
+
+def _item_sheet(d: dict, it: dict, names: List[str], f: Optional[dict] = None) -> str:
+    sh = str((f or {}).get("sheet") or it.get("sheet") or "").strip()[:31]
+    if sh in names:
+        return sh
+    own = [str(x.get("name") or "").strip()[:31] for x in d.get("sheets") or []]
+    return next((x for x in own if x in names), "")
+
+
+def draw_given(wb, names: List[str], sheets: List[dict], parts: List[dict], log) -> int:
+    """★ 「제공 차트」(2026-11-12 녹화 회신: 차트 문항 10개 모두 문제 파일에 차트가 없었다).
+    차트 문항의 given_chart = 지시 ①~⑤ 를 적용하기 **전** 차트 — 문제 파일에 그린다."""
+    by = {s["name"]: s for s in sheets}
+    n = 0
+    for d in parts:
+        for it in d.get("items") or []:
+            g = it.get("given_chart")
+            if not isinstance(g, dict):
+                continue
+            sh = _item_sheet(d, it, names)
+            rng = _ranges(g.get("range") or g.get("data_range") or "", sh)
+            if not sh or not rng:
+                log(f"  제공 차트 범위 없음 {d['part']}-{it.get('no')}")
+                continue
+            try:
+                ws = wb.Worksheets(sh)
+                co = ws.ChartObjects().Add(*chart_box(ws, by.get(sh)))
+                ch = co.Chart
+                ch.SetSourceData(ws.Range(rng))
+                ch.ChartType = _chart_type(str(g.get("type") or ""))
+                _style_chart(ch, {"title": g.get("title"), **({"legend": g["legend"]} if g.get("legend") else {})})
+                n += 1
+            except Exception as e:                      # noqa: BLE001
+                log(f"  제공 차트 실패 {d['part']}-{it.get('no')}: {e}")
+    return n
+
+
+def draw_charts(wb, names: List[str], m: int, parts: List[dict], log, sheets: Optional[List[dict]] = None) -> List[str]:
+    """결과 차트 — 그림 설계마다 그려 PNG 로 내보내고, 정답 파일에는 문항당 **마지막 하나만** 남긴다
+    (04·08회처럼 차트 그림이 둘인 문항이 같은 차트를 두 번 남겼다 — 2026-11-12 녹화 회신)."""
     made = []
+    by = {s["name"]: s for s in sheets or []}
     os.makedirs(img_dir(m), exist_ok=True)
     for d in parts:
-        own = [str(x.get("name") or "").strip()[:31] for x in d.get("sheets") or []]
         for it in d.get("items") or []:
+            keep = None
             for f in it.get("figures") or []:
                 if f.get("kind") != "chart" or not isinstance(f.get("chart"), dict):
                     continue
                 spec = f["chart"]
-                sh = str(f.get("sheet") or it.get("sheet") or "").strip()[:31]
-                if sh not in names:
-                    sh = next((x for x in own if x in names), "")
+                sh = _item_sheet(d, it, names, f)
                 rng = _ranges(spec.get("data_range") or "", sh)
                 if not sh or not rng:
-                    continue
+                    continue                            # 피벗 차트(원본 범위 없음)는 수험자가 만든다
                 stem = f"{m:02d}-{d['part']}-{int(it.get('no') or 0):02d}"
                 path = os.path.join(img_dir(m), f"{stem}-{f.get('id')}.png")
                 try:
                     ws = wb.Worksheets(sh)
-                    co = ws.ChartObjects().Add(ws.Range("D3").Left + 300, ws.Range("D3").Top, 480, 300)
+                    co = ws.ChartObjects().Add(*chart_box(ws, by.get(sh)))
                     ch = co.Chart
                     ch.SetSourceData(ws.Range(rng))
                     ch.ChartType = _chart_type(str(spec.get("type") or ""))
@@ -425,20 +568,7 @@ def draw_charts(wb, names: List[str], m: int, parts: List[dict], log) -> List[st
                                     se.ChartType = _chart_type(str(s_["type"]))
                                 if "보조" in str(s_.get("axis") or ""):
                                     se.AxisGroup = 2
-                    t = spec.get("title")
-                    t = t.get("text") if isinstance(t, dict) else t
-                    if t:
-                        ch.HasTitle = True
-                        ch.ChartTitle.Text = str(t)
-                    lg = spec.get("legend")
-                    lg = (lg.get("position") if isinstance(lg, dict) else lg) or ""
-                    if "없음" in str(lg):
-                        ch.HasLegend = False
-                    else:
-                        for k, v in LEGEND_POS.items():
-                            if k in str(lg):
-                                ch.HasLegend = True
-                                ch.Legend.Position = v
+                    _style_chart(ch, {k: spec[k] for k in ("title", "legend") if k in spec})
                     if spec.get("data_labels"):
                         try:
                             ch.ApplyDataLabels()
@@ -446,11 +576,173 @@ def draw_charts(wb, names: List[str], m: int, parts: List[dict], log) -> List[st
                             pass
                     ch.Export(path)
                     made.append(os.path.basename(path))
+                    if keep is not None:
+                        keep.Delete()
+                    keep = co
                 except Exception as e:                  # noqa: BLE001
                     log(f"  차트 실패 {stem} {f.get('id')}: {e}")
     if made:
         log(f"  차트 {len(made)}장(엑셀)")
     return made
+
+
+# ── 원천 점검 ─────────────────────────────────────────────────────────────
+# ★ 2026-11-12 녹화 회신(허브 녹화기가 120문항을 돌리다 찾은 원천 오류)을 다음 회차·다른 과정에서 미리 잡는다.
+#   문제 파일(수험자가 받는 것)을 열어 둔 채로 지시와 맞춰 본다. 고치지는 않고 목록만 남긴다.
+RANGE_RE = re.compile(r"\[\$?([A-Z]{1,3})\$?(\d{1,7})(?::\$?([A-Z]{1,3})\$?(\d{1,7}))?\]")
+LINK_RE = re.compile(r"\[\$?([A-Z]{1,3})\$?(\d{1,7})\]\s*셀과\s*연동")
+WHAT_IF = ("시나리오", "데이터 표", "목표값")
+
+
+def _texts(it: dict) -> List[str]:
+    return [str(it.get("lead") or "")] + [str(x) for x in it.get("instructions") or []]
+
+
+def _cells_after(text: str, word: str) -> List[str]:
+    """「변경 셀은 [C14], [C15]」·「결과 셀: [F12]」 → 그 뒤 대괄호 셀 주소들(같은 문장 안)."""
+    out = []
+    for m in re.finditer(word, text):
+        tail = re.split(r"[.。▶①②③④⑤\n]|으로 하시오|로 하시오", text[m.end():m.end() + 80])[0]
+        for a, b, c, d in RANGE_RE.findall(tail):
+            out.append(f"{a}{b}:{c}{d}" if c else f"{a}{b}")
+    return out
+
+
+def _singles(s: str) -> List[str]:
+    return [f"{a}{b}" for a, b, c, d in RANGE_RE.findall(s or "") if not c]
+
+
+def what_if_cells(text: str) -> Tuple[List[str], List[str]]:
+    """시나리오·데이터 표 지시에서 (변경 셀, 결과 셀).
+    「할증률[C14]과 할인율[C15]이 변동하는 경우 대여금액 합계[F12]의 변동 시나리오」 /
+    「판매단가[C4], …를 이용하여 순이익[C10]을 계산한 것이다」 / 「[D15] 셀은 '할증률' … 이름을 정의」."""
+    chg = [c for c in _cells_after(text, r"변경\s*셀|입력\s*셀|값을 바꿀\s*셀") if ":" not in c]
+    res = [c for c in _cells_after(text, r"결과\s*셀|수식\s*셀") if ":" not in c]
+    for line in text.splitlines():
+        m = re.search(r"변동하는\s*경우(.{0,80}?)의\s*변동", line)
+        if m:
+            chg += _singles(line[:m.start()])
+            res += _singles(m.group(1))
+            continue
+        m = re.search(r"\[([A-Z]{1,3}\d+)\]\s*(?:을|를)\s*계산한", line)
+        if m:
+            res.append(m.group(1))
+            chg += _singles(line[:m.start()])
+    if res and not chg:                     # 「[D15] 셀은 '할증률', … [I12] 셀은 '결제총액'으로 이름을 정의」
+        for line in text.splitlines():
+            if "이름" in line and "정의" in line:
+                chg += [c for c in _singles(line) if c not in res]
+    uniq = lambda xs: list(dict.fromkeys(xs))   # noqa: E731
+    res = uniq(res)
+    return [c for c in uniq(chg) if c not in res], res
+
+
+def _value(ws, addr: str):
+    try:
+        return ws.Range(addr).Value
+    except Exception:                           # noqa: BLE001
+        return None
+
+
+def source_checks(wb, sheets: List[dict], parts: List[dict], m: int) -> List[dict]:
+    names = [s["name"] for s in sheets]
+    by = {s["name"]: s for s in sheets}
+    out: List[dict] = []
+
+    def add(d, it, kind, msg):
+        out.append({"id": f"{m:02d}-{d['part']}-{int(it.get('no') or 0):02d}", "kind": kind, "msg": msg})
+
+    # 표 자체(제목 메모·열 머리 글자)
+    for s in sheets:
+        for t in s["tables"]:
+            title = str(t.get("title") or "")
+            if re.search(r"\(.*\[[A-Z]{1,3}\d+\].*(셀|행|열)", title):
+                out.append({"id": f"{m:02d}-{s['name']}", "kind": "제목 메모",
+                            "msg": f"표 제목에 지시 메모가 섞임: 「{title}」"})
+            for i, r in enumerate((t.get("rows") or [])[:2]):
+                cells = [x for x in (r or []) if x not in (None, "")]
+                if cells and all(re.fullmatch(r"[A-Z]{1,2}", str(x).strip()) for x in cells):
+                    out.append({"id": f"{m:02d}-{s['name']}", "kind": "열 머리 글자",
+                                "msg": f"{t.get('anchor')} 표 {i + 1}번째 줄이 열 머리 글자뿐: {cells[:6]}"})
+                    break
+            cols = t.get("columns") or []
+            if cols and (all(re.fullmatch(r"[A-Z]{1,2}", str(c).strip()) for c in cols)
+                         or (len(cols) <= 2 and any(re.fullmatch(r"[A-Z]", str(c).strip()) for c in cols))):
+                out.append({"id": f"{m:02d}-{s['name']}", "kind": "열 머리 글자",
+                            "msg": f"{t.get('anchor')} 표 머리글이 {cols}(원본 그림의 열 머리일 수 있음)"})
+
+    for d in parts:
+        for it in d.get("items") or []:
+            if not it.get("no"):
+                continue
+            sh = _item_sheet(d, it, names)
+            if not sh:
+                continue
+            ws = wb.Worksheets(sh)
+            text = "\n".join(_texts(it))
+            # 1) 시나리오·데이터 표·목표값 찾기 — 결과 셀은 수식, 변경 셀은 숫자, 바꾸면 결과가 바뀐다
+            if any(w in text for w in WHAT_IF):
+                chg, res = what_if_cells(text)
+                for c in chg:
+                    v = _value(ws, c)
+                    if not isinstance(v, (int, float)):
+                        add(d, it, "변경 셀", f"변경 셀 [{c}] 이 숫자가 아님: {v!r} (표가 밀렸거나 비어 있음)")
+                for c in res:
+                    try:
+                        hf = bool(ws.Range(c).HasFormula)
+                    except Exception:           # noqa: BLE001
+                        hf = False
+                    if not hf:
+                        add(d, it, "결과 셀 수식", f"결과 셀 [{c}] 에 수식이 없음 — 값만 있으면 결과가 안 바뀜")
+                if chg and res and all(isinstance(_value(ws, c), (int, float)) for c in chg):
+                    before = [_value(ws, c) for c in res]
+                    olds = [ws.Range(c).Formula for c in chg]
+                    try:
+                        for c in chg:
+                            ws.Range(c).Value = (_value(ws, c) or 0) * 1.37 + 1
+                        wb.Application.Calculate()
+                        after = [_value(ws, c) for c in res]
+                    finally:
+                        for c, f in zip(chg, olds):
+                            ws.Range(c).Formula = f
+                        wb.Application.Calculate()
+                    if before == after:
+                        add(d, it, "결과 셀 수식", f"변경 셀 {chg} 을 바꿔도 결과 셀 {res} 이 그대로")
+                elif "시나리오" in text and not chg:
+                    add(d, it, "변경 셀", "지시에서 변경 셀을 찾지 못함(점검 생략)")
+            # 0) 「자료를 주어진 대로 입력하시오」 — 문제 파일은 비어 있어야(시트 자료에 input)
+            if "입력하시오" in str(it.get("lead") or "") and "주어진 대로" in str(it.get("lead") or ""):
+                if by[sh]["tables"] and not any(t.get("input") for t in by[sh]["tables"]):
+                    add(d, it, "입력 자료", "입력 문항인데 시트 자료에 input 표시가 없어 문제 파일에 자료가 미리 들어감")
+            # 2) 차트 문항 — 제공 차트
+            if "차트" in sh and any("차트" in x for x in it.get("instructions") or []):
+                if not isinstance(it.get("given_chart"), dict):
+                    add(d, it, "제공 차트", "given_chart(지시 적용 전 차트)가 없음 — 문제 파일에 차트가 없게 됨")
+                elif ws.ChartObjects().Count != 1:
+                    add(d, it, "제공 차트", f"문제 파일 차트 {ws.ChartObjects().Count}개(1개여야 함)")
+            # 3) 지시 범위 첫 행 = 표 머리글 행
+            for a, b, c, e in RANGE_RE.findall(text):
+                if not c:
+                    continue
+                r1, c1, r2, c2 = int(b), col_num(a), int(e), col_num(c)
+                if r2 - r1 < 2 or c2 - c1 < 1:
+                    continue
+                for t in by[sh]["tables"]:
+                    h, tc0, tr2, tc2 = table_box(t)
+                    width = min(c2, tc2) - max(c1, tc0) + 1
+                    if width < max(2, (tc2 - tc0 + 1) // 2) or r2 < h or r1 > tr2:
+                        continue
+                    if r1 not in (h, h + 1):
+                        add(d, it, "범위·표 위치", f"지시 범위 [{a}{b}:{c}{e}] 첫 행 {r1} ≠ 표 머리글 행 {h}({t.get('anchor')})")
+            # 4) 「[X] 셀과 연동」
+            for a, b in LINK_RE.findall(text):
+                if _value(ws, f"{a}{b}") in (None, ""):
+                    add(d, it, "연동 셀", f"[{a}{b}] 셀과 연동하라는데 문제 파일의 [{a}{b}] 이 비어 있음")
+            # 5) 색 기준 정렬·필터
+            if re.search(r"(글꼴|셀)\s*색", text) and re.search(r"정렬|필터", text):
+                if not any(t.get("styles") for t in by[sh]["tables"]):
+                    add(d, it, "서식 색", "색 기준 정렬·필터인데 시트 자료에 styles(글꼴 색·채우기)가 없음")
+    return out
 
 
 # ── 회차 하나 ─────────────────────────────────────────────────────────────
@@ -470,11 +762,17 @@ def build_round(m: int, *, log=lambda s: None) -> dict:
     xl.Visible = False
     xl.DisplayAlerts = False
     try:
-        wb = new_workbook(xl, sheets)
+        names = [sh["name"] for sh in sheets]
+        wb = new_workbook(xl, sheets, problem=True)
+        draw_given(wb, names, sheets, parts, log)
+        wb.Worksheets(1).Activate()
         wb.SaveAs(os.path.join(od, f"m{m:02d}_문제.xlsx"), XL_XLSX)
+        try:
+            report["source_checks"] = source_checks(wb, sheets, parts, m)   # 저장한 뒤 — 점검이 칸을 잠깐 바꿨다 되돌린다
+        except Exception as e:                  # noqa: BLE001
+            report["errors"].append(f"원천 점검 실패 — {e}")
         wb.Close(False)
         wb = new_workbook(xl, sheets)
-        names = [sh["name"] for sh in sheets]
 
         def sheet_of(d, it):
             sh = str(it.get("sheet") or "").strip()[:31]
@@ -508,7 +806,7 @@ def build_round(m: int, *, log=lambda s: None) -> dict:
                 report["items"].append(r)
         for sh in names:
             wb.Worksheets(sh).Columns.AutoFit()
-        charts = draw_charts(wb, names, m, parts, log)
+        charts = draw_charts(wb, names, m, parts, log, sheets)
         wb.Worksheets(1).Activate()
         wb.SaveAs(os.path.join(od, f"m{m:02d}_정답.xlsx"), XL_XLSX)
         wb.Close(False)
@@ -561,6 +859,7 @@ def status(rounds: List[int]) -> List[dict]:
         rows.append({"round": m, "written": all(pa.part_done(m, p) for p in (1, 2, 3, 4)),
                      "built_at": v.get("built_at") or "", "summary": v.get("summary") or {},
                      "errors": v.get("errors") or [], "items": v.get("items") or [],
+                     "source_checks": v.get("source_checks") or [],
                      "files": [os.path.basename(x) for x in glob.glob(os.path.join(od, "*.xlsx"))],
                      "figures": len(v.get("figures") or [])})
     return rows

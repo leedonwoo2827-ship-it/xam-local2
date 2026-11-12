@@ -98,6 +98,21 @@ SYSTEM = """당신은 컴퓨터활용능력 2급 실기(스프레드시트 실�
   조건에 맞는 행이 0개가 되거나 전부가 되는 시시한 자료를 만들지 마십시오(필터·조건부 서식은 일부만 걸리게).
 - 계산작업의 각 결과 칸은 자료에서 직접 계산한 값을 answer.results 에 적으십시오(셀 주소별). 반올림·표시 형식까지.
 - 셀 주소는 sheets 의 표 배치(anchor·열 수·행 수)와 정확히 맞아야 합니다.
+- ★ 주어진 표에서 **다른 칸으로 계산되는 칸**(금액 = 단가×수량, 합계, 적용요금, 순이익 등)은 값이 아니라
+  「=D4*E4」·「=SUM(F4:F11)」 같은 **수식 문자열**로 rows 에 적으십시오. 특히 시나리오·데이터 표·목표값 찾기
+  문항의 결과 셀은 반드시 변경 셀을 (직·간접) 참조하는 수식이어야 합니다 — 값만 있으면 결과가 바뀌지 않습니다.
+  수험자가 직접 입력하는 칸(계산작업 답 칸 등)은 비워 둡니다.
+- anchor 는 표 **머리글 행**입니다. 지시에 적는 범위(예: 피벗 원본 [B4:J17])의 첫 행이 머리글 행과 같아야 합니다.
+- 표 제목을 특정 셀에 두어야 하면(예: 「차트 제목은 [B2] 셀과 연동」) title_cell 에 그 셀을 적습니다.
+  제목에 「(제목은 [A1] 셀…)」 같은 메모를 섞지 마십시오. 원본 그림의 열 머리(A·B·C…)·행 번호는 자료가 아닙니다.
+- 기본작업-1(「자료를 주어진 대로 입력하시오」)처럼 수험자가 **입력하는** 표에는 input 을 적습니다:
+  "all"(빈 시트에 전부 입력) · "body"(제목만 미리 있음) · "data"(제목·머리글이 미리 있고 자료 행만 입력).
+  문제 파일에는 그 부분이 비고, 정답 파일에만 들어갑니다.
+- 「글꼴 색이 빨강인 행을 위로」 처럼 지시가 쓰는 서식(글꼴 색·채우기·굵게)은 표의 styles 에
+  [{"range":"D4","font_color":"빨강"}] 처럼 적어 문제 파일에 들어가게 하십시오.
+- 차트작업 문항은 given_chart 에 **지시 ①~⑤ 를 적용하기 전의 제공 차트**를 적습니다
+  ({"range":"B3:C9","type":"묶은 세로 막대형","title":null}) — 바꿀 종류·추가/제거할 계열·바꿀 제목이 지시 전 상태여야
+  수험자가 지시대로 고칠 수 있습니다(예: 「원형으로 변경」이면 원형이 아닌 형식, 「'7월' 계열 추가」면 7월이 빠진 범위).
 
 [그림 — 새로 설계]
 - 바탕의 그림(결과 화면·차트·대화상자)은 쓰지 않습니다. 대신 figures 에 **새로 그릴 설계**를 적습니다.
@@ -140,6 +155,9 @@ TABLE = {
         "columns": {"type": "array", "items": {"type": "string"}},
         "rows": {"type": "array", "items": {"type": "array", "items": {"type": ["string", "number", "null"]}}},
         "note": {"type": "string"},
+        "title_cell": {"type": "string"},
+        "input": {"type": "string", "enum": ["all", "body", "data"]},
+        "styles": {"type": "array", "items": {"type": "object"}},
     },
     "required": ["anchor", "columns", "rows"],
 }
@@ -163,6 +181,7 @@ ITEM = {
             "required": ["title", "steps"],
         },
         "functions": {"type": "array", "items": {"type": "string"}},
+        "given_chart": {"type": "object"},
         "changed": {"type": "string"},
     },
     "required": ["no", "lead", "instructions", "answer"],
@@ -319,7 +338,7 @@ def write_one(m: int, part: int, *, model: str = "", effort: Optional[str] = Non
 
 # ── 문항 교정 — 02/practical 문항 하나를 사람이 고친다 ─────────────────────
 STEM_RE = re.compile(r"(\d{2})-(\d)-(\d{2})")
-EDITABLE = ("points", "sheet", "lead", "instructions", "figures", "answer", "functions")
+EDITABLE = ("points", "sheet", "lead", "instructions", "figures", "answer", "functions", "given_chart")
 
 
 def list_items(rounds: Optional[List[int]] = None) -> List[dict]:

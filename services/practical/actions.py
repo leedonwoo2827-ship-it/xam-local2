@@ -42,6 +42,8 @@ SYSTEM = """당신은 엑셀 실기 풀이 영상의 녹화 대본 작성자입�
 - say: 그 단계에서 말할 내레이션 1~2문장(존댓말 「~합니다」). 셀 주소는 화면에 보이므로 말해도 되지만,
   **왜 그렇게 하는지**를 한마디 곁들입니다. 수식은 뜻으로 풀어 말합니다.
 - expected: 그 단계 뒤 확인할 값이 있으면 {셀: 값}(모범답안 결과값에 있는 것만). 없으면 생략.
+  값은 **셀 값(숫자)** 으로 적습니다(「1,246」 이 아니라 1246 — 쉼표·%·원 없이). 표시 모양으로만 비교할 수 있으면
+  {"text": "1,246"} 처럼 적습니다. 시나리오 문항은 결과 셀 값도 적습니다.
 - 단계 수는 보통 3~15개. 너무 잘게(키 하나씩) 쪼개지 말고, 녹화에서 한 장면이 되는 단위로.
 출력은 지정한 JSON 스키마 하나뿐입니다."""
 
@@ -161,6 +163,15 @@ def start(rounds: List[int], overwrite: bool = False) -> dict:
                 jb["done_count"] = jb.get("done_count", 0) + 1
                 registry.item(jb, stem, status="done", output=f"{r['steps']}단계")
                 registry.log(jb, f"[녹화 대본] {stem} → {r['steps']}단계 (${r['cost_usd']:.2f})", force=True)
+            import pythoncom
+            pythoncom.CoInitialize()
+            for m in sorted({m for m, _ in keys}):
+                try:
+                    n = normalize_round(m)
+                    if n:
+                        registry.log(jb, f"[expected] {m:02d}회 {n}단계 → 정답 파일 셀 값", force=True)
+                except Exception as e:                  # noqa: BLE001
+                    registry.log(jb, f"[expected] {m:02d}회 정리 실패 — {e}", force=True)
             registry.log(jb, f"[완료] ${cost:.2f}", force=True)
             registry.finish(jb, "done")
         finally:
@@ -168,3 +179,82 @@ def start(rounds: List[int], overwrite: bool = False) -> dict:
 
     registry.spawn(job, work)
     return job
+
+
+# ── expected 정리 ─────────────────────────────────────────────────────────
+# ★ 2026-11-12 녹화 회신 §4: expected 가 표시값 문자열(「1,246」)이면 셀 값(1245.666…)과 달라 맞게 해도 「불일치」.
+#   정답 파일(06/practical/mNN/mNN_정답.xlsx)의 셀 값으로 바꾸고, 정답 파일에 값이 없으면 {"text": 표시값} 으로 표시한다.
+#   lesson.yaml 은 허브 쪽이 손댄 곳이 있을 수 있어 다시 쓰지 않고 blocks[].expected 만 고친다.
+import re as _re  # noqa: E402
+
+_DISPLAY = _re.compile(r"^-?[\d,]+(\.\d+)?\s*(%|원)?$")
+
+
+def _to_cell_value(v, cellv, text):
+    if not isinstance(v, str) or not _DISPLAY.match(v.strip()):
+        return v
+    s = v.strip()
+    if isinstance(cellv, (int, float)):
+        if (text or "").strip() == s or abs(float(s.replace(",", "").rstrip("%원").strip() or 0)
+                                            - (cellv * 100 if s.endswith("%") else cellv)) < 0.51:
+            return int(cellv) if float(cellv).is_integer() else cellv
+    return {"text": s}
+
+
+def normalize_round(m: int, xl=None, log=lambda s: None) -> int:
+    import yaml
+    from services.practical import build as pb
+    files = sorted(glob.glob(os.path.join(rec_dir(m), "*.actions.json")))
+    xlsx = os.path.join(pb.out_dir(m), f"m{m:02d}_정답.xlsx")
+    if not files or not os.path.isfile(xlsx):
+        return 0
+    own = xl is None
+    if own:
+        import pythoncom
+        import win32com.client as w
+        pythoncom.CoInitialize()
+        xl = w.DispatchEx("Excel.Application")
+        xl.Visible = False
+        xl.DisplayAlerts = False
+    n = 0
+    wb = xl.Workbooks.Open(xlsx, ReadOnly=True)
+    try:
+        names = [wb.Worksheets(i).Name for i in range(1, wb.Worksheets.Count + 1)]
+        for f in files:
+            with open(f, encoding="utf-8") as fh:
+                got = json.load(fh)
+            changed = {}
+            for i, st in enumerate(got.get("steps") or []):
+                ex = st.get("expected")
+                if not isinstance(ex, dict):
+                    continue
+                # 정답 파일에 없는 시트(피벗·통합이 새로 만드는 시트 등)면 셀 값을 못 본다 → 표시값 {"text"}
+                ws = wb.Worksheets(str(st["sheet"])) if str(st.get("sheet") or "") in names else None
+                new = {}
+                for k, v in ex.items():
+                    try:
+                        rg = ws.Range(str(k)) if ws is not None else None
+                        cv, tx = (rg.Value, rg.Text) if rg is not None else (None, "")
+                    except Exception:           # noqa: BLE001
+                        cv, tx = None, ""
+                    new[k] = _to_cell_value(v, cv, tx)
+                if new != ex:
+                    st["expected"] = new
+                    changed[i] = new
+            if changed:
+                n += len(changed)
+                atomic_write_text(f, json.dumps(got, ensure_ascii=False, indent=1))
+                yp = f[:-len(".actions.json")] + ".lesson.yaml"
+                if os.path.isfile(yp):
+                    with open(yp, encoding="utf-8") as fh:
+                        doc = yaml.safe_load(fh)
+                    for i, ex in changed.items():
+                        if i < len(doc.get("blocks") or []):
+                            doc["blocks"][i]["expected"] = ex
+                    atomic_write_text(yp, yaml.safe_dump(doc, allow_unicode=True, sort_keys=False, width=120))
+                log(f"  {os.path.basename(f)} expected {len(changed)}단계")
+    finally:
+        wb.Close(False)
+        if own:
+            xl.Quit()
+    return n
