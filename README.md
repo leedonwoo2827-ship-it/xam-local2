@@ -4,7 +4,7 @@
 **실습파일(문제·정답 엑셀) · HTML 문제집 · 이론 노트 · 강의 원고 · 녹화 대본**까지 만드는 로컬 웹 앱이다.
 
 - **실기 전용**이다(엑셀 작업형. 컴활1급의 액세스는 다음에 붙인다). 필기는 [`xam-local3`](https://github.com/leedonwoo2827-ship-it/xam-local3)(포트 8873)에서 한다.
-- 브랜치는 **`practical`** 이다. 포트 **8871**.
+- 저장소 전체가 실기용이다 — `main` 과 `practical` 이 같은 코드다(필기를 local3 으로 옮긴 뒤 2026-11-19 에 맞춤). 포트 **8871**.
 - 끝낸 품목: **컴퓨터활용능력 2급 실기 (com2p-27)** — 기출 5회 → 새 10회(1~5 책 후미 · 6~10 종합본).
 - 영상은 실기 종합반(`261110-IT-product-longform-full-auto`)과 녹화 허브(`261027-new-IT-product-hub`)가 받아 간다(아래 「다음 도구」).
 
@@ -13,7 +13,7 @@
 ## 실행
 
 ```
-git clone -b practical https://github.com/leedonwoo2827-ship-it/xam-local2.git
+git clone https://github.com/leedonwoo2827-ship-it/xam-local2.git
 cd xam-local2
 setup.bat        처음 한 번 — venv · 패키지 · Chromium(PDF 인쇄)
 run.bat          http://127.0.0.1:8871/  (이 PC 전용)
@@ -84,7 +84,7 @@ run.bat          http://127.0.0.1:8871/  (이 PC 전용)
 
 | 무엇 | 어떻게 |
 |---|---|
-| 앱 코드 | 위 「실행」대로 `git clone -b practical` → `setup.bat` |
+| 앱 코드 | 위 「실행」대로 `git clone` → `setup.bat` |
 | **책 폴더** | **git 밖**이다. 통째 복사(`_backup-*` 폴더는 빼도 됨) → 앱의 작업 폴더 칩에서 고른다 |
 | `.env` | git 밖. 복사하거나 `.env.example` 에서 새로 |
 | 음성 모델 | `vendor/chodangi/assets/`(약 400MB, git 밖) — setup.bat 이 없으면 안내한다. 있는 PC 에서 복사 |
