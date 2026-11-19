@@ -24,6 +24,10 @@ from services.authoring.provider import ClaudeAuthor
 from services.ocr import project
 
 KINDS = ("문제", "정답", "기타")
+# 교시 — 컴활 1급 실기는 한 회차가 1교시 엑셀 + 2교시 액세스다. 같은 PDF·같은 회차·같은 번호(문제1-1)가
+# 두 벌 나오므로 (회차, 교시)로 나눠 묶고 확정한다. 2급처럼 표시가 없으면 전부 1교시(엑셀)다.
+SESSIONS = (1, 2)
+SESSION_LABEL = {1: "엑셀", 2: "액세스"}
 
 SYSTEM = """당신은 컴퓨터활용능력 **실기** 문제집 스캔 페이지를 판독합니다.
 
@@ -43,10 +47,23 @@ SYSTEM = """당신은 컴퓨터활용능력 **실기** 문제집 스캔 페이�
 - 쪽에 「상시 공략 문제 03회」「정답 & 해설 | 03회」처럼 **회차가 인쇄돼 있을 때만** 숫자로 적는다.
 - 인쇄돼 있지 않으면 null. 앞 쪽에서 이어받는 것은 앱이 한다 — 추측하지 않는다.
 
+■ 교시(`session`) — 컴활 1급은 한 회차가 **1교시 엑셀 + 2교시 액세스** 두 시험이다
+- `1` : 이 쪽이 **엑셀** 시험임이 인쇄돼 있을 때 — 표지의 프로그램명 「EXCEL 2021」, 해설 머리의 「엑셀」 등.
+- `2` : 이 쪽이 **액세스** 시험임이 인쇄돼 있을 때 — 표지의 프로그램명 「ACCESS 2021」, 해설 머리의 「액세스」 등.
+- ★ 표지가 없는 책이 많다(2회부터는 표지 없이 문제로 바로 시작). 그래서 **인쇄된 묶음 이름**도 근거다 —
+  `문제 1 기본작업` · `문제 2 계산작업` · `문제 3 분석작업` · `문제 4 기타작업` 이 인쇄돼 있으면 `1`,
+  `문제 1 DB구축` · `문제 2 입력 및 수정 기능 구현` · `문제 3 조회 및 출력 기능 구현` · `문제 4 처리 기능 구현` 이면 `2`.
+- 표지 프로그램명도 묶음 이름도 없으면 null. 지시 문장 속 시트·테이블 같은 낱말만 보고 짐작하지 않는다 —
+  앞 쪽에서 이어받는 것은 앱이 한다.
+- 액세스 쪽도 담는 규칙은 같다: 묶음(문제 1 DB구축 · 문제 2 입력 및 수정 기능 구현 · 문제 3 조회 및 출력 기능 구현 ·
+  문제 4 처리 기능 구현), 번호 붙은 지시, 그림(테이블 · 폼 · 보고서 · 쿼리 결과 · 속성 시트 캡처), 해설 문장.
+  해설에 인쇄된 SQL · 식(「=Format(…)」) · VBA 코드도 문장째 그대로 `steps` 에 옮긴다.
+
 ■ `문제` 쪽 → `problem_items`
 문항 하나 = 번호 붙은 지시 하나(「1. '기본작업-1' 시트에 다음의 자료를 입력하시오.(5점)」).
-- `part` / `part_name` / `part_points`: 속한 묶음(문제 1 / 기본작업 / 20). 쪽 위에 묶음 머리가
-  없으면 앞에서 이어진 묶음 번호를 적고 `part_name` 은 비워도 된다.
+- `part` / `part_name` / `part_points`: 속한 묶음(문제 1 / 기본작업 / 20) — **이 쪽에 묶음 머리가 인쇄돼 있을 때만.**
+  쪽 위에 묶음 머리가 없으면 `part` 는 null, `part_name` 은 빈 문자열로 둔다. 앞 쪽은 보이지 않으니 짐작하지 않는다 —
+  앞 쪽의 묶음을 이어받는 것은 앱이 한다(실측 1급 01회 액세스 p.17: 머리 없는 쪽의 문제4 ④⑤ 를 문제3 으로 짐작했다).
 - `no`: 묶음 안의 번호(1, 2, 3…). `lead`: 번호 줄의 문장 그대로. `points`: 배점.
   「(각 2점)」 처럼 항목별 배점이면 **항목 수 × 점수 = 총점**을 적는다(문장은 그대로 둔다). 없으면 null.
 - `instructions`: 번호 줄 아래의 지시를 **한 줄에 하나씩, 인쇄된 그대로 — 줄머리 기호까지.**
@@ -60,6 +77,13 @@ SYSTEM = """당신은 컴퓨터활용능력 **실기** 문제집 스캔 페이�
   ★ 표도 **그림으로** 담는다 — 표 안의 글자를 옮겨 적지 않는다.
 - **그림의 자리 — 이름표:** `figures` 의 첫째는 `{{p-1}}`, 둘째는 `{{p-2}}` … 다. `instructions` 에서
   그 그림이 **인쇄된 자리에 이름표 한 줄**을 넣는다(그림 앞 줄과 뒤 줄 사이). 맨 끝에 있어도 넣는다.
+- `boxes`: **상자로 인쇄된 글**을 인쇄된 순서대로 `{"text": "…", "code": true|false}` 로. 상자 안 글은 `instructions` 에 줄로 풀지 않는다.
+  · `code: true` = **코드박스** — VBA(「Public Function … End Function」「Private Sub …」)·SQL·식처럼 코드인 것.
+    테두리가 있든 없든, 코드가 여러 줄로 인쇄돼 있으면 코드박스다. **들여쓰기를 스페이스로 그대로**(한 단계 = 스페이스 2칸).
+  · `code: false` = **박스** — 테두리 상자 안의 일반 글(조건·예시·안내 문장). 줄바꿈 그대로.
+  상자가 인쇄된 자리에는 이름표 한 줄 — 코드박스는 `{{k-1}}` `{{k-2}}` …, 박스는 `{{c-1}}` `{{c-2}}` … (각각 따로 센다)
+  (실측 1급 01회 엑셀 2-5: 「Public Function fn튜터(…) / End Function」 상자를 지시 줄로 풀어 상자가 사라졌다)
+  ★ 결과 화면 캡처 속 코드 창(VBA 편집기 그림)은 상자가 아니라 그림(`figures`)이다.
 - `spans_next`: 이 문항이 다음 쪽으로 이어지면 true — 다음 쪽의 나머지 지시까지 여기서 완성한다.
 - 이 쪽의 **첫 문항이 앞 쪽에서 이어져 온 것이면 담지 않는다.** `notes` 에만 적는다.
 
@@ -69,8 +93,8 @@ SYSTEM = """당신은 컴퓨터활용능력 **실기** 문제집 스캔 페이�
   `answer_entries` 의 **맨 앞** 항목으로, `title` 은 빈 문자열, `steps` 에 인쇄된 그대로, 그림은 `figures` 에.
   어느 문항의 이어짐인지 알면 `part` / `no` 를 적고, 모르면 null 로 둔다(앱이 앞 쪽 마지막 정답에 붙인다).
   (실측 2026-11-09 p.14: 매크로 해설 ④ ⑤ 를 메모에만 적어 본문이 사라졌다)
-- `part` / `no`: 어느 문항의 정답인지(문제1 의 ❷ 이면 part 1 · no 2). 쪽 위에 묶음 머리(「문제2 계산작업」)가
-  없으면 앞에서 이어진 묶음 번호를 적는다.
+- `part` / `no`: 어느 문항의 정답인지(문제1 의 ❷ 이면 part 1 · no 2). `part` 는 이 쪽에 묶음 머리(「문제2 계산작업」)가
+  인쇄돼 있을 때만 적고, 없으면 null — 앞 쪽의 묶음을 이어받는 것은 앱이 한다.
 - **묶음 머리:** 「문제2 계산작업」 같은 묶음 제목 바로 아래에 **묶음 전체의 결과 그림**(여러 문항의 답이
   한 화면에 ❶❷❸ 로 표시된 것)이 있으면, 문항마다 쪼개지 말고 `no: 0` 인 항목 **하나**로 담는다 —
   `title` 은 묶음 제목(`문제2 계산작업`), `figures` 는 그 그림. 문항별 해설은 그 뒤 번호 줄부터 각각 담는다.
@@ -79,6 +103,10 @@ SYSTEM = """당신은 컴퓨터활용능력 **실기** 문제집 스캔 페이�
 - `steps`: 해설을 **한 줄에 하나씩, 인쇄된 그대로 — 줄머리 기호(①②…, ▶)까지.** 요약하지 않는다.
   수식이 문장 안에 인쇄돼 있으면 그 문장째로, 글자 하나 틀리지 않게 옮긴다(배열 수식의 `{ }` 도 그대로).
   기호가 없는 줄은 기호 없이 둔다. 앱이 번호를 붙이지 않으므로 인쇄된 번호만 남는다.
+- `boxes`: 문제 쪽과 같은 규칙. ★ 해설에 **여러 줄로 인쇄된 코드**(VBA 프로시저 · SQL)는 `steps` 에 줄로 풀지 말고
+  코드박스(`code: true`, `{{k-1}}`)로 — 들여쓰기를 스페이스로 그대로 살린다
+  (실측 1급 01회 엑셀 2-5 해설: 「If … / fn튜터 = "1순위" / ElseIf …」 를 steps 줄로 풀어 들여쓰기가 사라졌다).
+  한 줄 수식(「=fn튜터(F3,I3,J3)」「{=RANK.EQ(…)}」)은 코드박스가 아니라 그 줄째로 `steps` 에 둔다.
 - `figures`: 이 정답에 딸린 **캡처(결과 화면 · 대화상자 · 차트 · 코드 상자)를 인쇄된 순서대로 모두**,
   `{"bbox": [x, y, w, h], "note": "무엇인지"}` 로. 「정답」 표시가 붙은 결과 화면도 그림이다.
 - **그림의 자리 — 이름표:** 첫째 그림은 `{{p-1}}`, 둘째는 `{{p-2}}` … `steps` 에서 그 그림이 **인쇄된
@@ -105,6 +133,9 @@ FIGURES = {"type": "array", "items": {
     "type": "object",
     "properties": {"bbox": {"type": "array", "items": {"type": "integer"}},
                    "note": {"type": "string"}}}}
+BOXES = {"type": "array", "items": {"type": "object",
+                                    "properties": {"text": {"type": "string"}, "code": {"type": "boolean"}},
+                                    "required": ["text"]}}
 
 ITEM = {
     "type": "object",
@@ -117,6 +148,7 @@ ITEM = {
         "points": {"type": ["integer", "null"]},
         "instructions": {"type": "array", "items": {"type": "string"}},
         "figures": FIGURES,
+        "boxes": BOXES,
         "spans_next": {"type": "boolean"},
         "note": {"type": "string"},
     },
@@ -131,6 +163,7 @@ ENTRY = {
         "title": {"type": "string"},
         "steps": {"type": "array", "items": {"type": "string"}},
         "figures": FIGURES,
+        "boxes": BOXES,
         "note": {"type": "string"},
     },
     "required": ["title", "steps"],
@@ -142,6 +175,7 @@ SCHEMA: Dict[str, Any] = {
         "page_kind": {"type": "string", "enum": list(KINDS)},
         "round": {"type": ["integer", "null"]},
         "round_label": {"type": "string"},
+        "session": {"type": ["integer", "null"], "description": "1=엑셀(1교시) · 2=액세스(2교시) · 인쇄돼 있지 않으면 null"},
         "ocr_text": {"type": "string", "description": "이 쪽 글자 전문(읽는 순서대로)"},
         "problem_items": {"type": "array", "items": ITEM},
         "answer_entries": {"type": "array", "items": ENTRY},
@@ -211,9 +245,14 @@ def load_pagemap() -> dict:
         return {}
 
 
-def set_pagemap(src: str, page: int, *, kind: Optional[str], round_: Optional[int]) -> dict:
+def set_pagemap(src: str, page: int, *, kind: Optional[str], round_: Optional[int],
+                session: Optional[int] = None) -> dict:
     d = load_pagemap()
     ent = d.setdefault(src, {}).setdefault(str(int(page)), {})
+    if session is not None:
+        if int(session) not in SESSIONS:
+            raise ValueError("교시는 1(엑셀) 또는 2(액세스)입니다.")
+        ent["session"] = int(session)
     if kind is not None:
         if kind not in KINDS:
             raise ValueError(f"쪽 종류는 {', '.join(KINDS)} 중 하나입니다.")
@@ -225,13 +264,31 @@ def set_pagemap(src: str, page: int, *, kind: Optional[str], round_: Optional[in
     return ent
 
 
+# 묶음 이름 → 교시. 표지가 없는 회차(2회~)에서 판독이 session 을 놓쳐도 원문의 묶음 이름으로 잡는다.
+_SESSION_WORDS = {
+    2: ("DB구축", "입력 및 수정 기능 구현", "조회 및 출력 기능 구현", "처리 기능 구현", "ACCESS"),
+    1: ("기본작업", "계산작업", "분석작업", "기타작업", "EXCEL"),
+}
+
+
+def _session_from_text(d: Optional[dict]) -> Optional[int]:
+    """원문·묶음 이름에서 교시를 찾는다. 둘 다 나오거나 아무것도 없으면 None(이어받기에 맡긴다)."""
+    if not d:
+        return None
+    names = " ".join(str(x.get("part_name") or "") for x in d.get("problem_items") or [])
+    text = (d.get("ocr_text") or "") + " " + names
+    flat = text.replace(" ", "")
+    hit = {s for s, words in _SESSION_WORDS.items() if any(w.replace(" ", "") in flat for w in words)}
+    return hit.pop() if len(hit) == 1 else None
+
+
 def page_table(src: str) -> list[dict]:
     """쪽마다 종류·회차를 정한다 — 사람이 고친 값 > 판독이 본 값 > 앞 쪽에서 이어받기.
 
     회차는 표지 쪽에만 인쇄돼 있어 대부분의 쪽이 null 이다. 앞 쪽의 회차를 이어받는다.
     """
     pm = load_pagemap().get(src, {})
-    out, cur_round = [], None
+    out, cur_round, cur_sess = [], None, None
     for page in project.list_pages(src):
         d = load(src, page)
         man = pm.get(str(page), {})
@@ -247,10 +304,24 @@ def page_table(src: str) -> list[dict]:
             rnd, how = None, ""
         if rnd:
             cur_round = rnd
+        # 교시도 회차처럼 — 사람 > 인쇄(표지 프로그램명) > 앞 쪽 이어받기 > 1(엑셀)
+        s_seen = (d or {}).get("session")
+        if man.get("session") in SESSIONS:
+            sess, s_how = man["session"], "사람"
+        elif s_seen in SESSIONS:
+            sess, s_how = s_seen, "인쇄"
+        elif _session_from_text(d):
+            sess, s_how = _session_from_text(d), "묶음 이름"
+        elif cur_sess:
+            sess, s_how = cur_sess, "이어받음"
+        else:
+            sess, s_how = 1, "기본"
+        cur_sess = sess
         out.append({
             "src": src, "page": page, "read": d is not None,
             "kind": kind, "kind_by": "사람" if man.get("kind") else ("판독" if d else ""),
             "round": rnd, "round_by": how,
+            "session": sess, "session_by": s_how,
             "n_items": len((d or {}).get("problem_items") or []),
             "n_answers": len((d or {}).get("answer_entries") or []),
             # 필기 현황판처럼 칸 색을 대조완료로 칠한다
@@ -348,6 +419,17 @@ def read_one(src: str, page: int, *, model: str = "", effort: Optional[str] = No
             if bb:
                 a["bbox"] = bb
             assets[f"p-{k}"] = a
+        nk = nc = 0                                    # 코드박스 k-1 · k-2 … / 박스 c-1 · c-2 …
+        for b in x.pop("boxes", None) or []:
+            t = str((b or {}).get("text") or "").rstrip()
+            if not t:
+                continue
+            if (b or {}).get("code"):
+                nk += 1
+                assets[f"k-{nk}"] = {"type": "code", "text": t}
+            else:
+                nc += 1
+                assets[f"c-{nc}"] = {"type": "box", "text": t}
         if assets:
             x["assets"] = assets
     d = {
@@ -355,6 +437,7 @@ def read_one(src: str, page: int, *, model: str = "", effort: Optional[str] = No
         "page_kind": kind,
         "round": got.get("round") or None,
         "round_label": str(got.get("round_label") or ""),
+        "session": got.get("session") if got.get("session") in SESSIONS else None,
         "problem_items": got.get("problem_items") or [],
         "answer_entries": got.get("answer_entries") or [],
         "ocr_text": str(got.get("ocr_text") or ""),
@@ -363,7 +446,7 @@ def read_one(src: str, page: int, *, model: str = "", effort: Optional[str] = No
     }
     save(src, page, d)
     return {"page": int(page), "skipped": False, "kind": kind, "round": d["round"],
-            "items": len(d["problem_items"]), "answers": len(d["answer_entries"]),
+            "session": d["session"], "items": len(d["problem_items"]), "answers": len(d["answer_entries"]),
             "cost_usd": d["_cost_usd"], "notes": d["notes"]}
 
 
@@ -435,6 +518,7 @@ def _run(job: dict, src: str, pages: list[int], *, model: str,
         registry.item(job, key, status="done", output=f"{r['kind']} · {what}")
         registry.log(job, f"[판독] p.{p} → {r['kind']}"
                           + (f" {r['round']}회" if r.get("round") else "")
+                          + (f" {SESSION_LABEL.get(r['session'], '')}" if r.get("session") else "")
                           + f" · {what} (${r['cost_usd']:.2f})", force=True)
         if r.get("notes"):
             registry.log(job, f"      메모: {r['notes'][:160]}")

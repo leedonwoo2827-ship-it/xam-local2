@@ -29,9 +29,11 @@ const S = {
   page: 0, draft: null, dirty: false,
   scanPage: 0, pendingBox: null, pendingPage: 0,
   showScan: true, showMemo: false, zoom: 1,
-  round: 0, rdata: null,
+  round: 0, session: 1, rdata: null,
 };
 
+// 교시 — 컴활 1급은 1교시 엑셀 · 2교시 액세스(같은 회차·같은 번호가 두 벌)
+const sessLabel = (s) => (Number(s) === 2 ? "2교시 액세스" : "1교시 엑셀");
 const isRound = (ctx) => (ctx.path || "").startsWith("/practical-round");
 
 export const meta = {
@@ -91,20 +93,27 @@ export async function mount(root, ctx) {
   S.showScan = getPref("prShowScan", true);
   S.showMemo = getPref("prShowOcr", true);
   S.zoom = Number(getPref("prZoom", 1)) || 1;
-  await loadTable();
+  // ★ PDF 가 여럿(컴활1급 1~4회) — 쪽 화면은 주소의 PDF, 회차 묶음은 ?src= 의 PDF 를 쓴다
+  const want = ctx.panel ? "" : isRound(ctx) ? (ctx.params.get("src") || "") : decodeURIComponent(ctx.args[0] || "");
+  await loadTable(want);
   if (ctx.panel) return mountList(root, ctx);
   if (isRound(ctx)) {
     S.round = Number(ctx.params.get("r")) || 0;
+    S.session = Number(ctx.params.get("s")) || 1;
     return drawRound();
   }
   return mountWork(root, ctx);
 }
 
-async function loadTable() {
+async function loadTable(want) {
   const ov = await api("/api/practical/overview");
-  const s = (ov.srcs || []).find((x) => x.read > 0) || (ov.srcs || [])[0];
+  const srcs = ov.srcs || [];
+  const name = want || S.src;
+  const s = srcs.find((x) => x.src === name) || srcs.find((x) => x.read > 0) || srcs[0];
   S.src = s ? s.src : "";
   S.pages = s ? s.pages.filter((r) => r.read) : [];
+  S.srcs = srcs.filter((x) => x.read > 0).map((x) => x.src);
+  S.allPages = srcs.flatMap((x) => x.pages.filter((r) => r.read));
 }
 
 /* ══════════ 위층: 패널 — 회차별 쪽 현황판 (필기 renderDash 와 같은 모양) ══════════ */
@@ -112,32 +121,40 @@ function mountList(root, ctx) {
   root.innerHTML = `<div class="oc-head" id="oc-head"></div><div class="oc-dash" id="oc-dash"></div>`;
   const head = $("#oc-head");
   const dash = $("#oc-dash");
-  if (!S.pages.length) {
+  const all = S.allPages || [];
+  if (!all.length) {
     dash.appendChild(el("div", "empty", "판독한 쪽이 없습니다 — 왼쪽 [＋ 실기 OCR] 에서 스캔을 뜨고 판독하세요."));
     return;
   }
   const line = el("div", "oc-book");
-  line.appendChild(el("b", null, `${S.src}.pdf`));
-  line.appendChild(el("span", "muted", " → 01/practical/"));
+  line.appendChild(el("b", null, (S.srcs || []).map((x) => `${x}.pdf`).join(" · ")));
+  line.appendChild(el("span", "muted", " → 01/practical/ (엑셀) · 01/practical-access/ (액세스)"));
   head.appendChild(line);
-  const n = S.pages.reduce((a, r) => a + (r.kind === "정답" ? r.n_answers : r.n_items), 0);
-  const v = S.pages.reduce((a, r) => a + (r.n_verified || 0), 0);
+  const n = all.reduce((a, r) => a + (r.kind === "정답" ? r.n_answers : r.n_items), 0);
+  const v = all.reduce((a, r) => a + (r.n_verified || 0), 0);
   const chips = el("div", "vd-env");
-  chips.appendChild(el("span", "status-chip", `판독 ${S.pages.length}쪽`));
+  chips.appendChild(el("span", "status-chip", `판독 ${all.length}쪽`));
   chips.appendChild(el("span", "status-chip" + (n && v >= n ? " ok" : ""), `대조완료 ${v}/${n}`));
   head.appendChild(chips);
 
   const byRound = new Map();
-  for (const p of S.pages) {
-    const k = p.round == null ? "미분류" : String(p.round);
+  const order = S.srcs || [];
+  for (const p of all) {
+    const k = `${p.src}|` + (p.round == null ? "미분류" : `${p.round}|${p.session || 1}`);
     if (!byRound.has(k)) byRound.set(k, []);
     byRound.get(k).push(p);
   }
-  const keys = [...byRound.keys()].sort((a, b) =>
-    a === "미분류" ? 1 : b === "미분류" ? -1 : Number(a) - Number(b));
+  // PDF 순서 → 회차 → 교시, 회차 모름은 그 PDF 맨 뒤
+  const num = (k) => {
+    const [src, r, s] = k.split("|");
+    return order.indexOf(src) * 1e6 + (r === "미분류" ? 99999 : Number(r) * 10 + Number(s || 1));
+  };
+  const keys = [...byRound.keys()].sort((a, b) => num(a) - num(b));
   for (const k of keys) {
+    const [ksrc, kr, ks] = k.split("|");
     const block = el("div", "oc-round");
-    block.appendChild(el("h3", null, k === "미분류" ? "미분류(회차 모름)" : `${k}회`));
+    block.appendChild(el("h3", null, `${ksrc}.pdf · ` + (kr === "미분류" ? "미분류(회차 모름)"
+      : `${kr}회 · ${sessLabel(Number(ks))}`)));
     const grid = el("div", "oc-grid");
     for (const p of byRound.get(k)) {
       const cnt = p.kind === "정답" ? p.n_answers : p.n_items;
@@ -280,6 +297,7 @@ function syncHead() {
   const lab = $("#oc-pglabel");
   if (lab) {
     lab.textContent = `${S.src}.pdf p.${S.page}` + (r.round ? ` · ${r.round}회` : "")
+      + (r.session ? ` · ${sessLabel(r.session)}` : "")
       + (r.kind ? ` · ${r.kind}` : "") + (i >= 0 ? `  (${i + 1}/${S.pages.length})` : "");
   }
   const prev = $("#pr-prev-btn"), next = $("#pr-next-btn");
@@ -329,6 +347,18 @@ function toolbar() {
   rnd.title = r.round_by ? `회차: ${r.round_by}` : "";
   rnd.addEventListener("change", () => saveMap({ round: Number(rnd.value || 0) }));
   rl.appendChild(rnd);
+  const sl = el("label");
+  sl.append(document.createTextNode("교시 "));
+  const sess = el("select");
+  sess.id = "oc-session";
+  for (const [v, t] of [[1, "1교시 엑셀"], [2, "2교시 액세스"]]) {
+    const o = el("option", null, t); o.value = String(v);
+    if (v === (r.session || 1)) o.selected = true;
+    sess.appendChild(o);
+  }
+  sess.title = r.session_by ? `교시: ${r.session_by}` : "";
+  sess.addEventListener("change", () => saveMap({ session: Number(sess.value) }));
+  sl.appendChild(sess);
   const kl = el("label");
   kl.append(document.createTextNode("쪽 종류 "));
   const kind = el("select");
@@ -344,7 +374,7 @@ function toolbar() {
   const prog = el("span", "status-chip" + (list.length && done === list.length ? " ok" : ""), `대조완료 ${done}/${list.length}`);
   const st = el("span", "muted", "");
   st.id = "oc-status";
-  t.append(rl, kl, prog, st);
+  t.append(rl, sl, kl, prog, st);
 }
 
 function status(text, ok) {
@@ -407,9 +437,10 @@ async function finalize(quiet) {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ src: S.src, page: S.page }),
     });
-    status(`확정 ${r.wrote.length}문항 → 01/practical/`, true);
+    const dir = r.session === 2 ? "01/practical-access/" : "01/practical/";
+    status(`확정 ${r.wrote.length}문항 → ${dir}`, true);
     if (!quiet) {
-      toast(`${r.round}회 ${r.wrote.length}문항을 01/practical/ 에 기록했습니다.`
+      toast(`${r.round}회 ${sessLabel(r.session)} ${r.wrote.length}문항을 ${dir} 에 기록했습니다.`
         + (r.skipped.length ? ` 건너뜀: ${r.skipped.join(", ")}` : ""), r.skipped.length ? "err" : "");
     }
   } catch (e) { toast("확정하지 못했습니다: " + e.message, "err"); }
@@ -484,7 +515,9 @@ function lines(v) { return (v || "").split("\n").map((s) => s.trim()).filter(Boo
  * 이름표 한 줄을 두면 **그 자리에** 펼쳐진다. 이름표를 두지 않은 자산은 맨 끝에 붙는다
  * (2026-11-09: "원숫자 2 다음에 나와야 한다든지 할 때 어떻게 하는 법이 있나요").
  * 옛 판독의 figure_table · figure_bbox 는 불러올 때 t-1 · p-1 로 옮긴다(이름표 없음 = 맨 끝). */
-const TOKEN_RE = /\{\{([tp]-\d+)\}\}/g;
+// t = 자료 표 · p = 그림 · c = 박스(테두리 상자에 인쇄된 글 — 코드든 문장이든. 필기의 SQL박스 자리)
+// k = 코드박스(VBA·SQL·식 — 고정폭, 들여쓰기 그대로)
+const TOKEN_RE = /\{\{([tpck]-\d+)\}\}/g;
 
 function ensureAssets(x, page) {
   x.assets = x.assets && typeof x.assets === "object" ? x.assets : {};
@@ -515,6 +548,37 @@ function cropSrc(a, page) {
 }
 
 /* 자산 하나를 보이는 모양으로 */
+/* 코드박스 색칠 — 필기 hlSql(ocr.js)과 같은 색: 키워드 = 브랜드색 굵게 · 문자열 = 초록 · 주석 = 회색 기울임.
+ * 실기는 VBA(엑셀·액세스 모듈)와 액세스 SQL 이 섞인다. VBA 의 ' 는 주석, SQL 의 '…' 는 문자열이다. */
+const CODE_KW = new Set((
+  // VBA
+  "Public Private Sub Function End If Then Else ElseIf For Each Next To Step Do Loop While Wend Until "
+  + "Dim As Set Me With Select Case Exit Call New Nothing True False And Or Not Is Mod Integer Long String "
+  + "Double Single Date Boolean Variant Object Range Option Explicit Const ByVal ByRef GoTo On Error Resume "
+  + "MsgBox InputBox DoCmd Unload Show Hide "
+  // SQL(액세스 포함)
+  + "SELECT FROM WHERE INSERT INTO VALUES UPDATE DELETE CREATE TABLE ALTER DROP GROUP BY ORDER HAVING JOIN "
+  + "INNER LEFT RIGHT OUTER ON UNION ALL AS DISTINCT IN LIKE BETWEEN NULL ASC DESC TRANSFORM PIVOT TOP "
+  + "PARAMETERS COUNT SUM AVG MAX MIN").split(" ").map((s) => s.toUpperCase()));
+const KW_STYLE = 'style="color:var(--brand);font-weight:600"';
+const ST_STYLE = 'style="color:var(--ok)"';
+const CM_STYLE = 'style="color:var(--text-3);font-style:italic"';
+function hlCode(code) {
+  const sql = /^\s*(SELECT|UPDATE|INSERT|DELETE|TRANSFORM|PARAMETERS)\b/i.test(code);
+  // 문자열: "…" · “…” (판독이 둥근 따옴표로 옮긴다) · SQL 이면 '…' / 주석: VBA 의 ' 부터 줄 끝 · SQL 의 -- 부터 줄 끝
+  const re = sql
+    ? /("[^"\n]*"|“[^”\n]*”|'(?:[^'\n]|'')*')|(--[^\n]*)|([A-Za-z_][A-Za-z0-9_]*)|([\s\S])/g
+    : /("[^"\n]*"|“[^”\n]*”)|('[^\n]*)|([A-Za-z_][A-Za-z0-9_]*)|([\s\S])/g;
+  let out = "", m;
+  while ((m = re.exec(code))) {
+    if (m[1]) out += `<span ${ST_STYLE}>${escapeHtml(m[1])}</span>`;
+    else if (m[2]) out += `<span ${CM_STYLE}>${escapeHtml(m[2])}</span>`;
+    else if (m[3]) out += CODE_KW.has(m[3].toUpperCase()) ? `<span ${KW_STYLE}>${escapeHtml(m[3])}</span>` : escapeHtml(m[3]);
+    else out += escapeHtml(m[4]);
+  }
+  return out;
+}
+
 function assetNode(a, page) {
   const w = el("div");
   w.style.margin = "8px 0";
@@ -522,6 +586,19 @@ function assetNode(a, page) {
     w.className = "tbl-md";
     w.innerHTML = renderMarkdown(a.md || "");
     w.querySelectorAll("table").forEach((t) => t.classList.add("tbl"));
+  } else if (a.type === "code") {
+    // 필기 SQL박스(ocr.css .oc-preview .code)와 같은 모양 — 흰 바탕 · 얇은 테두리 · 키워드 브랜드색
+    const pre = el("pre");
+    pre.innerHTML = hlCode(a.text || "");
+    pre.style.cssText = "margin:0;padding:9px 11px;background:var(--white,#fff);color:var(--text);"
+      + "border:1px solid var(--hairline);border-radius:var(--r-sm,4px);white-space:pre;overflow-x:auto;"
+      + "font:13.5px/1.5 ui-monospace,Consolas,monospace";
+    w.appendChild(pre);
+  } else if (a.type === "box") {
+    const pre = el("pre", null, a.text || "");
+    pre.style.cssText = "margin:0;padding:10px 12px;border:1px solid var(--line,#999);border-radius:4px;"
+      + "white-space:pre-wrap;font-family:inherit;font-size:inherit";   // 코드만 오는 게 아니다 — 일반 글꼴, 줄바꿈 그대로
+    w.appendChild(pre);
   } else if (a.type === "figure") {
     if (a.bbox) {
       const img = el("img");
@@ -550,7 +627,8 @@ function linesWithAssets(list, x, page, opts = {}) {
     const textOnly = parts.filter((_, k) => k % 2 === 0).join("").trim();
     if (CIRCLED_RE.test(textOnly)) under = true;
     else if (textOnly && !textOnly.startsWith("▶") && !textOnly.startsWith("※")) under = false;
-    const indent = under && (textOnly.startsWith("▶") || textOnly.startsWith("※"));
+    // ▶ 만 들여쓴다 — ※ 는 끝 메모라 맨 앞(2026-11-19: 1급 01회 4-1 「※ 셀 포인터…」 가 원본은 맨 앞)
+    const indent = under && textOnly.startsWith("▶");
     parts.forEach((part, k) => {
       if (k % 2 === 1) {
         if (assets[part]) { box.appendChild(assetNode(assets[part], page)); used.add(part); }
@@ -572,7 +650,7 @@ function linesWithAssets(list, x, page, opts = {}) {
 function assetsBox(x, target, targetLabel) {
   const box = el("div", "oc-assets");
   const head = el("div", "oc-assets-head");
-  head.appendChild(el("span", null, "자산(자료 표/그림)"));
+  head.appendChild(el("span", null, "자산(자료 표/박스/코드박스/그림)"));
   const addT = el("button", "btn sm", "＋표");
   addT.type = "button";
   addT.addEventListener("click", () => {
@@ -581,12 +659,30 @@ function assetsBox(x, target, targetLabel) {
     putToken(x, target, id);
     markDirty(); renderCards();
   });
+  const addB = el("button", "btn sm", "＋박스");
+  addB.type = "button";
+  addB.title = "테두리 상자에 인쇄된 글(코드 틀·SQL·식·안내 문장 무엇이든) — 줄바꿈 그대로 상자로 보입니다";
+  addB.addEventListener("click", () => {
+    const id = nextAssetId(x, "c");
+    x.assets[id] = { type: "box", text: "" };
+    putToken(x, target, id);
+    markDirty(); renderCards();
+  });
   const addP = el("button", "btn sm", "＋그림");
   addP.type = "button";
   addP.addEventListener("click", () => addFigure(x, target));
-  head.append(addT, addP);
+  const addK = el("button", "btn sm", "＋코드박스");
+  addK.type = "button";
+  addK.title = "VBA·SQL·식 같은 코드 — 고정폭 글꼴, 줄 앞 스페이스(들여쓰기)를 그대로 둡니다";
+  addK.addEventListener("click", () => {
+    const id = nextAssetId(x, "k");
+    x.assets[id] = { type: "code", text: "" };
+    putToken(x, target, id);
+    markDirty(); renderCards();
+  });
+  head.append(addT, addB, addK, addP);
   head.appendChild(el("span", "field-hint",
-    `이름표 {{t-1}} · {{p-1}} 를 ${targetLabel} 줄 사이에 한 줄로 두면 그 자리에 펼쳐집니다 · 이름표가 없는 자산은 맨 끝에 붙습니다`));
+    `이름표 {{t-1}} · {{c-1}} · {{k-1}} · {{p-1}} 를 ${targetLabel} 줄 사이에 한 줄로 두면 그 자리에 펼쳐집니다 · 이름표가 없는 자산은 맨 끝에 붙습니다`));
   box.appendChild(head);
 
   const ids = Object.keys(x.assets || {});
@@ -606,7 +702,7 @@ function assetsBox(x, target, targetLabel) {
       status(`${targetLabel}에 {{${id}}} 넣음`, false);
     });
     bar.appendChild(tok);
-    bar.appendChild(el("span", "badge", a.type === "table" ? "자료 표" : "그림"));
+    bar.appendChild(el("span", "badge", a.type === "table" ? "자료 표" : a.type === "box" ? "박스" : a.type === "code" ? "코드박스" : "그림"));
     bar.appendChild(el("span", "muted", placed.has(id) ? "· 이름표 자리에 펼침" : "· 맨 끝에 붙음"));
     const del = el("button", "btn sm", "✕");
     del.type = "button";
@@ -621,6 +717,10 @@ function assetsBox(x, target, targetLabel) {
     row.appendChild(bar);
     if (a.type === "table") {
       row.appendChild(area(a.md || "", "| 코드 | 이름 | …", (v) => { a.md = v; markDirty(); }, 4, true));
+    } else if (a.type === "code") {
+      row.appendChild(area(a.text || "", "코드 — 줄 앞 스페이스로 들여쓰기", (v) => { a.text = v; markDirty(); }, 6, true));
+    } else if (a.type === "box") {
+      row.appendChild(area(a.text || "", "상자 안 글 — 줄바꿈 그대로", (v) => { a.text = v; markDirty(); }, 4, true));
     } else {
       const fr = el("div", "oc-figrow");
       if (a.bbox) { const img = el("img"); img.src = cropSrc(a, S.page); fr.appendChild(img); }
@@ -963,21 +1063,31 @@ async function drawRound() {
       </div>
     </div>`;
   S.root.appendChild(page);
+  let allRounds = [];
   try {
-    const head = await api(`/api/practical/review?src=${encodeURIComponent(S.src)}`);
-    if (!S.round && head.rounds.length) S.round = head.rounds[0].round;
-    S.rdata = S.round ? await api(`/api/practical/review?src=${encodeURIComponent(S.src)}&round=${S.round}`) : head;
+    // PDF 마다 회차 목록 — 단추는 (PDF, 회차, 교시)마다 하나
+    for (const src of (S.srcs && S.srcs.length ? S.srcs : [S.src])) {
+      const h = await api(`/api/practical/review?src=${encodeURIComponent(src)}`);
+      allRounds = allRounds.concat((h.rounds || []).map((r) => Object.assign({ src }, r)));
+    }
+    const head = { rounds: allRounds.filter((r) => r.src === S.src) };
+    if (!S.round && head.rounds.length) { S.round = head.rounds[0].round; S.session = head.rounds[0].session || 1; }
+    S.rdata = S.round
+      ? await api(`/api/practical/review?src=${encodeURIComponent(S.src)}&round=${S.round}&session=${S.session}`) : head;
   } catch (e) { $("#rv-rounds").textContent = "불러오지 못했습니다: " + e.message; return; }
 
   const box = $("#rv-rounds");
   box.innerHTML = "";
   const rowEl = el("div", "qz-foot");
   rowEl.style.flexWrap = "wrap";
-  for (const r of S.rdata.rounds || []) {
-    const b = el("button", "btn" + (r.round === S.round ? " primary" : ""),
-      `${String(r.round).padStart(2, "0")}회 · 문항 ${r.items} · 정답 ${r.answers}`);
+  for (const r of allRounds) {
+    const rs = r.session || 1;
+    const b = el("button", "btn" + (r.src === S.src && r.round === S.round && rs === S.session ? " primary" : ""),
+      (allRounds.some((x) => x.src !== r.src) ? `${r.src} · ` : "")
+      + `${String(r.round).padStart(2, "0")}회 ${sessLabel(rs)} · 문항 ${r.items} · 정답 ${r.answers}`);
     b.type = "button";
-    b.addEventListener("click", () => S.ctx.navigate(`/practical-round?r=${r.round}`));
+    b.addEventListener("click", () =>
+      S.ctx.navigate(`/practical-round?src=${encodeURIComponent(r.src)}&r=${r.round}&s=${rs}`));
     rowEl.appendChild(b);
   }
   box.appendChild(rowEl);
@@ -985,7 +1095,7 @@ async function drawRound() {
   const heads = S.rdata.heads || [];
   const bad = items.filter((it) => it.flags.length).length;
   box.appendChild(el("div", "field-hint",
-    `${String(S.round).padStart(2, "0")}회 — 문항 ${items.length}개`
+    `${String(S.round).padStart(2, "0")}회 ${sessLabel(S.session)} — 문항 ${items.length}개`
     + (bad ? ` · 확인할 것 ${bad}개(빨간 표시) — 쪽 번호를 누르면 스캔, 고치는 것은 쪽 화면에서` : " · 표시된 문제 없음")));
   const list = $("#rv-items");
   // 묶음 머리는 그 묶음 문항들 앞에

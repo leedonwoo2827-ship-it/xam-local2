@@ -76,7 +76,7 @@ def setup_practical_routes() -> APIRouter:
                 "running": registry.view(running) if running else None}
 
     @router.get("/review")
-    async def review(src: str = "", round: int = 0):
+    async def review(src: str = "", round: int = 0, session: int = 1):
         """문항 단위 검수 — 회차를 안 주면 회차 목록만."""
         from services.practical import review as prev
         srcs = project.rendered_srcs()
@@ -85,7 +85,7 @@ def setup_practical_routes() -> APIRouter:
             return {"src": "", "rounds": [], "items": []}
         out = {"src": src, "rounds": prev.rounds(src)}
         if round:
-            out.update(prev.round_items(src, round))
+            out.update(prev.round_items(src, round, session))
         return out
 
     @router.delete("/page/{src}/{page}")
@@ -100,14 +100,16 @@ def setup_practical_routes() -> APIRouter:
         b = await request.json()
         src, page = str(b.get("src") or ""), int(b.get("page") or 0)
         rnd = int(b.get("round") or 0)
-        if not rnd:
+        sess = int(b.get("session") or 0)
+        if not rnd or not sess:
             row = next((r for r in pread.page_table(src) if r["page"] == page), None)
-            rnd = int((row or {}).get("round") or 0)
+            rnd = rnd or int((row or {}).get("round") or 0)
+            sess = sess or int((row or {}).get("session") or 1)
         if not rnd:
             raise HTTPException(status_code=400, detail="이 쪽의 회차를 모릅니다 — 회차를 먼저 넣으세요.")
         # ★ 스레드에서 — 그림을 자르는 동안 다른 요청(쪽 열기·저장, 필기 화면)이 기다리지 않게
         from starlette.concurrency import run_in_threadpool
-        return await run_in_threadpool(pfin.finalize_round, src, rnd)
+        return await run_in_threadpool(pfin.finalize_round, src, rnd, sess)
 
     @router.post("/item-fix")
     async def item_fix(request: Request):
@@ -153,9 +155,9 @@ def setup_practical_routes() -> APIRouter:
 
     # ── 구조화 MD로 정리(실기) — 확정본 01/practical 문항 목록 · 보기 ─────────────
     @router.get("/items")
-    async def items(q: str = "", unverified: int = 0):
+    async def items(q: str = "", unverified: int = 0, session: int = 1):
         from services.practical import finalize as pfin
-        d = pfin.out_dir()
+        d = pfin.out_dir(session)
         rows = []
         for f in sorted(glob.glob(os.path.join(d, "*.json"))):
             stem = os.path.basename(f)[:-5]
@@ -188,11 +190,11 @@ def setup_practical_routes() -> APIRouter:
         return {"dir": d, "count": n, "verified": nv, "filtered": len(out), "items": out}
 
     @router.get("/item/{stem}")
-    async def item(stem: str):
+    async def item(stem: str, session: int = 1):
         from services.practical import finalize as pfin
         if not re.fullmatch(r"\d{2}-\d-\d{2}", stem):
             raise HTTPException(status_code=400, detail="문항 id 는 RR-P-NN 입니다.")
-        base = os.path.join(pfin.out_dir(), stem)
+        base = os.path.join(pfin.out_dir(session), stem)
         if not os.path.isfile(base + ".json"):
             raise HTTPException(status_code=404, detail="확정본에 없는 문항입니다.")
         with open(base + ".json", encoding="utf-8") as fh:
@@ -206,8 +208,8 @@ def setup_practical_routes() -> APIRouter:
         from fastapi.responses import FileResponse
         from services.practical import author as pa
         from services.practical import finalize as pfin
-        if which == "01":
-            d = os.path.join(pfin.out_dir(), "images")
+        if which in ("01", "01-2"):                     # 01-2 = 2교시(액세스) 확정본
+            d = os.path.join(pfin.out_dir(2 if which == "01-2" else 1), "images")
         elif re.fullmatch(r"m\d{2}", which):
             d = os.path.join(pa.round_dir(int(which[1:])), "images")
         else:
@@ -395,7 +397,8 @@ def setup_practical_routes() -> APIRouter:
         try:
             ent = pread.set_pagemap(str(body.get("src") or ""), int(body.get("page") or 0),
                                     kind=body.get("kind"),
-                                    round_=body.get("round"))
+                                    round_=body.get("round"),
+                                    session=body.get("session"))
         except (ValueError, TypeError) as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
         return {"ok": True, "entry": ent}

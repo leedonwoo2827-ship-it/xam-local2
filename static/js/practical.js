@@ -73,7 +73,9 @@ function renderNext() {
   const box = $("#pr-next");
   if (!box) return;
   box.innerHTML = "";
-  const s = (R.ov?.srcs || [])[0];
+  // PDF 가 여럿이면 읽은 쪽을 모두 더한다(검수 화면이 PDF 를 모두 보여 준다)
+  const all = R.ov?.srcs || [];
+  const s = all.length ? { read: all.reduce((a, x) => a + (x.read || 0), 0) } : null;
   const foot = el("div", "qz-foot");
   const b = el("button", "btn primary", "검수로 →");
   b.type = "button";
@@ -105,9 +107,13 @@ function renderStep1() {
       done.has(String(it.src)) ? `→ 이미 뜸 · ${done.get(String(it.src))}쪽` : "→ 아직 안 뜸"));
     box.appendChild(row);
   }
+  // 00/ 의 PDF 를 전부 떴으면 누를 일이 없다 — 단추를 잠근다(새 PDF 가 들어오면 다시 풀린다).
+  const allDone = (p.items || []).length > 0
+    && (p.items || []).every((it) => done.has(String(it.src)));
   const foot = el("div", "qz-foot");
-  const btn = el("button", "btn primary", "스캔 뜨기 실행");
+  const btn = el("button", "btn primary", allDone ? "스캔 완료" : "스캔 뜨기 실행");
   btn.type = "button";
+  btn.disabled = allDone;
   btn.addEventListener("click", async () => {
     btn.disabled = true;
     logLine("[스캔] 시작합니다 — 이미 뜬 PDF 는 건너뜁니다. 쪽이 많으면 몇 분 걸립니다.");
@@ -123,11 +129,13 @@ function renderStep1() {
       logLine("[스캔] 실패 — " + e.message);
       toast("스캔을 뜨지 못했습니다: " + e.message, "err");
     } finally {
-      btn.disabled = false;
+      btn.disabled = allDone;
     }
   });
   foot.appendChild(btn);
-  foot.appendChild(el("span", "field-hint qz-foot-hint", "필기와 같은 작업입니다. 품목당 한 번이면 됩니다."));
+  foot.appendChild(el("span", "field-hint qz-foot-hint", allDone
+    ? "00/ 의 PDF 를 모두 떴습니다. 새 PDF 를 넣으면 다시 켜집니다."
+    : "필기와 같은 작업입니다. 품목당 한 번이면 됩니다."));
   box.appendChild(foot);
 }
 
@@ -141,15 +149,26 @@ function renderStep2() {
     box.appendChild(el("div", "empty", "뜬 스캔이 없습니다. 위 ① 을 먼저 누르세요."));
     return;
   }
-  const s = srcs[0];   // 실기 폴더는 PDF 하나가 보통이다 — 여럿이면 첫 것부터
-  const todo = s.total - s.read;
-  box.appendChild(el("div", "or-row",
-    `${s.src}.pdf · 전체 ${s.total}쪽 · 판독 ${s.read}쪽 · 남은 ${todo}쪽`
-    + (s.cost_usd ? ` · 지금까지 $${s.cost_usd}` : "")));
+  // ★ PDF 가 여럿이다(컴활1급 기출 1~4회 = PDF 4개). PDF 마다 체크박스 — 고른 것을 차례로 판독한다.
+  //   서버 판독은 한 번에 하나라서(read.start 의 잠금) 화면이 앞 PDF 가 끝나면 다음 PDF 를 건다.
+  const picks = [];
+  for (const s of srcs) {
+    const todo = s.total - s.read;
+    const row = el("label", "or-row");
+    const cb = el("input");
+    cb.type = "checkbox";
+    cb.checked = todo > 0;
+    cb.disabled = R.live;
+    picks.push({ src: s.src, cb });
+    row.append(cb, el("b", null, ` ${s.src}.pdf`), el("span", "muted",
+      ` · 전체 ${s.total}쪽 · 판독 ${s.read}쪽 · 남은 ${todo}쪽`
+      + (s.cost_usd ? ` · 지금까지 $${s.cost_usd}` : "")));
+    box.appendChild(row);
+  }
 
   const form = el("div", "qz-foot");
   const inp = el("input", "input");
-  inp.placeholder = "쪽 범위 — 예: 1-15 (비우면 남은 쪽 전부)";
+  inp.placeholder = "쪽 범위 — 예: 1-15 (비우면 남은 쪽 전부 · 고른 PDF 모두에 같이 적용)";
   inp.style.minWidth = "280px";
   const ow = el("label", "muted");
   const cb = el("input");
@@ -158,12 +177,27 @@ function renderStep2() {
   const btn = el("button", "btn primary", "판독 실행");
   btn.type = "button";
   btn.disabled = R.live;
-  btn.addEventListener("click", () => startRead(s.src, inp.value.trim(), cb.checked));
+  btn.addEventListener("click", () => {
+    const list = picks.filter((p) => p.cb.checked).map((p) => p.src);
+    if (!list.length) { toast("판독할 PDF 를 고르세요.", "err"); return; }
+    startQueue(list, inp.value.trim(), cb.checked);
+  });
   form.append(inp, btn, ow);
   box.appendChild(form);
   box.appendChild(el("div", "field-hint",
-    "한 쪽에 40~60초쯤 걸립니다. 처음엔 한 회차만(예: 01회 쪽 범위) 돌려 결과를 보고 나머지를 돌리는 것을 권합니다. "
-    + "창을 닫아도 서버에서 계속 돌고, 읽은 쪽은 남습니다."));
+    "한 쪽에 40~60초쯤 걸립니다. 고른 PDF 를 위에서부터 차례로 읽습니다. "
+    + "이 창을 닫으면 지금 PDF 까지만 서버에서 마저 돌고 다음 PDF 로는 넘어가지 않습니다 — 다시 열어 판독 실행을 누르면 남은 쪽부터 이어 갑니다."));
+}
+
+/* 고른 PDF 들을 차례로 — 하나 끝나면 다음. 오류·멈춤이면 거기서 선다. */
+async function startQueue(list, pages, overwrite) {
+  for (let i = 0; i < list.length; i++) {
+    logLine(`[판독] ${i + 1}/${list.length} — ${list[i]}.pdf`);
+    const ok = await startRead(list[i], pages, overwrite);
+    if (ok === "skip") continue;
+    if (!ok) { logLine("[판독] 여기서 멈춥니다 — 남은 PDF 는 다시 판독 실행을 누르면 이어 갑니다."); return; }
+  }
+  if (list.length > 1) toast(`PDF ${list.length}개 판독을 마쳤습니다.`);
 }
 
 function logCard() {
@@ -187,12 +221,16 @@ async function startRead(src, pages, overwrite, textOnly = false) {
       body: JSON.stringify({ src, pages, overwrite, text_only: textOnly }),
     });
   } catch (e) {
+    // 「판독할 쪽이 없습니다」 = 이 PDF 는 이미 다 읽음 — 다음 PDF 로 넘어간다
+    if (/판독할 쪽이 없습니다/.test(e.message)) { logLine(`[판독] ${src}.pdf — 이미 다 읽었습니다. 건너뜁니다.`); return "skip"; }
     toast("판독을 시작하지 못했습니다: " + e.message, "err");
     logLine("[판독] 시작 실패 — " + e.message);
-    return;
+    return false;
   }
-  logLine(`[판독] 시작 — ${job.total_count || "?"}쪽`);
-  await follow(job);
+  logLine(`[판독] 시작 — ${src}.pdf ${job.total_count || "?"}쪽`);
+  const final = await follow(job);
+  // 멈추기를 눌렀으면 잡은 done 으로 끝나도 다음 PDF 로 넘어가지 않는다
+  return final?.status === "done" && !final?.cancel_requested;
 }
 
 async function follow(job) {
@@ -220,4 +258,5 @@ async function follow(job) {
   stop.remove();
   toast(bad ? "판독이 중단됐습니다." : "판독을 마쳤습니다.", bad ? "err" : "");
   await load();
+  return final;
 }

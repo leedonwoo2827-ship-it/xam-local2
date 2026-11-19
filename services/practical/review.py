@@ -20,7 +20,9 @@ from typing import Any, Dict, List, Optional, Tuple
 from services.practical import read as pread
 
 
-TOKEN_RE = re.compile(r"\{\{([tp]-\d+)\}\}")
+# t = 자료 표 · p = 그림 · c = 박스(테두리 상자에 인쇄된 글 — 코드든 문장이든)
+# k = 코드박스(VBA·SQL·식 — 들여쓰기 그대로)
+TOKEN_RE = re.compile(r"\{\{([tpck]-\d+)\}\}")
 
 
 def assets_of(x: dict, page: int) -> Dict[str, dict]:
@@ -52,8 +54,10 @@ def _key(part: Optional[int], no: Optional[int]) -> Tuple[int, int]:
     return (int(part or 0), int(no or 0))
 
 
-def round_items(src: str, rnd: int) -> Dict[str, Any]:
-    rows = [r for r in pread.page_table(src) if r["read"] and r["round"] == rnd]
+def round_items(src: str, rnd: int, session: int = 1) -> Dict[str, Any]:
+    # ★ (회차, 교시)로 거른다 — 1급은 같은 회차에 엑셀 문제1-1 과 액세스 문제1-1 이 둘 다 있다
+    rows = [r for r in pread.page_table(src)
+            if r["read"] and r["round"] == rnd and r.get("session", 1) == int(session)]
     probs: Dict[Tuple[int, int], List[dict]] = {}
     ans: Dict[Tuple[int, int], dict] = {}
     order: List[Tuple[int, int]] = []
@@ -154,7 +158,7 @@ def round_items(src: str, rnd: int) -> Dict[str, Any]:
         verified = bool(ps) and all(p.get("verified") for p in ps) and bool(a) and a["verified"]
         items.append({"part": k[0], "no": k[1], "problems": ps, "answer": a, "flags": flags,
                       "verified": verified})
-    return {"src": src, "round": rnd, "items": items, "heads": heads,
+    return {"src": src, "round": rnd, "session": int(session), "items": items, "heads": heads,
             "pages": [{"page": r["page"], "kind": r["kind"]} for r in rows]}
 
 
@@ -194,11 +198,14 @@ def fix_item(src: str, page: int, idx: int, *, part: Optional[int] = None,
 
 
 def rounds(src: str) -> List[dict]:
-    out: Dict[int, dict] = {}
+    out: Dict[tuple, dict] = {}
     for r in pread.page_table(src):
         if not r["read"] or not r["round"]:
             continue
-        e = out.setdefault(r["round"], {"round": r["round"], "pages": 0, "items": 0, "answers": 0})
+        s = r.get("session", 1)
+        e = out.setdefault((r["round"], s), {"round": r["round"], "session": s,
+                                             "session_label": pread.SESSION_LABEL.get(s, ""),
+                                             "pages": 0, "items": 0, "answers": 0})
         e["pages"] += 1
         e["items"] += r["n_items"] if r["kind"] == "문제" else 0
         e["answers"] += r["n_answers"] if r["kind"] == "정답" else 0

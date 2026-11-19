@@ -25,8 +25,10 @@ from services.ocr import project
 from services.practical import review
 
 
-def out_dir() -> str:
-    return os.path.join(paths.book_dir(), "01", "practical")
+def out_dir(session: int = 1) -> str:
+    """1교시(엑셀)는 01/practical — 집필·빌드가 읽는 그대로. 2교시(액세스)는 01/practical-access 에 따로
+    (같은 회차·같은 번호 RR-P-NN 이 엑셀과 겹치고, 엑셀 전용인 집필·1부 빌드가 액세스를 읽으면 안 된다)."""
+    return os.path.join(paths.book_dir(), "01", "practical" if int(session or 1) == 1 else "practical-access")
 
 
 # ★ 자른 그림 장부 — {파일이름: [쪽, x, y, w, h]}. 확정은 회차 전체를 다시 쓰는데, 그림까지 매번 다시
@@ -36,8 +38,8 @@ _LEDGER = ".crops.json"
 _FIN_LOCK = threading.Lock()
 
 
-def _crop(src: str, page: int, bbox: list, name: str, ledger: dict, opened: dict) -> str:
-    d = os.path.join(out_dir(), "images")
+def _crop(src: str, page: int, bbox: list, name: str, ledger: dict, opened: dict, base: str) -> str:
+    d = os.path.join(base, "images")
     key = [int(page)] + [int(v) for v in bbox]
     if ledger.get(name) == key and os.path.isfile(os.path.join(d, name)):
         return f"images/{name}"
@@ -60,6 +62,10 @@ BLOCK_RE = re.compile(r"\{\{(b-\d+)\}\}")
 def _asset_md(asset: dict, img: str) -> List[str]:
     if asset.get("type") == "table":
         return [(asset.get("md") or "").strip(), ""]
+    if asset.get("type") == "code":                  # 코드박스 — 들여쓰기 그대로 코드 블록
+        return ["```vb", (asset.get("text") or "").rstrip(), "```", ""]
+    if asset.get("type") == "box":                   # 테두리 상자 — 줄바꿈·들여쓰기를 지키려고 코드 블록으로 쓴다(안이 코드가 아니어도)
+        return ["```", (asset.get("text") or "").rstrip(), "```", ""]
     if img:
         return [f"![{asset.get('note') or '그림'}]({img})", ""]
     return []
@@ -81,12 +87,13 @@ def _lines_md(lines: List[str], token_re, lookup) -> List[str]:
                 used.add(part)
                 out += [""] + lookup(part)
             elif part.strip():
-                out.append(("&emsp;" if under and part.strip().startswith(("▶", "※")) else "")
+                # ▶ 만 들여쓴다 — ※ 는 끝 메모라 맨 앞(화면 linesWithAssets 와 같은 규칙)
+                out.append(("&emsp;" if under and part.strip().startswith("▶") else "")
                            + part.strip() + "  ")
     return out, used
 
 
-def _md(rnd: int, it: Dict[str, Any], stem: str, src: str, ledger: dict, opened: dict) -> tuple:
+def _md(rnd: int, it: Dict[str, Any], stem: str, src: str, ledger: dict, opened: dict, base: str) -> tuple:
     """문항 하나의 원고 + 그린 그림 목록."""
     from services.practical.review import TOKEN_RE
     imgs: List[str] = []
@@ -107,7 +114,7 @@ def _md(rnd: int, it: Dict[str, Any], stem: str, src: str, ledger: dict, opened:
             img = ""
             if a.get("type") == "figure" and a.get("bbox"):
                 img = cache.get(aid) or _crop(src, int(a["page"]), a["bbox"], f"{stem}-q{qi + 1}-{aid}.png",
-                                                ledger, opened)
+                                                ledger, opened, base)
                 cache[aid] = img
                 imgs.append(img)
             return _asset_md(a, img)
@@ -136,7 +143,7 @@ def _md(rnd: int, it: Dict[str, Any], stem: str, src: str, ledger: dict, opened:
                 return []
             img = ""
             if b.get("type") == "figure" and b.get("bbox"):
-                img = _crop(src, int(b["page"]), b["bbox"], f"{stem}-a{bid[2:]}.png", ledger, opened)
+                img = _crop(src, int(b["page"]), b["bbox"], f"{stem}-a{bid[2:]}.png", ledger, opened, base)
                 aimgs.append(img)
             return _asset_md(b, img)
 
@@ -149,16 +156,17 @@ def _md(rnd: int, it: Dict[str, Any], stem: str, src: str, ledger: dict, opened:
     return "\n".join(out).rstrip() + "\n", imgs, aimgs
 
 
-def finalize_round(src: str, rnd: int) -> dict:
+def finalize_round(src: str, rnd: int, session: int = 1) -> dict:
     # 대조완료를 연달아 누르면 확정이 겹친다 — 한 번에 하나씩(같은 그림 파일을 둘이 쓰지 않게)
     with _FIN_LOCK:
-        return _finalize_round(src, rnd)
+        return _finalize_round(src, rnd, session)
 
 
-def _finalize_round(src: str, rnd: int) -> dict:
-    data = review.round_items(src, rnd)
-    os.makedirs(os.path.join(out_dir(), "images"), exist_ok=True)
-    lpath = os.path.join(out_dir(), "images", _LEDGER)
+def _finalize_round(src: str, rnd: int, session: int = 1) -> dict:
+    data = review.round_items(src, rnd, session)
+    base = out_dir(session)
+    os.makedirs(os.path.join(base, "images"), exist_ok=True)
+    lpath = os.path.join(base, "images", _LEDGER)
     try:
         with open(lpath, encoding="utf-8") as f:
             ledger = json.load(f)
@@ -166,34 +174,35 @@ def _finalize_round(src: str, rnd: int) -> dict:
         ledger = {}
     opened: dict = {}
     try:
-        return _write_round(src, rnd, data, ledger, opened)
+        return _write_round(src, rnd, data, ledger, opened, base, session)
     finally:
         opened.clear()
         atomic_write_text(lpath, json.dumps(ledger, ensure_ascii=False))
 
 
-def _write_round(src: str, rnd: int, data: dict, ledger: dict, opened: dict) -> dict:
+def _write_round(src: str, rnd: int, data: dict, ledger: dict, opened: dict,
+                 base: str, session: int = 1) -> dict:
     wrote, skipped = [], []
     for it in data["items"]:
         if not it["problems"] or not it["part"] or not it["no"]:
             skipped.append(f"{it['part']}-{it['no']} ({', '.join(it['flags']) or '문제 없음'})")
             continue
         stem = f"{rnd:02d}-{it['part']}-{it['no']:02d}"
-        md, figs, afigs = _md(rnd, it, stem, src, ledger, opened)
-        doc = {"round": rnd, "part": it["part"], "no": it["no"], "source_pdf": f"{src}.pdf",
+        md, figs, afigs = _md(rnd, it, stem, src, ledger, opened, base)
+        doc = {"round": rnd, "session": int(session), "part": it["part"], "no": it["no"], "source_pdf": f"{src}.pdf",
                "problems": it["problems"], "answer": it.get("answer"), "flags": it["flags"],
                "verified": it.get("verified", False), "figures": figs, "answer_figures": afigs}
-        atomic_write_text(os.path.join(out_dir(), stem + ".json"), json.dumps(doc, ensure_ascii=False, indent=2))
-        atomic_write_text(os.path.join(out_dir(), stem + ".md"), md)
+        atomic_write_text(os.path.join(base, stem + ".json"), json.dumps(doc, ensure_ascii=False, indent=2))
+        atomic_write_text(os.path.join(base, stem + ".md"), md)
         wrote.append(stem)
     # 묶음 머리 — {RR}-{P}-00 : 책을 만들 때 그 묶음 문항들 앞에 놓는다
     for h in data.get("heads") or []:
         stem = f"{rnd:02d}-{h['part']}-00"
-        md, figs, afigs = _md(rnd, h, stem, src, ledger, opened)
-        doc = {"round": rnd, "part": h["part"], "no": 0, "head": True, "source_pdf": f"{src}.pdf",
+        md, figs, afigs = _md(rnd, h, stem, src, ledger, opened, base)
+        doc = {"round": rnd, "session": int(session), "part": h["part"], "no": 0, "head": True, "source_pdf": f"{src}.pdf",
                "problems": h["problems"], "answer": h.get("answer"), "verified": h.get("verified", False),
                "figures": figs, "answer_figures": afigs}
-        atomic_write_text(os.path.join(out_dir(), stem + ".json"), json.dumps(doc, ensure_ascii=False, indent=2))
-        atomic_write_text(os.path.join(out_dir(), stem + ".md"), md)
+        atomic_write_text(os.path.join(base, stem + ".json"), json.dumps(doc, ensure_ascii=False, indent=2))
+        atomic_write_text(os.path.join(base, stem + ".md"), md)
         wrote.append(stem)
-    return {"round": rnd, "dir": out_dir(), "wrote": wrote, "skipped": skipped}
+    return {"round": rnd, "session": int(session), "dir": base, "wrote": wrote, "skipped": skipped}
