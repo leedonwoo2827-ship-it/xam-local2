@@ -31,6 +31,11 @@ FEATURES = [
     "데이터 표", "통합", "정렬", "중복된 항목 제거", "데이터 유효성 검사", "매크로", "차트", "테두리",
     "병합하고 가운데 맞춤", "행 높이", "열 너비", "윗주", "하이퍼링크", "페이지 설정", "인쇄 영역",
     "데이터 입력", "사용자 정의 함수", "배열 수식", "프로시저", "폼", "외부 데이터", "페이지 레이아웃",
+    # 2교시 액세스
+    "기본 키", "입력 마스크", "유효성 검사 규칙", "조회 속성", "관계 설정", "참조 무결성", "가져오기", "연결 테이블",
+    "조건부 서식", "하위 폼", "컨트롤 원본", "탭 순서", "이벤트 프로시저", "보고서", "그룹화", "누적 합계",
+    "업데이트 쿼리", "매개 변수 쿼리", "크로스탭 쿼리", "테이블 만들기 쿼리", "추가 쿼리", "삭제 쿼리",
+    "불일치 검색", "요약 쿼리", "하위 질의", "쿼리",
 ]
 
 
@@ -91,17 +96,25 @@ def explanation_of(it: Dict[str, Any]) -> str:
 
 
 def rounds(book_dir: str) -> List[Dict[str, Any]]:
-    """02/practical/mNN → [{round_code, round_label, questions[…]}] (회차 순)."""
+    """02/practical/mNN (+ 1급 2교시 02/practical-access/mNN) → [{round_code, round_label, questions[…]}] (회차 순).
+
+    ★ 2교시 묶음은 2부 쪽 번호로 이어 매긴다(parts.part2_subjects — 문제1 DB구축 → 묶음 5 …)."""
     from services.authoring import parts
     spec = parts.active() or {}
-    off = _offsets(spec)
-    names = {int(s.get("no") or 0): str(s.get("name") or "") for s in spec.get("subjects") or []}
+    p2 = parts.part2_subjects(spec)
+    off = _offsets({"subjects": p2})
+    names = {int(s.get("no") or 0): str(s.get("name") or "") for s in p2}
+    # (교시, 교시 안 묶음) → 2부 묶음 번호
+    to_no = {(int(s.get("session") or 1), int(s.get("session_part") or s.get("no") or 0)): int(s.get("no") or 0) for s in p2}
     root = os.path.join(book_dir, "02", "practical")
     out = []
     for d in sorted(glob.glob(os.path.join(root, "m[0-9][0-9]"))):
         rc = os.path.basename(d)
         qs = []
-        for f in sorted(glob.glob(os.path.join(d, f"{rc[1:]}-[0-9]-[0-9][0-9].json"))):
+        files = [(1, f) for f in sorted(glob.glob(os.path.join(d, f"{rc[1:]}-[0-9]-[0-9][0-9].json")))]
+        d2 = os.path.join(book_dir, "02", "practical-access", rc)
+        files += [(2, f) for f in sorted(glob.glob(os.path.join(d2, f"{rc[1:]}-[0-9]-[0-9][0-9].json")))]
+        for sess, f in files:
             try:
                 with open(f, encoding="utf-8") as fh:
                     it = json.load(fh)
@@ -110,10 +123,16 @@ def rounds(book_dir: str) -> List[Dict[str, Any]]:
             part, no = int(it.get("part") or 0), int(it.get("no") or 0)
             if not part or not no:            # 묶음 머리(no=0)는 문항이 아니다
                 continue
+            label = f"문제{part}-{no}"
+            if sess != 1:
+                if (sess, part) not in to_no:
+                    continue
+                label = f"{sess}교시 문제{part}-{no}"     # 회차 안 번호는 시험지 그대로(2교시 문제1-1)
+                part = to_no[(sess, part)]
             qs.append({
                 "subject_no": part, "subject": names.get(part, ""),
                 "question_no": off.get(part, 0) + no,
-                "label": f"문제{part}-{no}",
+                "label": label,
                 "difficulty": "", "tags": tags_of(it),
                 "explanation": explanation_of(it),
                 "assets": [],                 # 실기 그림은 SVG 가 아니다(설계·PNG) — 이론에 넘기지 않는다

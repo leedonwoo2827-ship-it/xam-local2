@@ -55,6 +55,24 @@ def _subjects(spec: Dict[str, Any]) -> List[Dict[str, Any]]:
     return out
 
 
+def part2_subjects(spec: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """2부(이론 노트)가 읽는 묶음 — 시험정보 subjects(1교시) 뒤에 sessions[1:] 의 묶음을 이어 붙인다.
+
+    ★ 컴활1급은 1교시 엑셀 문제1~4 + 2교시 액세스 문제1~4 다(2026-11-19). 맨 위 subjects 는 엑셀 집필 ·
+      1부 빌드 · 검증(round.size · 총점)이 읽는 자리라 건드리지 않고, 2부 쪽 함수만 이것을 쓴다.
+      2교시 묶음은 번호를 이어 매기고(5~8) 이름 앞에 「2교시」 를 붙인다. 키(db · form …)는 시험정보 그대로.
+    """
+    out = [dict(s) for s in spec.get("subjects") or []]
+    n = max([int(s.get("no") or 0) for s in out] or [0])
+    for sv in (spec.get("sessions") or [])[1:]:
+        tag = str(sv.get("label") or "").strip()
+        for s in sv.get("subjects") or []:
+            n += 1
+            out.append(dict(s, no=n, name=f"{tag} {s.get('name') or ''}".strip(), session=int(sv.get("no") or 2),
+                            session_part=int(s.get("no") or 0)))
+    return out
+
+
 def round_size(spec: Optional[Dict[str, Any]]) -> int:
     """회차 문항수. 과목 합이 있으면 **그것이 정답**이다 — 검증이 둘의 일치를 이미 요구한다."""
     if not spec:
@@ -237,7 +255,7 @@ def is_practical() -> bool:
 
 def subjects_map() -> Dict[int, str]:
     """과목번호 → 과목명. 옛 `schema.SUBJECTS` 를 대신한다."""
-    return {s["no"]: s["name"] for s in _subjects(active() or {})}
+    return {s["no"]: s["name"] for s in _subjects({"subjects": part2_subjects(active() or {})})}
 
 
 def theory_units() -> tuple:
@@ -252,7 +270,7 @@ def theory_units() -> tuple:
     """
     out = []
     acc = 0
-    for s_ in ((active() or {}).get("subjects") or []):
+    for s_ in part2_subjects(active() or {}):
         cnt = int(s_.get("count") or 0)
         if cnt <= 0:
             continue
@@ -277,7 +295,7 @@ def subject_keys() -> tuple:
     for s_ in _subjects(active() or {}):
         # `_subjects` 는 no·name·count 만 남기므로 원본에서 key 를 다시 읽는다
         pass
-    for s_ in ((active() or {}).get("subjects") or []):
+    for s_ in part2_subjects(active() or {}):
         k = str(s_.get("key") or "").strip()
         if k and int(s_.get("count") or 0) > 0:
             out.append((k, int(s_.get("no") or 0)))

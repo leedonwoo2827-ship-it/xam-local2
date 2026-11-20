@@ -129,6 +129,8 @@ table.t{border-collapse:collapse;font-size:9pt}table.t td,table.t th{border:1px 
 .ans{margin:0 0 16px;break-inside:auto}.ans .t{font-weight:700;margin:6px 0 4px}
 .fx{font-family:Consolas,monospace;font-size:9.5pt;background:#f6f6f2;padding:4px 8px;margin:4px 0}
 .files{font-size:9pt;color:#444;margin:4px 0 12px}
+h2.sess{font-size:14pt;margin:4px 0 10px;padding:6px 10px;background:#223;color:#fff}
+p.cap{font-size:9pt;color:#555;margin:8px 0 2px}
 pre.code{font:9.5pt/1.5 Consolas,'D2Coding',monospace;border:1px solid #bbb;background:#fff;padding:6px 10px;margin:6px 0;white-space:pre;break-inside:avoid}
 pre.box{font:inherit;border:1px solid #333;padding:6px 10px;margin:6px 0;white-space:pre-wrap;break-inside:avoid}"""
 
@@ -140,50 +142,110 @@ def _doc(title: str, head_right: str, body: str) -> str:
             + body + "</body></html>\n")
 
 
-def exam_html(m: int, items: List[dict], files: List[str]) -> str:
-    spec = _spec()
-    names = {int(s.get("no") or 0): s for s in spec.get("subjects") or []}
+def _sessions(spec: dict) -> List[dict]:
+    """교시 목록 — 시험정보 sessions(1급: 1교시 엑셀 · 2교시 액세스). 없으면(2급) 교시 하나."""
+    ss = spec.get("sessions") or []
+    if ss:
+        return ss
+    return [{"no": 1, "label": "", "program": spec.get("program") or "excel",
+             "time_minutes": spec.get("time_minutes"), "total_points": spec.get("total_points") or 100,
+             "subjects": spec.get("subjects") or []}]
+
+
+PROG = {"excel": "엑셀", "access": "액세스"}
+
+
+def _sess_title(sv: dict, multi: bool) -> str:
+    if not multi:
+        return ""
+    t = f"{sv.get('label') or ''} {PROG.get(sv.get('program'), '')}".strip()
+    if sv.get("time_minutes"):
+        t += f" · {sv['time_minutes']}분"
+    return t + f" · {sv.get('total_points') or 100}점"
+
+
+def load_session_items(m: int, session: int) -> List[dict]:
+    """1교시 = 02/practical/mNN, 2교시 = 02/practical-access/mNN (author_access)."""
+    if session == 1:
+        return load_items(m)
+    from services.practical import author_access as aa
+    rows = []
+    for f in sorted(glob.glob(os.path.join(aa.round_dir(m), f"{m:02d}-[0-9]-[0-9][0-9].json"))):
+        with open(f, encoding="utf-8") as fh:
+            rows.append(json.load(fh))
+    rows.sort(key=lambda j: (int(j.get("part") or 0), int(j.get("no") or 0)))
+    return rows
+
+
+def _table_html(cols: List[Any], rows: List[list]) -> str:
+    head = "".join(f"<th>{_h(c)}</th>" for c in cols)
+    body = "".join("<tr>" + "".join(f"<td>{_h(v)}</td>" for v in (list(r) + [""] * (len(cols) - len(r)))[:len(cols)])
+                   + "</tr>" for r in rows or [])
+    return f'<figure><table class="t"><tr>{head}</tr>{body}</table></figure>'
+
+
+def _exam_section(items: List[dict], sv: dict, files: List[str], multi: bool, first: bool) -> str:
+    names = {int(x.get("no") or 0): x for x in sv.get("subjects") or []}
     body, last = [], None
+    title = _sess_title(sv, multi)
+    if title:
+        body.append(f'<h2 class="sess{"" if first else " brk"}">{_h(title)}</h2>')
     if files:
         body.append(f'<div class="files">실습파일: {", ".join(_h(f) for f in files if "문제" in f) or _h(files[0])}</div>')
     for j in items:
         p = int(j.get("part") or 0)
         if p != last:
-            s = names.get(p) or {}
-            pts = f" ({s.get('points')}점)" if s.get("points") else ""
-            body.append(f'<h2 class="part{" brk" if last else ""}">문제{p} {_h(s.get("name") or "")}{pts}</h2>')
+            x = names.get(p) or {}
+            pts = f" ({x.get('points')}점)" if x.get("points") else ""
+            brk = " brk" if (last is not None or (not title and not first)) else ""
+            body.append(f'<h2 class="part{brk}">문제{p} {_h(x.get("name") or "")}{pts}</h2>')
             last = p
         figs = {f.get("id"): f for f in j.get("figures") or []}
         used: set = set()
         no = int(j.get("no") or 0)
-        lead = j.get("lead") or ""
         q = [f'<div class="q" data-no="{p}-{no}">']
         if no:
-            q.append(f'<p class="lead">{no}. {_h(lead)}</p>')
+            q.append(f'<p class="lead">{no}. {_h(j.get("lead") or "")}</p>')
         q.append(_lines_html(j.get("instructions") or [], j, figs, used))
-        # 지시사항 쪽 그림만(정답 쪽 그림은 해설로) — 이름표가 지시사항에 없던 그림은 넣지 않는다
         q.append("</div>")
         body.append("".join(q))
-    label = spec.get("label") or ""
-    right = f"모의 {m}회 · {spec.get('time_minutes') or ''}분 · {spec.get('total_points') or 100}점"
-    return _doc(f"{label} 모의 {m}회", right, "".join(body))
+    return "".join(body)
 
 
-def answers_html(m: int, items: List[dict]) -> str:
+def exam_html(m: int, items: List[dict], files: List[str], extra: List[tuple] = ()) -> str:
+    """시험지 — 1교시(items, files) 다음 쪽부터 extra 의 교시들(2교시 액세스 …)."""
     spec = _spec()
-    names = {int(s.get("no") or 0): s.get("name") for s in spec.get("subjects") or []}
+    ss = _sessions(spec)
+    multi = len(ss) > 1
+    parts = [_exam_section(items, ss[0], files, multi, True)]
+    for k, (sv, its, fs) in enumerate(extra or ()):
+        if its:
+            parts.append(_exam_section(its, sv, fs, multi, False))
+    label = spec.get("label") or ""
+    if multi:
+        right = f"모의 {m}회 · " + " / ".join(_sess_title(x, True) for x in ss)
+    else:
+        right = f"모의 {m}회 · {spec.get('time_minutes') or ''}분 · {spec.get('total_points') or 100}점"
+    return _doc(f"{label} 모의 {m}회", right, "".join(parts))
+
+
+def _answers_section(items: List[dict], sv: dict, multi: bool, first: bool) -> str:
+    names = {int(x.get("no") or 0): x.get("name") for x in sv.get("subjects") or []}
     body, last = [], None
+    title = _sess_title(sv, multi)
+    if title:
+        body.append(f'<h2 class="sess{"" if first else " brk"}">{_h(title)}</h2>')
     for j in items:
         p, no = int(j.get("part") or 0), int(j.get("no") or 0)
         if p != last:
-            body.append(f'<h2 class="part{" brk" if last else ""}">문제{p} {_h(names.get(p) or "")}</h2>')
+            brk = " brk" if last is not None else ""
+            body.append(f'<h2 class="part{brk}">문제{p} {_h(names.get(p) or "")}</h2>')
             last = p
         a = j.get("answer") or {}
         figs = {f.get("id"): f for f in j.get("figures") or []}
         used: set = set()
-        # 지시사항 이름표로 쓰인 그림은 해설에서 다시 넣지 않는다
-        for s in j.get("instructions") or []:
-            for mt in TOK.finditer(str(s)):
+        for s_ in j.get("instructions") or []:
+            for mt in TOK.finditer(str(s_)):
                 used.add(mt.group(1))
         out = [f'<div class="ans" data-no="{p}-{no}">']
         out.append(f'<p class="t">{"문제" + str(p) + "-" + str(no) + " " if no else ""}{_h(a.get("title") or "")}</p>')
@@ -191,15 +253,34 @@ def answers_html(m: int, items: List[dict]) -> str:
         for fid in figs:
             if fid not in used:
                 out.append(_fig(j, fid, figs, used))
+        r = a.get("result") or {}                      # 액세스 쿼리 — 실행 결과
+        if r.get("columns"):
+            out.append('<p class="cap">실행 결과</p>' + _table_html(r["columns"], r.get("rows") or []))
+        if a.get("props"):                             # 액세스 폼·보고서 — 정답 속성
+            out.append('<p class="cap">정답 속성</p>' + _table_html(
+                ["개체", "컨트롤", "속성", "값"],
+                [[x.get("object"), x.get("control"), x.get("property"), x.get("value")] for x in a["props"]]))
         out.append("</div>")
         body.append("".join(out))
+    return "".join(body)
+
+
+def answers_html(m: int, items: List[dict], extra: List[tuple] = ()) -> str:
+    spec = _spec()
+    ss = _sessions(spec)
+    multi = len(ss) > 1
+    parts = [_answers_section(items, ss[0], multi, True)]
+    for sv, its, _fs in extra or ():
+        if its:
+            parts.append(_answers_section(its, sv, multi, False))
     label = spec.get("label") or ""
-    return _doc(f"{label} 모의 {m}회 — 모범답안 · 해설", "정답 & 해설", "".join(body))
+    return _doc(f"{label} 모의 {m}회 — 모범답안 · 해설", "정답 & 해설", "".join(parts))
 
 
 # ── 대본(초벌) ────────────────────────────────────────────────────────────
 def _say(s: str) -> str:
     s = TOK.sub("", str(s or ""))
+    s = BOX.sub("", s)
     s = re.sub(r"^[①-⑳❶-❿▶※]\s*", "", s.strip())
     return re.sub(r"\s+", " ", s).strip()
 
@@ -217,13 +298,24 @@ def script_for(j: dict, terms: dict) -> dict:
             for x in EX._sentences(_say(t)) if x]
     solve = [line(x) for t in list(a.get("steps") or [])
              for x in EX._sentences(_say(t)) for x in EX._split_long(x) if x]
-    return {"no": f"{p}-{no}", "chapter_title": f"문제{p}-{no} · {_say(a.get('title') or '')}",
+    sess = int(j.get("session") or 1)
+    return {"no": f"{p}-{no}" if sess == 1 else f"2교시 {p}-{no}", "session": sess,
+            "chapter_title": (f"{'2교시 ' if sess == 2 else ''}문제{p}-{no} · {_say(a.get('title') or '')}"),
             "subject": p, "read": read, "solve": solve,
             "keywords": [str(f) for f in (j.get("functions") or [])][:6],
-            "solution_md": "\n".join([f"**{a.get('title') or ''}**", ""] + [_say(s) for s in a.get("steps") or []])}
+            "solution_md": "\n".join([f"**{a.get('title') or ''}**", ""] + [_say(s_) for s_ in a.get("steps") or []])}
 
 
 # ── 굽기 ──────────────────────────────────────────────────────────────────
+def _copy_files(od: str, bdir: str, pats) -> List[str]:
+    out = []
+    for pat in pats:
+        for f in sorted(glob.glob(os.path.join(bdir, pat))):
+            shutil.copyfile(f, os.path.join(od, "files", os.path.basename(f)))
+            out.append(os.path.basename(f))
+    return out
+
+
 def build_round(m: int, pdf: bool = True) -> dict:
     items = [j for j in load_items(m)]
     if not items:
@@ -231,34 +323,61 @@ def build_round(m: int, pdf: bool = True) -> dict:
     od = out_dir(m)
     for sub in ("assets", "files", "script"):
         os.makedirs(os.path.join(od, sub), exist_ok=True)
-    # 그림 · 실습파일 복사
     for f in glob.glob(os.path.join(pa.round_dir(m), "images", "*.png")):
         shutil.copyfile(f, os.path.join(od, "assets", os.path.basename(f)))
-    files = []
     bdir = os.path.join(paths.book_dir(), "06", "practical", f"m{m:02d}")
-    for f in sorted(glob.glob(os.path.join(bdir, "*.xlsx"))):
-        shutil.copyfile(f, os.path.join(od, "files", os.path.basename(f)))
-        files.append(os.path.basename(f))
+    files = _copy_files(od, bdir, [f"m{m:02d}_*.xlsx", f"m{m:02d}_*.xlsm"])   # 실습파일만(외부 데이터는 2교시 쪽)
+    # ★ 2교시(액세스) — 1급. 원고 02/practical-access · 실습파일 .accdb · 외부 데이터
+    ss = _sessions(_spec())
+    extra = []
+    for sv in ss[1:]:
+        its = load_session_items(m, int(sv.get("no") or 2))
+        fs = []
+        if its:
+            ext = []
+            vf = os.path.join(bdir, "verify_access.json")
+            if os.path.isfile(vf):
+                try:
+                    with open(vf, encoding="utf-8") as fh:
+                        ext = json.load(fh).get("external") or []
+                except (OSError, ValueError):
+                    ext = []
+            fs = _copy_files(od, bdir, ["*.accdb"] + [os.path.basename(x) for x in ext])
+        extra.append((sv, its, fs))
     qs = [j for j in items if int(j.get("no") or 0)]
     terms = EX._terms()
     for j in qs:
-        s = script_for(j, terms)
         atomic_write_text(os.path.join(od, "script", f"q{int(j['part'])}-{int(j['no']):02d}.json"),
-                          json.dumps(s, ensure_ascii=False, indent=1))
-    atomic_write_text(os.path.join(od, "items.json"), json.dumps(
-        [{"id": _stem(j), "part": j.get("part"), "no": j.get("no"), "points": j.get("points"),
-          "title": (j.get("answer") or {}).get("title") or ""} for j in qs], ensure_ascii=False, indent=1))
+                          json.dumps(script_for(j, terms), ensure_ascii=False, indent=1))
+    n2 = 0
+    for sv, its, _fs in extra:
+        for j in its:
+            if int(j.get("no") or 0):
+                j = dict(j, session=int(sv.get("no") or 2))
+                atomic_write_text(os.path.join(od, "script", f"s{int(sv.get('no') or 2)}-q{int(j['part'])}-{int(j['no']):02d}.json"),
+                                  json.dumps(script_for(j, terms), ensure_ascii=False, indent=1))
+                n2 += 1
+    table = [{"id": _stem(j), "session": 1, "part": j.get("part"), "no": j.get("no"), "points": j.get("points"),
+              "title": (j.get("answer") or {}).get("title") or ""} for j in qs]
+    for sv, its, _fs in extra:
+        table += [{"id": f"s{int(sv.get('no') or 2)}-{_stem(j)}", "session": int(sv.get("no") or 2), "part": j.get("part"),
+                   "no": j.get("no"), "points": j.get("points"), "title": (j.get("answer") or {}).get("title") or ""}
+                  for j in its if int(j.get("no") or 0)]
+    atomic_write_text(os.path.join(od, "items.json"), json.dumps(table, ensure_ascii=False, indent=1))
     ex = os.path.join(od, "exam.html")
     an = os.path.join(od, "answers.html")
-    atomic_write_text(ex, exam_html(m, items, files))
-    atomic_write_text(an, answers_html(m, items))
+    atomic_write_text(ex, exam_html(m, items, files, extra))
+    atomic_write_text(an, answers_html(m, items, extra))
     errs = []
     if pdf:
         for h in (ex, an):
             e = EX._print_pdf(h, h[:-5] + ".pdf")
             if e:
                 errs.append(f"{os.path.basename(h)}: {e}")
-    info = {"round": m, "questions": len(qs), "files": files, "pdf_errors": errs,
+    all_files = files + [f for _sv, _its, fs in extra for f in fs]
+    info = {"round": m, "questions": len(qs) + n2, "questions_by_session": [len(qs)] + [
+                sum(1 for j in its if int(j.get("no") or 0)) for _sv, its, _fs in extra],
+            "files": all_files, "pdf_errors": errs,
             "missing_xlsx": not files, "built_at": time.strftime("%Y-%m-%d %H:%M:%S")}
     atomic_write_text(os.path.join(od, "_build.json"), json.dumps(info, ensure_ascii=False, indent=1))
     return info

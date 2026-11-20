@@ -453,13 +453,33 @@ def build_round(m: int) -> Dict[str, Any]:
     finally:
         adb.Close()
 
+    # 폼·보고서 — 문제 파일엔 지시 전 상태, 정답 파일엔 정답 속성·이벤트 프로시저까지(액세스를 보이지 않게 띄움)
+    ui_info: Dict[str, Any] = {}
+    try:
+        from services.practical import build_access_ui as ui
+        ui_warns: List[str] = []
+        ui_info["problem"] = ui.add_ui(prob, parts, False, ui_warns)
+        ui_info["answer"] = ui.add_ui(ans, parts, True, ui_warns)
+        made_ui = set(ui_info["problem"]["forms"]) | set(ui_info["problem"]["reports"])
+        todo = [t for t in todo if not any(f"〈{n}〉" in t for n in made_ui)]
+        todo = [t for t in todo if "폼·보고서·이벤트 프로시저" not in t]
+        todo += [f"정답 파일: {w}" for w in ui_warns if "사람 작업" in w or "없음" in w]
+        warns += [w for w in ui_warns if "사람 작업" not in w and "없음" not in w]
+    except Exception as e:                                   # noqa: BLE001 — 폼·보고서 없이도 테이블·쿼리 파일은 쓸 수 있다
+        warns.append(f"폼·보고서 만들기 실패 — {type(e).__name__}: {str(e)[:200]}")
+
     n_ok = sum(1 for c in checks if c["status"] == "일치")
     info = {"round": m, "built_at": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "problem_db": os.path.basename(prob), "answer_db": os.path.basename(ans), "external": ext,
             "tables": made["tables"], "rows": made["rows"], "relationships": made["relationships"],
             "given_queries": made["queries"], "answer_queries": saved, "checks": checks,
+            "forms": (ui_info.get("problem") or {}).get("forms") or [],
+            "reports": (ui_info.get("problem") or {}).get("reports") or [],
+            "answer_props_applied": (ui_info.get("answer") or {}).get("applied") or 0,
             "human_todo": todo, "warnings": warns,
             "summary": f"테이블 {len(made['tables'])} · 레코드 {made['rows']} · 정답 쿼리 {len(saved)} · "
-                       f"검증 일치 {n_ok}/{len(checks)} · 사람 작업 {len(todo)} · 경고 {len(warns)}"}
+                       f"검증 일치 {n_ok}/{len(checks)} · 폼 {len((ui_info.get('problem') or {}).get('forms') or [])} · "
+                       f"보고서 {len((ui_info.get('problem') or {}).get('reports') or [])} · "
+                       f"정답 속성 {(ui_info.get('answer') or {}).get('applied') or 0} · 사람 작업 {len(todo)} · 경고 {len(warns)}"}
     atomic_write_text(os.path.join(od, "verify_access.json"), json.dumps(info, ensure_ascii=False, indent=1, default=str))
     return info
