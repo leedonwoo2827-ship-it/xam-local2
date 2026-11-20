@@ -250,6 +250,33 @@ def setup_practical_routes() -> APIRouter:
             raise HTTPException(status_code=409, detail=str(e)) from e
         return registry.view(job)
 
+    # ── 실기 문제 집필 — 2교시 액세스(컴활1급) ────────────────────────────────
+    @router.get("/author-access/overview")
+    async def author_access_overview(rounds: str = "1-10"):
+        from services.practical import author_access as aa
+        want = _parse_pages(rounds, list(range(1, 41)))
+        running = registry.running("practical-author-access")
+        return {"sources": aa.sources_ready(), "out_dir": aa.out_root(), "rows": aa.status(want),
+                "running": registry.view(running) if running else None}
+
+    @router.post("/author-access")
+    async def author_access_start(request: Request):
+        """2교시 액세스 집필 잡 — 문제1(DB 설계) → 문제2~4. rounds 「1-10」."""
+        from services.practical import author as pa
+        from services.practical import author_access as aa
+        b = await request.json() if await request.body() else {}
+        try:
+            want = _parse_pages(str(b.get("rounds") or "1-10"), list(range(1, 41)))
+            miss = sorted({pa.source_round(m) for m in want} - set(aa.sources_ready()))
+            if miss:
+                raise ValueError(f"액세스 확정본이 없는 바탕 회차가 있습니다: {miss} — OCR 검수에서 확정하세요.")
+            job = aa.start(want, overwrite=bool(b.get("overwrite")))
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        except RuntimeError as e:
+            raise HTTPException(status_code=409, detail=str(e)) from e
+        return registry.view(job)
+
     # ── 1부 빌드(실기) — 실습파일·그림·검증 ─────────────────────────────────
     @router.get("/build/overview")
     async def build_overview(rounds: str = "1-10"):

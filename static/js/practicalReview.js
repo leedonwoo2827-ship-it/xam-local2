@@ -255,6 +255,7 @@ async function openPage(src, n) {
   $("#oc-ocrmeta").textContent = `${src}.pdf p.${n}`;
   S.scanPage = n;
   S.scanW = (d.scan_size || [])[0] || 0;   // 원본 폭 — 화면 이미지는 줄인 것(2400px)
+  S.scanWs = { [n]: S.scanW };              // 쪽마다 원본 폭이 다르다(같은 책 안에서도 4103~5781px)
   $("#oc-scan").src = d.scan;
   syncPageNav();
   syncHead();
@@ -948,6 +949,15 @@ function showScanPage(n) {
   S.scanPage = Math.max(1, Number(n) || S.page);
   img.src = `/api/ocr/scan/${encodeURIComponent(S.src)}/${S.scanPage}?w=2400`;
   S.pendingBox = null; S.pendingPage = 0;
+  // ★ 다른 면의 원본 폭을 따로 받는다 — 지금 쪽 폭으로 환산하면 다음 면에 그린 그림이 어긋난다
+  //   (2026-11-19 실측: 쪽마다 폭이 달라 0.82~1.06 배 어긋나게 잘렸다)
+  S.scanWs = S.scanWs || {};
+  const pg = S.scanPage;
+  if (!S.scanWs[pg]) {
+    api(`/api/practical/page/${encodeURIComponent(S.src)}/${pg}`)
+      .then((d) => { S.scanWs[pg] = (d.scan_size || [])[0] || 0; })
+      .catch(() => { /* 못 받으면 드래그 때 막는다 */ });
+  }
   const sel = $("#oc-sel");
   if (sel) sel.style.display = "none";
   syncPageNav();
@@ -998,8 +1008,11 @@ function bindDrag() {
     drag = false;
     const r = img.getBoundingClientRect();
     // 화면 좌표 → **원본** 픽셀. 화면 이미지는 줄인 것이라 naturalWidth 가 아니라 원본 폭으로 나눈다
-    const scale = (S.scanW || img.naturalWidth) / r.width;
-    const x = parseFloat(sel.style.left), y = parseFloat(sel.style.top);
+    //   ★ 보이는 면(scanPage)의 원본 폭이어야 한다 — 카드 쪽(S.page) 폭이 아니다
+    const W = (S.scanWs || {})[S.scanPage] || (S.scanPage === S.page ? S.scanW : 0);
+    if (!W) { sel.style.display = "none"; toast("이 면의 스캔 크기를 아직 못 받았습니다 — 잠깐 뒤 다시 드래그하세요.", "err"); return; }
+    const scale = W / r.width;
+    const x = Math.max(0, parseFloat(sel.style.left)), y = Math.max(0, parseFloat(sel.style.top));
     const w = parseFloat(sel.style.width), h = parseFloat(sel.style.height);
     if (w < 8 || h < 8) { sel.style.display = "none"; return; }
     S.pendingBox = [x, y, w, h].map((v) => Math.round(v * scale));

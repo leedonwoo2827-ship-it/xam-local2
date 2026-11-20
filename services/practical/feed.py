@@ -22,6 +22,7 @@ import re
 from typing import Any, Dict, List
 
 TOK = re.compile(r"\{\{(f-\d+)\}\}")
+BOX = re.compile(r"\{\{([ck]-\d+)\}\}")     # 박스 c · 코드박스 k (1급 집필)
 
 # 기능 낱말 — 계산작업이 아닌 묶음은 함수가 없어서 이것으로 태그를 단다(먼저 걸린 것부터)
 FEATURES = [
@@ -29,7 +30,7 @@ FEATURES = [
     "텍스트 나누기", "선택하여 붙여넣기", "부분합", "피벗 테이블", "피벗 차트", "시나리오", "목표값 찾기",
     "데이터 표", "통합", "정렬", "중복된 항목 제거", "데이터 유효성 검사", "매크로", "차트", "테두리",
     "병합하고 가운데 맞춤", "행 높이", "열 너비", "윗주", "하이퍼링크", "페이지 설정", "인쇄 영역",
-    "데이터 입력",
+    "데이터 입력", "사용자 정의 함수", "배열 수식", "프로시저", "폼", "외부 데이터", "페이지 레이아웃",
 ]
 
 
@@ -49,10 +50,16 @@ def _fig_text(f: Dict[str, Any]) -> str:
     return f"({'차트' if f.get('kind') == 'chart' else '대화상자'}: {cap}{' — ' + f['desc'] if f.get('desc') else ''})"
 
 
-def _lines(lines: List[str], figs: Dict[str, dict]) -> List[str]:
+def _box_text(b: Dict[str, Any]) -> str:
+    t = str(b.get("text") or "").rstrip()
+    return ("(코드)\n" + t) if b.get("code", True) else t
+
+
+def _lines(lines: List[str], figs: Dict[str, dict], boxes: Dict[str, dict] = None) -> List[str]:
     out = []
     for s in lines or []:
         s = str(s)
+        s = BOX.sub(lambda m: _box_text((boxes or {})[m.group(1)]) if m.group(1) in (boxes or {}) else "", s)
         s = TOK.sub(lambda m: _fig_text(figs[m.group(1)]) if m.group(1) in figs else "", s).strip()
         if s:
             out.append(s)
@@ -73,9 +80,10 @@ def tags_of(it: Dict[str, Any]) -> List[str]:
 
 def explanation_of(it: Dict[str, Any]) -> str:
     figs = {f.get("id"): f for f in it.get("figures") or []}
+    boxes = {b.get("id"): b for b in it.get("boxes") or [] if b.get("id")}
     a = it.get("answer") or {}
-    parts = [f"[문제] {it.get('lead') or ''}"] + _lines(it.get("instructions") or [], figs)
-    parts += [f"[모범답안] {a.get('title') or ''}"] + _lines(a.get("steps") or [], figs)
+    parts = [f"[문제] {it.get('lead') or ''}"] + _lines(it.get("instructions") or [], figs, boxes)
+    parts += [f"[모범답안] {a.get('title') or ''}"] + _lines(a.get("steps") or [], figs, boxes)
     for f in a.get("formulas") or []:
         if isinstance(f, dict) and f.get("formula"):
             parts.append(f"수식 {f.get('cell') or ''}: {f['formula']}" + (f" (채우기 {f['fill']})" if f.get("fill") else ""))

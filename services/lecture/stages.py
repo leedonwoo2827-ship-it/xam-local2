@@ -162,7 +162,15 @@ def _svg_ok(svg: str) -> str:
     try:
         ET.fromstring(s)
     except ET.ParseError:
-        return ""
+        # ★ 실기(엑셀) 도식은 글자에 수식이 들어간다 — 「=IF(A1<5, …)」 · 「A & B」 의 맨 < · & 가 XML 을 깬다
+        #   (2026-11-19 실측: 1급 2부 문제2 q2-01-05 가 두 번 돌려도 같은 이유로 빈 장). 고쳐서 한 번 더 본다.
+        fixed = re.sub(r"&(?!#?\w+;)", "&amp;", s)
+        fixed = re.sub(r"<(?![A-Za-z/!?])", "&lt;", fixed)
+        try:
+            ET.fromstring(fixed)
+        except ET.ParseError:
+            return ""
+        return fixed
     return s
 
 

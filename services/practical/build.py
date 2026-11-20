@@ -746,6 +746,112 @@ def source_checks(wb, sheets: List[dict], parts: List[dict], m: int) -> List[dic
 
 
 # ── 회차 하나 ─────────────────────────────────────────────────────────────
+class _RetryFilter:
+    """엑셀이 바쁠 때 COM 호출을 거부하면(RPC_E_CALL_REJECTED) 0.25초 뒤 다시 보낸다 — 최대 60초.
+
+    ★ 2026-11-19 실측: 1급 원고 10회가 모두 「피호출자가 호출을 거부했습니다」 로 첫 표를 쓰다 실패했다.
+      거부는 「나중에 다시」 라는 뜻이라 기다렸다 보내면 된다(재시도 없이 바로 예외가 났다).
+    """
+    _public_methods_ = ["HandleInComingCall", "RetryRejectedCall", "MessagePending"]
+    _com_interfaces_ = ["{00000016-0000-0000-C000-000000000046}"]   # IID_IMessageFilter — 없으면 등록이 조용히 실패한다
+
+    def HandleInComingCall(self, dwCallType, htaskCaller, dwTickCount, lpInterfaceInfo):   # noqa: N802,N803
+        return 0                                            # SERVERCALL_ISHANDLED
+
+    def RetryRejectedCall(self, htaskCallee, dwTickCount, dwRejectType):                    # noqa: N802,N803
+        # 1 = REJECTED · 2 = RETRYLATER — 엑셀이 켜지는 동안(추가 기능 로드)은 1 로도 거부한다. 둘 다 기다린다.
+        if dwTickCount < 90000:
+            return 300
+        return -1
+
+    def MessagePending(self, htaskCallee, dwTickCount, dwPendingType):                     # noqa: N802,N803
+        return 2                                            # PENDINGMSG_WAITDEFPROCESS
+
+
+def _install_retry_filter() -> None:
+    import pythoncom
+    from win32com.server.util import wrap
+    global _FILTER_ERR
+    try:
+        pythoncom.CoRegisterMessageFilter(wrap(_RetryFilter(), pythoncom.IID_IMessageFilter))
+        _FILTER_ERR = ""
+    except Exception as e:                                  # noqa: BLE001 — 필터가 없어도 빌드는 돈다(예전처럼)
+        _FILTER_ERR = f"{type(e).__name__}: {e}"
+
+
+_FILTER_ERR = "not installed"
+
+# ── 호출마다 다시 보내기 ─────────────────────────────────────────────────────
+# ★ 이 PC 의 pywin32 에는 CoRegisterMessageFilter 가 없어 위 필터가 등록되지 않는다(2026-11-19 실측:
+#   셀 600개 쓰기 중 280개 거부 — Acrobat PDFMaker 추가 기능이 엑셀을 수시로 붙잡는다). 그래서 엑셀 객체를
+#   감싸 **거부된 호출만** 잠깐 기다렸다 다시 보낸다. 감싼 객체가 돌려주는 것도 다시 감싼다.
+_REJECTED = (-2147418111, -2147417846)      # RPC_E_CALL_REJECTED · RPC_E_SERVERCALL_RETRYLATER
+
+
+def _retry(fn):
+    import time as _t
+    import pywintypes
+    for k in range(600):                     # 최대 약 60초
+        try:
+            return fn()
+        except pywintypes.com_error as e:
+            if e.args and e.args[0] in _REJECTED:
+                _t.sleep(0.02 + min(k, 10) * 0.01)
+                continue
+            raise
+    return fn()
+
+
+def _unwrap(v):
+    return object.__getattribute__(v, "_o") if isinstance(v, _XL) else v
+
+
+def _wrap(v):
+    if isinstance(v, _XL) or v is None or isinstance(v, (str, int, float, bool, tuple, list, dict)):
+        return v
+    if hasattr(v, "_oleobj_"):
+        return _XL(v)
+    if callable(v):                          # 동적 디스패치의 메서드(ws.Range · wb.SaveAs …)
+        def call(*a, **k):
+            return _wrap(_retry(lambda: v(*[_unwrap(x) for x in a], **{kk: _unwrap(x) for kk, x in k.items()})))
+        return call
+    return v
+
+
+class _XL:
+    """엑셀 COM 객체 감싸개 — 속성 읽기·쓰기·호출을 거부되면 다시 보낸다."""
+    __slots__ = ("_o",)
+
+    def __init__(self, o):
+        object.__setattr__(self, "_o", o)
+
+    def __getattr__(self, name):
+        o = object.__getattribute__(self, "_o")
+        return _wrap(_retry(lambda: getattr(o, name)))
+
+    def __setattr__(self, name, value):
+        o = object.__getattribute__(self, "_o")
+        _retry(lambda: setattr(o, name, _unwrap(value)))
+
+    def __call__(self, *a, **k):
+        o = object.__getattribute__(self, "_o")
+        return _wrap(_retry(lambda: o(*[_unwrap(x) for x in a], **{kk: _unwrap(x) for kk, x in k.items()})))
+
+    def __iter__(self):
+        o = object.__getattribute__(self, "_o")
+        for x in _retry(lambda: list(o)):
+            yield _wrap(x)
+
+    def __eq__(self, other):
+        return object.__getattribute__(self, "_o") == _unwrap(other)
+
+    def __hash__(self):
+        return id(object.__getattribute__(self, "_o"))
+
+    def __bool__(self):
+        return True
+
+
 def build_round(m: int, *, log=lambda s: None) -> dict:
     import pythoncom
     import win32com.client as w
@@ -758,9 +864,37 @@ def build_round(m: int, *, log=lambda s: None) -> dict:
     report = {"round": m, "built_at": dt.datetime.now().isoformat(timespec="seconds"), "items": [], "errors": []}
     charts: List[str] = []
     pythoncom.CoInitialize()
-    xl = w.DispatchEx("Excel.Application")
+    _install_retry_filter()
+    raw = w.DispatchEx("Excel.Application")
+    # ★ 오피스가 「제품 인증 실패」 면 엑셀이 켜지자마자 인증 창을 붙잡고 모든 호출을 거부한다(2026-11-19
+    #   이 PC 실측 — 창 제목 「Excel (제품 인증 실패)」). 몇 시간 붙잡히지 않게 바로 알리고 멈춘다.
+    try:
+        import win32gui
+        cap = win32gui.GetWindowText(int(raw.Hwnd))
+    except Exception:                           # noqa: BLE001
+        cap = ""
+    if any(k in cap for k in ("인증 실패", "Activation Failed", "Unlicensed", "제품 정보 없음")):
+        try:
+            import win32process
+            import subprocess
+            _, pid = win32process.GetWindowThreadProcessId(int(raw.Hwnd))
+            subprocess.run(["taskkill", "/F", "/PID", str(pid)], capture_output=True)
+        except Exception:                       # noqa: BLE001
+            pass
+        raise RuntimeError(f"이 PC 의 엑셀이 「{cap}」 상태입니다 — 오피스 제품 인증(로그인·라이선스) 뒤 다시 빌드하세요.")
+    xl = _XL(raw)                                   # 거부된 호출은 다시 보낸다(아래 _XL)
     xl.Visible = False
     xl.DisplayAlerts = False
+    # ★ 켜자마자 칸을 쓰면 추가 기능(Acrobat PDFMaker 등)이 올라오는 동안 거부당한다 — 준비될 때까지(최대 30초)
+    import time as _t
+    for _ in range(60):
+        try:
+            if xl.Ready:
+                break
+        except Exception:                       # noqa: BLE001
+            pass
+        _t.sleep(0.5)
+    _t.sleep(3)
     try:
         names = [sh["name"] for sh in sheets]
         wb = new_workbook(xl, sheets, problem=True)

@@ -29,6 +29,17 @@ from services.export import ebookexam as EX
 from services.practical import author as pa
 
 TOK = re.compile(r"\{\{(f-\d+)\}\}")
+BOX = re.compile(r"\{\{([ck]-\d+)\}\}")     # 박스 c · 코드박스 k (1급 집필)
+
+
+def _box(j: dict, bid: str, used: set) -> str:
+    used.add(bid)
+    b = {x.get("id"): x for x in j.get("boxes") or []}.get(bid)
+    if not b:
+        return ""
+    cls = "code" if b.get("code", True) else "box"
+    return f'<pre class="{cls}">{_h(str(b.get("text") or "").rstrip())}</pre>'
+
 CIRC = re.compile(r"^[①-⑳❶-❿]")
 
 
@@ -86,6 +97,10 @@ def _lines_html(lines: List[str], j: dict, figs: Dict[str, dict], used: set) -> 
     out, under = [], False
     for raw in lines or []:
         s = str(raw).strip()
+        mb = BOX.fullmatch(s)
+        if mb:
+            out.append(_box(j, mb.group(1), used))
+            continue
         mt = TOK.fullmatch(s)
         if mt:
             out.append(_fig(j, mt.group(1), figs, used))
@@ -94,7 +109,7 @@ def _lines_html(lines: List[str], j: dict, figs: Dict[str, dict], used: set) -> 
             under = True
         elif s and not s.startswith(("▶", "※")):
             under = False
-        cls = "sub" if under and s.startswith(("▶", "※")) else ""
+        cls = "sub" if under and s.startswith("▶") else ""      # ※ 는 맨 앞(검수 화면과 같은 규칙)
         s2 = TOK.sub(lambda m_: _fig(j, m_.group(1), figs, used), _h(s))
         out.append(f'<p class="{cls}">{s2}</p>')
     return "".join(out)
@@ -113,7 +128,9 @@ table.t{border-collapse:collapse;font-size:9pt}table.t td,table.t th{border:1px 
 .figph{border:1px dashed #999;color:#666;padding:6px;margin:6px 0;font-size:9pt}
 .ans{margin:0 0 16px;break-inside:auto}.ans .t{font-weight:700;margin:6px 0 4px}
 .fx{font-family:Consolas,monospace;font-size:9.5pt;background:#f6f6f2;padding:4px 8px;margin:4px 0}
-.files{font-size:9pt;color:#444;margin:4px 0 12px}"""
+.files{font-size:9pt;color:#444;margin:4px 0 12px}
+pre.code{font:9.5pt/1.5 Consolas,'D2Coding',monospace;border:1px solid #bbb;background:#fff;padding:6px 10px;margin:6px 0;white-space:pre;break-inside:avoid}
+pre.box{font:inherit;border:1px solid #333;padding:6px 10px;margin:6px 0;white-space:pre-wrap;break-inside:avoid}"""
 
 
 def _doc(title: str, head_right: str, body: str) -> str:

@@ -1,0 +1,630 @@
+{
+  "_": [
+    "컴퓨터활용능력 1급 실기 (작업형) — 시험정보. 한 회차 = 1교시 엑셀(45분·100점) + 2교시 액세스(45분·100점).",
+    "묶음 구성·배점은 확정본 기출 1~4회(01/practical · 01/practical-access, 출판사 판 판독) 실측과 같다(2026-11-19).",
+    "★ 맨 위 subjects 는 1교시(엑셀) — 지금 앱(집필 · 1부 빌드 · 문제집 · 2부)이 읽는 자리. 2교시(액세스)는 sessions[1] 에 둔다.",
+    "★ 시험 시간·합격 기준은 시행처 공고 기준(일반 알려진 값: 과목당 45분 · 두 과목 모두 70점 이상) — 공고 대조 전이라 confirmed=false."
+  ],
+  "id": "com1-practical",
+  "pd_id": "com1p-27",
+  "label": "컴퓨터활용능력 1급 실기 (2027)",
+  "label_short": "컴활1급 실기",
+  "theme": "com2",
+  "format": "task",
+  "program": "excel",
+  "program_version": "Microsoft Office 2021 (Excel · Access)",
+  "time_minutes": 45,
+  "total_points": 100,
+  "pass_points": 70,
+  "revision": {
+    "spec_version": 1,
+    "confirmed": false,
+    "_confirmed": "묶음·배점은 확정본 실측. 시간 45분×2 · 합격 과목별 70점 · Windows 11/Office 2021 은 공지 정리 글로 확인 — 공식 출제기준 PDF 원문 대조 전이라 confirmed=false.",
+    "checked_at": "2026-11-19",
+    "checked_by": "Claude — 확정본 01/practical · 01/practical-access 실측",
+    "effective_from": "2027-01-01",
+    "effective_until": "2029-12-31",
+    "source_url": "https://license.korcham.net (2027~2029 출제기준 공지 2026-06-29) · https://passcal.kr/computer (정리)"
+  },
+  "changes": [
+    {
+      "date": "2026-06-29",
+      "what": "2027~2029 출제기준 공지(대한상공회의소 자격평가사업단) — 2027-01-01 시행. 실기 환경 Windows 10 → Windows 11, MS Office 2021 은 그대로.",
+      "apply": "실기 화면 캡처·메뉴 경로를 Windows 11 · Office 2021 기준으로. Office 2021 메뉴 이름은 지금과 같다."
+    },
+    {
+      "date": "2026-06-29",
+      "what": "실기 과목 · 항목 · 시험 시간(과목별 45분, 합계 90분) · 합격 기준(과목별 70점 이상, 두 과목 모두)은 2024~2026 과 같다고 정리됨.",
+      "apply": "묶음 구성·배점·시간은 지금 시험정보 그대로."
+    },
+    {
+      "date": "2026-06-29",
+      "what": "변경 방향: 「MS Office 환경 변화 반영 · 일부 항목 변경 · 일부 이미지 삭제」. 함수 추가·삭제 세부 목록은 공식 함수표로 아직 확인하지 못함.",
+      "apply": "함수는 2024~2026 범위(1급: XLOOKUP · XMATCH 추가, HYPERLINK 삭제 등)를 쓰고, 공식 함수표가 나오면 이 목록에 더한다."
+    },
+    {
+      "date": "2024-01-01",
+      "what": "(현행 2024~2026 개정) 액세스 문제4 처리 기능의 프로시저 문항 폐지 → 쿼리 5문항(각 7점). 엑셀 기타작업 VBA 프로시저는 유지.",
+      "apply": "2교시 문제4 는 쿼리 5문항. 1교시 기타작업-3 은 VBA 프로시저(각 5점 × 3). 기출 1~4회 실측과 같다."
+    }
+  ],
+  "_changes": "상시 시험에 바뀐 점이 생기면 채팅으로 받아 여기에 적는다 — {date, what, apply} 하나씩. 실기 집필이 이 목록을 읽어 반영한다.",
+  "round": {
+    "size": 13,
+    "label_format": "자사 모의고사 {n:02d}회",
+    "code_format": "m{n:02d}"
+  },
+  "subjects": [
+    {
+      "no": 1,
+      "key": "basic",
+      "name": "기본작업",
+      "count": 3,
+      "points": 15,
+      "items": [
+        {
+          "no": 1,
+          "points": 5,
+          "kind": "고급 필터"
+        },
+        {
+          "no": 2,
+          "points": 5,
+          "kind": "조건부 서식"
+        },
+        {
+          "no": 3,
+          "points": 5,
+          "kind": "페이지 레이아웃 · 시트 보호 · 통합 문서 보기 등"
+        }
+      ]
+    },
+    {
+      "no": 2,
+      "key": "calc",
+      "name": "계산작업",
+      "count": 5,
+      "points": 30,
+      "items": [
+        {
+          "no": 1,
+          "points": 6,
+          "kind": "수식(함수 조합 · 배열 수식)"
+        },
+        {
+          "no": 2,
+          "points": 6,
+          "kind": "수식(함수 조합 · 배열 수식)"
+        },
+        {
+          "no": 3,
+          "points": 6,
+          "kind": "수식(함수 조합 · 배열 수식)"
+        },
+        {
+          "no": 4,
+          "points": 6,
+          "kind": "수식(함수 조합 · 배열 수식)"
+        },
+        {
+          "no": 5,
+          "points": 6,
+          "kind": "사용자 정의 함수(VBA Function)"
+        }
+      ]
+    },
+    {
+      "no": 3,
+      "key": "analysis",
+      "name": "분석작업",
+      "count": 2,
+      "points": 20,
+      "items": [
+        {
+          "no": 1,
+          "points": 10,
+          "kind": "피벗 테이블(외부 데이터 가져오기 포함)"
+        },
+        {
+          "no": 2,
+          "points": 10,
+          "kind": "데이터 유효성 검사 · 통합 · 부분합 · 정렬 · 시나리오 · 데이터 표 · 목표값 찾기 등"
+        }
+      ]
+    },
+    {
+      "no": 4,
+      "key": "etc",
+      "name": "기타작업",
+      "count": 3,
+      "points": 35,
+      "items": [
+        {
+          "no": 1,
+          "points": 10,
+          "kind": "매크로(도형 · 단추 연결)"
+        },
+        {
+          "no": 2,
+          "points": 10,
+          "kind": "차트 수정"
+        },
+        {
+          "no": 3,
+          "points": 15,
+          "kind": "VBA 프로시저(폼 · 단추 · 초기화 · 메시지 상자, 각 5점)"
+        }
+      ]
+    }
+  ],
+  "sessions": [
+    {
+      "no": 1,
+      "label": "1교시",
+      "program": "excel",
+      "program_version": "Microsoft Office 2021 (Excel)",
+      "time_minutes": 45,
+      "total_points": 100,
+      "size": 13,
+      "file_ext": ".xlsm",
+      "subjects": [
+        {
+          "no": 1,
+          "key": "basic",
+          "name": "기본작업",
+          "count": 3,
+          "points": 15,
+          "items": [
+            {
+              "no": 1,
+              "points": 5,
+              "kind": "고급 필터"
+            },
+            {
+              "no": 2,
+              "points": 5,
+              "kind": "조건부 서식"
+            },
+            {
+              "no": 3,
+              "points": 5,
+              "kind": "페이지 레이아웃 · 시트 보호 · 통합 문서 보기 등"
+            }
+          ]
+        },
+        {
+          "no": 2,
+          "key": "calc",
+          "name": "계산작업",
+          "count": 5,
+          "points": 30,
+          "items": [
+            {
+              "no": 1,
+              "points": 6,
+              "kind": "수식(함수 조합 · 배열 수식)"
+            },
+            {
+              "no": 2,
+              "points": 6,
+              "kind": "수식(함수 조합 · 배열 수식)"
+            },
+            {
+              "no": 3,
+              "points": 6,
+              "kind": "수식(함수 조합 · 배열 수식)"
+            },
+            {
+              "no": 4,
+              "points": 6,
+              "kind": "수식(함수 조합 · 배열 수식)"
+            },
+            {
+              "no": 5,
+              "points": 6,
+              "kind": "사용자 정의 함수(VBA Function)"
+            }
+          ]
+        },
+        {
+          "no": 3,
+          "key": "analysis",
+          "name": "분석작업",
+          "count": 2,
+          "points": 20,
+          "items": [
+            {
+              "no": 1,
+              "points": 10,
+              "kind": "피벗 테이블(외부 데이터 가져오기 포함)"
+            },
+            {
+              "no": 2,
+              "points": 10,
+              "kind": "데이터 유효성 검사 · 통합 · 부분합 · 정렬 · 시나리오 · 데이터 표 · 목표값 찾기 등"
+            }
+          ]
+        },
+        {
+          "no": 4,
+          "key": "etc",
+          "name": "기타작업",
+          "count": 3,
+          "points": 35,
+          "items": [
+            {
+              "no": 1,
+              "points": 10,
+              "kind": "매크로(도형 · 단추 연결)"
+            },
+            {
+              "no": 2,
+              "points": 10,
+              "kind": "차트 수정"
+            },
+            {
+              "no": 3,
+              "points": 15,
+              "kind": "VBA 프로시저(폼 · 단추 · 초기화 · 메시지 상자, 각 5점)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "no": 2,
+      "label": "2교시",
+      "program": "access",
+      "program_version": "Microsoft Office 2021 (Access)",
+      "time_minutes": 45,
+      "total_points": 100,
+      "size": 13,
+      "file_ext": ".accdb",
+      "subjects": [
+        {
+          "no": 1,
+          "key": "db",
+          "name": "DB구축",
+          "count": 3,
+          "points": 25,
+          "items": [
+            {
+              "no": 1,
+              "points": 15,
+              "kind": "테이블 완성(필드 속성, 각 3점)"
+            },
+            {
+              "no": 2,
+              "points": 5,
+              "kind": "조회 속성 · 외부 데이터 가져오기/연결"
+            },
+            {
+              "no": 3,
+              "points": 5,
+              "kind": "관계 설정"
+            }
+          ]
+        },
+        {
+          "no": 2,
+          "key": "form",
+          "name": "입력 및 수정 기능 구현",
+          "count": 3,
+          "points": 20,
+          "items": [
+            {
+              "no": 1,
+              "points": 9,
+              "kind": "폼 완성(속성, 각 3점)"
+            },
+            {
+              "no": 2,
+              "points": 6,
+              "kind": "조건부 서식 · 컨트롤 원본 · 하위 폼"
+            },
+            {
+              "no": 3,
+              "points": 5,
+              "kind": "매크로 · 이벤트 프로시저"
+            }
+          ]
+        },
+        {
+          "no": 3,
+          "key": "report",
+          "name": "조회 및 출력 기능 구현",
+          "count": 2,
+          "points": 20,
+          "items": [
+            {
+              "no": 1,
+              "points": 15,
+              "kind": "보고서 완성(각 3점)"
+            },
+            {
+              "no": 2,
+              "points": 5,
+              "kind": "조회 · 출력 이벤트 프로시저"
+            }
+          ]
+        },
+        {
+          "no": 4,
+          "key": "query",
+          "name": "처리 기능 구현",
+          "count": 5,
+          "points": 35,
+          "items": [
+            {
+              "no": 1,
+              "points": 7,
+              "kind": "쿼리(업데이트 · 매개 변수 · 요약 · 크로스탭 · 테이블 만들기 · 추가 · 불일치 등)"
+            },
+            {
+              "no": 2,
+              "points": 7,
+              "kind": "쿼리(업데이트 · 매개 변수 · 요약 · 크로스탭 · 테이블 만들기 · 추가 · 불일치 등)"
+            },
+            {
+              "no": 3,
+              "points": 7,
+              "kind": "쿼리(업데이트 · 매개 변수 · 요약 · 크로스탭 · 테이블 만들기 · 추가 · 불일치 등)"
+            },
+            {
+              "no": 4,
+              "points": 7,
+              "kind": "쿼리(업데이트 · 매개 변수 · 요약 · 크로스탭 · 테이블 만들기 · 추가 · 불일치 등)"
+            },
+            {
+              "no": 5,
+              "points": 7,
+              "kind": "쿼리(업데이트 · 매개 변수 · 요약 · 크로스탭 · 테이블 만들기 · 추가 · 불일치 등)"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "author": {
+    "level": "1급",
+    "sources": 4,
+    "scope": [
+      "계산작업: 함수 중첩·조합, 배열 수식({=…} — Ctrl+Shift+Enter), 사용자 정의 함수(VBA Function — If/ElseIf/Select Case)",
+      "분석작업: 피벗 테이블(외부 데이터 가져오기 · 그룹 · 필드 설정), 데이터 유효성 검사, 통합, 부분합, 정렬, 시나리오, 데이터 표, 목표값 찾기",
+      "기타작업: 매크로(도형·단추에 연결), 차트 수정(종류·계열·축·레이블·추세선 등), VBA 프로시저(폼 표시·초기화 RowSource/AddItem, 입력 단추로 표 끝 행에 추가, 종료 단추 MsgBox·Unload)",
+      "시트 이름 규칙: '기본작업-1' · '기본작업-2' · '계산작업' · '분석작업-1' · '분석작업-2' · '기타작업-1' · '기타작업-2' · '기타작업-3'"
+    ],
+    "round_map": {
+      "1": [
+        1,
+        2,
+        3
+      ],
+      "2": [
+        4,
+        5,
+        6
+      ],
+      "3": [
+        7,
+        8
+      ],
+      "4": [
+        9,
+        10
+      ]
+    },
+    "_round_map": "기출 회차 → 새 회차(2026-11-19 지시). 바탕마다 첫 회차는 변형 강도 중(함수 조합 유지·표면 전부 새로), 둘째·셋째는 강(함수 조합까지 바꾸고 같은 바탕의 앞 회차와도 다르게)."
+  },
+  "speech_dict": {
+    "Ctrl+Enter": "컨트롤 엔터",
+    "Alt+Enter": "알트 엔터",
+    "Shift+Enter": "시프트 엔터",
+    "Shift+F2": "시프트 에프 투",
+    "Shift+Delete": "시프트 딜리트",
+    "Ctrl+;": "컨트롤 세미콜론",
+    "Ctrl+Shift+;": "컨트롤 시프트 세미콜론",
+    "Ctrl": "컨트롤",
+    "Shift": "시프트",
+    "Alt": "알트",
+    "Enter": "엔터",
+    "Tab": "탭",
+    "Esc": "이스케이프",
+    "Back Space": "백스페이스",
+    "Delete": "딜리트",
+    "PgUp": "페이지 업",
+    "PgDn": "페이지 다운",
+    "F2": "에프 투",
+    "F4": "에프 포",
+    "F9": "에프 나인",
+    "F11": "에프 일레븐",
+    "F12": "에프 트웰브",
+    "⊞": "윈도 키",
+    "#VALUE!": "밸류 오류",
+    "#DIV/0!": "디브 제로 오류",
+    "#NAME?": "네임 오류",
+    "#REF!": "레퍼런스 오류",
+    "#N/A": "엔 에이 오류",
+    "#NUM!": "넘 오류",
+    "#NULL!": "널 오류",
+    "#,##0": "샵 쉼표 샵 샵 영",
+    "SUMIFS": "썸 이프스",
+    "SUMIF": "썸 이프",
+    "SUMPRODUCT": "썸 프로덕트",
+    "SUM": "썸",
+    "AVERAGEIFS": "애버리지 이프스",
+    "AVERAGEIF": "애버리지 이프",
+    "AVERAGE": "애버리지",
+    "COUNTIFS": "카운트 이프스",
+    "COUNTIF": "카운트 이프",
+    "COUNTBLANK": "카운트 블랭크",
+    "COUNTA": "카운트 에이",
+    "COUNT": "카운트",
+    "IFERROR": "이프 에러",
+    "IFS": "이프스",
+    "IF": "이프",
+    "AND": "앤드",
+    "OR": "오어",
+    "NOT": "낫",
+    "VLOOKUP": "브이 룩업",
+    "HLOOKUP": "에이치 룩업",
+    "INDEX": "인덱스",
+    "MATCH": "매치",
+    "CHOOSE": "추즈",
+    "LEFT": "레프트",
+    "RIGHT": "라이트",
+    "MID": "미드",
+    "LEN": "렌",
+    "TRIM": "트림",
+    "UPPER": "어퍼",
+    "LOWER": "로워",
+    "PROPER": "프로퍼",
+    "SUBSTITUTE": "서브스티튜트",
+    "REPLACE": "리플레이스",
+    "FIND": "파인드",
+    "SEARCH": "서치",
+    "CONCAT": "콘캣",
+    "TEXT": "텍스트",
+    "VALUE": "밸류",
+    "ROUNDUP": "라운드 업",
+    "ROUNDDOWN": "라운드 다운",
+    "ROUND": "라운드",
+    "INT": "인트",
+    "TRUNC": "트렁크",
+    "MOD": "모드",
+    "ABS": "앱스",
+    "SQRT": "스퀘어 루트",
+    "POWER": "파워",
+    "PRODUCT": "프로덕트",
+    "RANK.EQ": "랭크 이퀄",
+    "RANK": "랭크",
+    "LARGE": "라지",
+    "SMALL": "스몰",
+    "MAX": "맥스",
+    "MIN": "민",
+    "MEDIAN": "미디언",
+    "MODE.SNGL": "모드 싱글",
+    "STDEV.S": "스탠더드 디비에이션 에스",
+    "VAR.S": "배리언스 에스",
+    "TODAY": "투데이",
+    "NOW": "나우",
+    "DATE": "데이트",
+    "YEAR": "이어",
+    "MONTH": "먼스",
+    "DAY": "데이",
+    "WEEKDAY": "위크데이",
+    "DAYS": "데이즈",
+    "EDATE": "이 데이트",
+    "EOMONTH": "이 오 먼스",
+    "WORKDAY": "워크데이",
+    "HOUR": "아워",
+    "MINUTE": "미닛",
+    "SECOND": "세컨드",
+    "TIME": "타임",
+    "DSUM": "디 썸",
+    "DAVERAGE": "디 애버리지",
+    "DCOUNTA": "디 카운트 에이",
+    "DCOUNT": "디 카운트",
+    "DMAX": "디 맥스",
+    "DMIN": "디 민",
+    "ISBLANK": "이즈 블랭크",
+    "ISERROR": "이즈 에러",
+    "PMT": "피 엠 티",
+    "FV": "에프 브이",
+    "PV": "피 브이",
+    "VBA": "브이 비 에이",
+    "VBE": "브이 비 이",
+    "Rem": "렘",
+    "Excel": "엑셀",
+    "Windows": "윈도",
+    "Microsoft": "마이크로소프트",
+    "Office": "오피스",
+    "Edge": "엣지",
+    "Bluetooth": "블루투스",
+    "CPU": "씨피유",
+    "RAM": "램",
+    "ROM": "롬",
+    "SSD": "에스에스디",
+    "HDD": "에이치디디",
+    "USB": "유에스비",
+    "HDMI": "에이치디엠아이",
+    "BIOS": "바이오스",
+    "UEFI": "유이에프아이",
+    "PnP": "플러그 앤 플레이",
+    "NTFS": "엔티에프에스",
+    "FAT32": "팻 삼십이",
+    "IPv4": "아이피 브이 포",
+    "IPv6": "아이피 브이 식스",
+    "IP": "아이피",
+    "DNS": "디엔에스",
+    "URL": "유알엘",
+    "HTTPS": "에이치티티피에스",
+    "HTTP": "에이치티티피",
+    "FTP": "에프티피",
+    "SMTP": "에스엠티피",
+    "POP3": "팝 쓰리",
+    "IMAP": "아이맵",
+    "MIME": "마임",
+    "TCP/IP": "티씨피 아이피",
+    "LAN": "랜",
+    "WAN": "왠",
+    "VPN": "브이피엔",
+    "DDoS": "디도스",
+    "Wi-Fi": "와이파이",
+    "RFID": "알에프아이디",
+    "NFC": "엔에프씨",
+    "IoT": "아이오티",
+    "ICT": "아이씨티",
+    "LPWAN": "엘피 완",
+    "AR": "에이알",
+    "VR": "브이알",
+    "MR": "엠알",
+    "XR": "엑스알",
+    "AI": "에이아이",
+    "LLM": "엘엘엠",
+    "GPT": "지피티",
+    "JPEG": "제이펙",
+    "GIF": "지아이에프",
+    "PNG": "피엔지",
+    "MPEG": "엠펙",
+    "MIPS": "밉스",
+    "FLOPS": "플롭스",
+    "KB": "킬로바이트",
+    "MB": "메가바이트",
+    "GB": "기가바이트",
+    "TB": "테라바이트",
+    "PB": "페타바이트",
+    "EB": "엑사바이트",
+    "Private Sub": "프라이빗 서브",
+    "Public Function": "퍼블릭 펑션",
+    "End Sub": "엔드 서브",
+    "End Function": "엔드 펑션",
+    "UserForm": "유저 폼",
+    "Initialize": "이니셜라이즈",
+    "RowSource": "로우 소스",
+    "ListIndex": "리스트 인덱스",
+    "MsgBox": "메시지 박스",
+    "Unload Me": "언로드 미",
+    "ElseIf": "엘스 이프",
+    "Select Case": "셀렉트 케이스",
+    "XMATCH": "엑스 매치",
+    "XLOOKUP": "엑스 룩업",
+    "FILTER": "필터",
+    "UNIQUE": "유니크",
+    "SORT": "소트",
+    "SWITCH": "스위치",
+    "TEXTJOIN": "텍스트 조인",
+    "FREQUENCY": "프리퀀시",
+    "PERCENTILE.INC": "퍼센타일 인클루시브",
+    "QUARTILE.INC": "쿼타일 인클루시브",
+    "NETWORKDAYS": "네트워크데이즈",
+    "DATEDIF": "데이트 디프",
+    "ISOWEEKNUM": "아이에스오 위크넘"
+  },
+  "exam_fee": {
+    "written": 20500,
+    "practical": 25000,
+    "online_fee": 1200,
+    "_": "2026 정리 글 기준 — 접수 전 공식 확인"
+  }
+}

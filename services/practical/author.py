@@ -47,8 +47,48 @@ def round_dir(m: int) -> str:
     return os.path.join(out_root(), f"m{m:02d}")
 
 
+def _spec() -> dict:
+    try:
+        from services.authoring import parts
+        return parts.active() or {}
+    except Exception:                                    # noqa: BLE001
+        return {}
+
+
+def part_names() -> Dict[int, str]:
+    """묶음 이름 — 시험정보의 subjects(1급은 1교시 엑셀). 없으면 2급 기본값."""
+    got = {int(x["no"]): str(x.get("name") or "") for x in _spec().get("subjects") or [] if x.get("no")}
+    return got or dict(PART_NAME)
+
+
+def n_source() -> int:
+    """바탕 기출 회차 수 — 시험정보 author.sources > 확정본 회차 수 > 5(2급)."""
+    a = (_spec().get("author") or {}).get("sources")
+    if a:
+        return int(a)
+    got = sources_ready()
+    return len(got) if got else N_SOURCE
+
+
+def _round_map() -> Dict[int, int]:
+    """시험정보 author.round_map — {"1": [1, 2, 3], …} 를 {새 회차: 기출 회차} 로."""
+    out: Dict[int, int] = {}
+    for k, v in ((_spec().get("author") or {}).get("round_map") or {}).items():
+        for m in v or []:
+            out[int(m)] = int(k)
+    return out
+
+
 def source_round(m: int) -> int:
-    return (int(m) - 1) % N_SOURCE + 1
+    """바탕 기출 회차. 시험정보에 round_map 이 있으면 그것(1급: 1→1·2·3, 2→4·5·6, 3→7·8, 4→9·10),
+    없으면 기출 회차를 차례로 돌려 쓴다(2급: (m-1)%5+1)."""
+    got = _round_map().get(int(m))
+    return got if got else (int(m) - 1) % n_source() + 1
+
+
+def is_strong(m: int) -> bool:
+    """변형 강도 강 — 같은 바탕을 먼저 쓴 회차가 있으면(둘째 바퀴부터)."""
+    return any(source_round(k) == source_round(m) for k in range(1, int(m)))
 
 
 def source_items(rnd: int, part: int) -> List[dict]:
@@ -132,6 +172,45 @@ SYSTEM = """당신은 컴퓨터활용능력 2급 실기(스프레드시트 실�
 묶음 머리(no=0: 묶음 전체에 걸친 그림·표만 있는 항목)가 바탕에 있으면 새 회차에도 no=0 으로 씁니다.
 출력은 지정한 JSON 스키마 하나뿐입니다."""
 
+# 1급(시험정보에 author 가 있는 과정) — 코드 문항(사용자 정의 함수 · VBA 프로시저)과 박스
+CODE_RULES = """
+
+[코드 — 사용자 정의 함수 · VBA 프로시저 · 박스]
+- 지문의 코드 틀(「Public Function fn…(인수) / End Function」)과 해설의 완성 코드는 boxes 에
+  {"id": "k-1", "code": true, "text": "…"} 로 적고, 놓일 자리에 {{k-1}} 한 줄을 둡니다(줄로 풀지 않습니다).
+  들여쓰기는 스페이스 3칸 단위로 text 안에 그대로 둡니다.
+- 테두리 상자에 들어갈 일반 글(조건 · 예시)은 {"id": "c-1", "code": false, "text": "…"} 로 {{c-1}}.
+- 코드는 **실제로 동작해야** 합니다 — 폼 이름 · 컨트롤 이름(txt · cmb · lst · cmd 접두) · 시트 이름 · 표 위치(셀 주소)가
+  지문과 sheets 자료와 맞아야 하고, 「입력」 단추는 표의 마지막 행 다음에 추가돼야 합니다.
+- 폼(UserForm)이 나오는 문항은 figures 에 kind "dialog" 로 폼 설계(컨트롤 종류 · 이름 · 캡션 · 순서 · 목록 원본)를 desc 에 적습니다.
+  메시지 상자 결과 그림도 kind "dialog"(제목 · 문구 · 단추).
+- 사용자 정의 함수 문항도 answer.results 에 결과 칸 값을 적습니다(다른 계산작업과 같이). 배열 수식은 {=…} 로 적습니다.
+- 매크로 문항은 answer.steps 에 기록 절차를, 연결할 도형 · 단추의 위치(셀 영역)와 텍스트를 지문대로 적습니다."""
+
+
+def _system() -> str:
+    """집필 지시 — 2급은 그대로, 시험정보에 author(출제 범위)가 있으면 그 과정·급수로 바꾼다."""
+    sp = _spec()
+    au = sp.get("author") or {}
+    if not au:
+        return SYSTEM
+    label = sp.get("label") or "컴퓨터활용능력 실기"
+    out = SYSTEM.replace("컴퓨터활용능력 2급 실기(스프레드시트 실무, MS Office 2021 엑셀)",
+                         f"{label} 1교시(스프레드시트 실무, MS Office 2021 엑셀)")
+    scope = "\n".join(f"- {x}" for x in au.get("scope") or [])
+    out = out.replace(
+        "- 시트 이름 규칙: '기본작업-1', '기본작업-2', '계산작업', '분석작업-1', '매크로작업', '차트작업' 처럼 시험 형식 그대로\n", "")
+    out = out.replace(
+        "- 컴활 2급 출제 범위 안의 함수·기능만 씁니다.",
+        f"- 컴활 {au.get('level') or ''} 출제 범위 안의 함수·기능만 씁니다. 바탕의 시트 이름 규칙을 따릅니다.\n{scope}\n-")
+    # ★ 난도는 우리가 정하지 않는다 — 실제 시험(상시 시험) 수준을 따른다(2026-11-19 지시)
+    return out + CODE_RULES + """
+
+[난도]
+- 난도는 **실제 시험(상시 시험) 수준**에 맞춥니다. 바탕 기출이 실제 시험을 옮긴 것이므로 그 수준이 기준입니다.
+- 회차마다 일부러 쉽게 하거나 어렵게 하지 않습니다. 「변형 강도」는 바꾸는 범위일 뿐 난도가 아닙니다 —
+  함수 조합을 바꿀 때도 실제 시험에 나오는 수준의 조합으로 바꿉니다."""
+
 FIG = {
     "type": "object",
     "properties": {
@@ -181,6 +260,9 @@ ITEM = {
             "required": ["title", "steps"],
         },
         "functions": {"type": "array", "items": {"type": "string"}},
+        "boxes": {"type": "array", "items": {"type": "object", "properties": {
+            "id": {"type": "string"}, "code": {"type": "boolean"}, "text": {"type": "string"}},
+            "required": ["id", "text"]}},
         "given_chart": {"type": "object"},
         "changed": {"type": "string"},
     },
@@ -201,18 +283,40 @@ SCHEMA = {
 }
 
 
+def _prev_same_base(m: int, part: int) -> List[str]:
+    """같은 바탕을 먼저 쓴 회차들의 업무 영역 · 함수 — 뒤 회차가 그것과도 달라야 한다(1급: 기출 4회로 10회)."""
+    out = []
+    for k in range(1, m):
+        if source_round(k) != source_round(m):
+            continue
+        f = os.path.join(round_dir(k), f"part{part}.json")
+        if not os.path.isfile(f):
+            continue
+        try:
+            with open(f, encoding="utf-8") as fh:
+                d = json.load(fh)
+        except (OSError, ValueError):
+            continue
+        fn = sorted({x for it in d.get("items") or [] for x in it.get("functions") or []})
+        out.append(f"{k:02d}회 — 업무 영역 「{(d.get('scenario') or '')[:40]}」" + (f" · 함수 {', '.join(fn)}" if fn else ""))
+    return out
+
+
 def _prompt(m: int, part: int, src: List[dict], used: List[str]) -> str:
     s = source_round(m)
-    strong = m > N_SOURCE
+    strong = is_strong(m)
+    prev = _prev_same_base(m, part)
     blocks = []
     for d in src:
         tag = f"{d['part']}-{d['no']}" if d.get("no") else f"{d['part']}-머리"
         blocks.append(f"### 바탕 {s:02d}회 문제{tag}\n\n{d.get('_md') or ''}".strip())
     return (
-        f"새 회차: {m:02d}회 · 문제{part} {PART_NAME[part]}\n"
+        f"새 회차: {m:02d}회 · 문제{part} {part_names().get(part, '')}\n"
         f"바탕: 확정본 {s:02d}회 문제{part} (아래 {len(src)}개 항목)\n"
         f"변형 강도: {'강 — 함수 조합·조건·자료 구조까지 바꿉니다' if strong else '중 — 함수 조합은 같게, 나머지 표면은 전부 새로'}\n"
         + (f"다른 회차·묶음에서 이미 쓴 업무 영역(겹치지 않게): {', '.join(used)}\n" if used else "")
+        + ("같은 바탕을 먼저 쓴 회차(이것들과도 업무 영역 · 함수 조합 · 코드 구조가 달라야 합니다):\n"
+           + "\n".join(f"  - {x}" for x in prev) + "\n" if prev else "")
         + f"\n바탕 그림 파일은 현재 폴더의 images/ 아래에 있습니다(필요할 때만 Read).\n\n"
         + "\n\n".join(blocks)
         + f"\n\n바탕과 같은 개수({len(src)}개)·같은 번호·같은 배점으로 새 항목을 쓰십시오."
@@ -221,6 +325,16 @@ def _prompt(m: int, part: int, src: List[dict], used: List[str]) -> str:
 
 # ── 쓰기 ──────────────────────────────────────────────────────────────────
 TOK = re.compile(r"\{\{(f-\d+)\}\}")
+BOX = re.compile(r"\{\{([ck]-\d+)\}\}")            # 박스 c · 코드박스 k (1급)
+
+
+def _box_md(b: dict) -> List[str]:
+    text = str(b.get("text") or "").rstrip()
+    if not b.get("code", True):
+        lang = ""
+    else:   # 액세스 쿼리는 SQL, 나머지(사용자 정의 함수 · 이벤트 프로시저)는 VBA
+        lang = "sql" if re.match(r"\s*(SELECT|UPDATE|INSERT|DELETE|TRANSFORM|PARAMETERS)\b", text, re.I) else "vb"
+    return ["", "```" + lang, text, "```", ""]
 
 
 def _md_table(cols: List[str], rows: List[list]) -> List[str]:
@@ -246,10 +360,17 @@ def _fig_md(f: dict, img: str = "") -> List[str]:
             *([f"> {body}"] if body else []), ""]
 
 
-def _lines(lines: List[str], figs: Dict[str, dict], used: set, imgs: Optional[Dict[str, str]] = None) -> List[str]:
+def _lines(lines: List[str], figs: Dict[str, dict], used: set, imgs: Optional[Dict[str, str]] = None,
+           boxes: Optional[Dict[str, dict]] = None) -> List[str]:
     out, under = [], False
     for raw in lines or []:
         s = str(raw).strip()
+        mb = BOX.fullmatch(s)
+        if mb:
+            used.add(mb.group(1))
+            b = (boxes or {}).get(mb.group(1))
+            out += _box_md(b) if b else [f"({s} — 없는 박스)", ""]
+            continue
         m = TOK.fullmatch(s)
         if m:
             used.add(m.group(1))
@@ -260,12 +381,13 @@ def _lines(lines: List[str], figs: Dict[str, dict], used: set, imgs: Optional[Di
             under = True
         elif s and not s.startswith(("▶", "※")):
             under = False
-        out.append(("&emsp;" if under and s.startswith(("▶", "※")) else "") + s + "  ")
+        out.append(("&emsp;" if under and s.startswith("▶") else "") + s + "  ")   # ※ 는 맨 앞
     return out
 
 
 def item_md(m: int, part: int, it: dict) -> str:
     figs = {f.get("id"): f for f in it.get("figures") or []}
+    boxes = {b.get("id"): b for b in it.get("boxes") or [] if b.get("id")}
     used: set = set()
     stem = f"{m:02d}-{part}-{int(it.get('no') or 0):02d}"
     imgs = {fid: f"images/{stem}-{fid}.png" for fid in figs
@@ -273,12 +395,15 @@ def item_md(m: int, part: int, it: dict) -> str:
     head = (f"# {m:02d}회 문제{part} (묶음 머리)" if not it.get("no")
             else f"# {m:02d}회 문제{part}-{it['no']}" + (f" ({it['points']}점)" if it.get("points") else ""))
     out = [head, "", f"**{it.get('lead') or ''}**", ""]
-    out += _lines(it.get("instructions") or [], figs, used, imgs) + [""]
+    out += _lines(it.get("instructions") or [], figs, used, imgs, boxes) + [""]
     a = it.get("answer") or {}
-    a_lines = _lines(a.get("steps") or [], figs, used, imgs)
+    a_lines = _lines(a.get("steps") or [], figs, used, imgs, boxes)
     for fid, f in figs.items():                 # 자리를 안 정한 그림은 지문 끝에
         if fid not in used:
             out += _fig_md(f, imgs.get(fid, ""))
+    for bid, b in boxes.items():                # 자리를 안 정한 박스도
+        if bid not in used:
+            out += _box_md(b)
     out += ["## 정답 & 해설", ""]
     if a.get("title"):
         out += [f"**{a['title']}**", ""]
@@ -327,7 +452,7 @@ def write_one(m: int, part: int, *, model: str = "", effort: Optional[str] = Non
         raise FileNotFoundError(f"확정본이 없습니다: {source_round(m):02d}회 문제{part}")
     author = ClaudeAuthor(model=model, effort=effort, cwd=src_dir(), on_activity=on_activity,
                           max_turns=12, max_buffer_size=32 * 1024 * 1024)
-    got = author.structured(system=SYSTEM, prompt=_prompt(m, part, src, used_scenarios()), schema=SCHEMA)
+    got = author.structured(system=_system(), prompt=_prompt(m, part, src, used_scenarios()), schema=SCHEMA)
     want = sorted(int(d.get("no") or 0) for d in src)
     have = sorted(int(it.get("no") or 0) for it in got.get("items") or [])
     if want != have:
@@ -338,7 +463,7 @@ def write_one(m: int, part: int, *, model: str = "", effort: Optional[str] = Non
 
 # ── 문항 교정 — 02/practical 문항 하나를 사람이 고친다 ─────────────────────
 STEM_RE = re.compile(r"(\d{2})-(\d)-(\d{2})")
-EDITABLE = ("points", "sheet", "lead", "instructions", "figures", "answer", "functions", "given_chart")
+EDITABLE = ("points", "sheet", "lead", "instructions", "figures", "answer", "functions", "given_chart", "boxes")
 
 
 def list_items(rounds: Optional[List[int]] = None) -> List[dict]:
@@ -426,11 +551,11 @@ def status(rounds: List[int]) -> List[dict]:
     rows = []
     for m in rounds:
         d = round_dir(m)
-        parts = {p: part_done(m, p) for p in PART_NAME}
+        parts = {p: part_done(m, p) for p in part_names()}
         stems = sorted(os.path.basename(f)[:-3] for f in glob.glob(os.path.join(d, f"{m:02d}-*.md")))
         n = len(stems)
         cost = 0.0
-        for p in PART_NAME:
+        for p in part_names():
             f = os.path.join(d, f"part{p}.json")
             if os.path.isfile(f):
                 try:
@@ -446,7 +571,7 @@ def status(rounds: List[int]) -> List[dict]:
 def start(rounds: List[int], *, overwrite: bool = False, model: str = "",
           effort: Optional[str] = None) -> dict:
     from services.jobs import registry
-    keys = [(m, p) for m in rounds for p in PART_NAME if overwrite or not part_done(m, p)]
+    keys = [(m, p) for m in rounds for p in part_names() if overwrite or not part_done(m, p)]
     if not keys:
         raise ValueError("쓸 묶음이 없습니다 — 이미 다 썼습니다(다시 쓰기를 켜면 덮어씁니다).")
     if not _LOCK.acquire(blocking=False):
@@ -474,8 +599,8 @@ def _run(job: dict, keys, *, model: str, effort: Optional[str]) -> None:
             break
         key = f"m{m:02d}-{p}"
         registry.item(job, key, status="running")
-        job["current"] = f"{m:02d}회 문제{p} {PART_NAME[p]}"
-        registry.log(job, f"[집필] {m:02d}회 문제{p} {PART_NAME[p]} — 바탕 {source_round(m):02d}회", force=True)
+        job["current"] = f"{m:02d}회 문제{p} {part_names().get(p, '')}"
+        registry.log(job, f"[집필] {m:02d}회 문제{p} {part_names().get(p, '')} — 바탕 {source_round(m):02d}회", force=True)
         try:
             r = write_one(m, p, model=model, effort=effort,
                           on_activity=lambda s, _k=key: registry.log(job, f"  {_k} {s}"))
