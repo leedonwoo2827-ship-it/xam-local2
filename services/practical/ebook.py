@@ -327,6 +327,14 @@ def build_round(m: int, pdf: bool = True) -> dict:
         shutil.copyfile(f, os.path.join(od, "assets", os.path.basename(f)))
     bdir = os.path.join(paths.book_dir(), "06", "practical", f"m{m:02d}")
     files = _copy_files(od, bdir, [f"m{m:02d}_*.xlsx", f"m{m:02d}_*.xlsm"])   # 실습파일만(외부 데이터는 2교시 쪽)
+    # 1교시 분석작업의 외부 데이터 원본(〈렌터카.accdb〉 …) — build_extsrc 의 장부
+    ef = os.path.join(bdir, "external_excel.json")
+    if os.path.isfile(ef):
+        try:
+            with open(ef, encoding="utf-8") as fh:
+                files += _copy_files(od, bdir, [x["file"] for x in json.load(fh).get("files") or [] if x.get("file")])
+        except (OSError, ValueError):
+            pass
     # ★ 2교시(액세스) — 1급. 원고 02/practical-access · 실습파일 .accdb · 외부 데이터
     ss = _sessions(_spec())
     extra = []
@@ -342,7 +350,7 @@ def build_round(m: int, pdf: bool = True) -> dict:
                         ext = json.load(fh).get("external") or []
                 except (OSError, ValueError):
                     ext = []
-            fs = _copy_files(od, bdir, ["*.accdb"] + [os.path.basename(x) for x in ext])
+            fs = _copy_files(od, bdir, [f"m{m:02d}_*.accdb"] + [os.path.basename(x) for x in ext])
         extra.append((sv, its, fs))
     qs = [j for j in items if int(j.get("no") or 0)]
     terms = EX._terms()
